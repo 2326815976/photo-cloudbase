@@ -251,26 +251,28 @@ export default function AlbumDetailPage() {
         </div>
       </div>
 
-      {/* 照片网格 - 可滚动 */}
-      <div className="flex-1 overflow-y-auto px-6 pb-32 [&::-webkit-scrollbar]:hidden">
-        <div className="grid grid-cols-2 gap-4">
+      {/* 照片瀑布流 - 可滚动 */}
+      <div className="flex-1 overflow-y-auto px-3 pb-32">
+        <div className="columns-2 gap-3">
           {filteredPhotos.map((photo, index) => (
             <motion.div
               key={photo.id}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
+              className="break-inside-avoid mb-3"
             >
-              <Card className="overflow-hidden p-0">
-                {/* 照片 */}
+              {/* 瀑布流卡片 */}
+              <div className="bg-white rounded-xl shadow-sm border border-[#5D4037]/10 overflow-hidden">
+                {/* 图片区域 */}
                 <div
-                  className="relative aspect-[3/4] bg-[#5D4037]/5 cursor-pointer"
+                  className="relative cursor-pointer"
                   onClick={() => setSelectedPhoto(photo.id)}
                 >
                   <img
                     src={photo.url}
                     alt={`照片 ${photo.id}`}
-                    className="w-full h-full object-cover"
+                    className="w-full h-auto object-cover"
                   />
 
                   {/* 选择框 */}
@@ -291,7 +293,7 @@ export default function AlbumDetailPage() {
                 </div>
 
                 {/* 操作栏 */}
-                <div className="p-3 flex items-center justify-center bg-white">
+                <div className="p-3 flex items-center justify-center">
                   <motion.button
                     whileTap={{ scale: 0.9 }}
                     onClick={() => photo.isPublic ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
@@ -307,7 +309,7 @@ export default function AlbumDetailPage() {
                     <span>{photo.isPublic ? '已定格' : '定格'}</span>
                   </motion.button>
                 </div>
-              </Card>
+              </div>
             </motion.div>
           ))}
         </div>
