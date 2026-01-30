@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Heart, Eye } from 'lucide-react';
 import Card from '@/components/ui/Card';
 
-// 模拟数据：公开作品
+// 模拟数据：公开照片
 const mockGalleryPhotos = [
   {
     id: 1,
@@ -91,7 +91,7 @@ export default function GalleryPage() {
         className="flex-none px-4 pt-8 pb-4 text-center"
       >
         <h1 className="text-2xl font-bold text-foreground mb-2">
-          作品墙
+          照片墙
         </h1>
         <p className="text-sm text-foreground/60">
           分享美好瞬间 ✨
@@ -115,7 +115,7 @@ export default function GalleryPage() {
                 <div className="relative bg-accent/10">
                   <img
                     src={photo.url}
-                    alt={`作品 ${photo.id}`}
+                    alt={`照片 ${photo.id}`}
                     className="w-full h-auto object-cover"
                   />
                 </div>
@@ -156,7 +156,7 @@ export default function GalleryPage() {
           transition={{ delay: 0.5 }}
           className="text-center mt-8 text-foreground/50 text-sm"
         >
-          已加载全部作品 🎉
+          已加载全部照片 🎉
         </motion.div>
       </div>
     </div>

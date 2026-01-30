@@ -75,6 +75,7 @@ export default function AlbumDetailPage() {
   const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
   const [photos, setPhotos] = useState(mockAlbum.photos);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<number>>(new Set());
+  const [confirmPhotoId, setConfirmPhotoId] = useState<number | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -205,7 +206,7 @@ export default function AlbumDetailPage() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={toggleSelectAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
           >
             {selectedPhotos.size === filteredPhotos.length ? (
               <>
@@ -228,7 +229,7 @@ export default function AlbumDetailPage() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleBatchDelete}
-                className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all"
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>删除</span>
@@ -240,7 +241,7 @@ export default function AlbumDetailPage() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleBatchDownload}
-                className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
               >
                 <Download className="w-4 h-4" />
                 <span>下载 ({selectedPhotos.size})</span>
@@ -293,7 +294,7 @@ export default function AlbumDetailPage() {
                 <div className="p-3 flex items-center justify-center bg-white">
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => togglePublic(photo.id)}
+                    onClick={() => photo.isPublic ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
                     className={`
                       flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all
                       ${photo.isPublic
@@ -338,6 +339,60 @@ export default function AlbumDetailPage() {
               className="max-w-full max-h-full object-contain"
               onClick={(e) => e.stopPropagation()}
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 定格确认弹窗 */}
+      <AnimatePresence>
+        {confirmPhotoId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setConfirmPhotoId(null)}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Sparkles className="w-8 h-8 text-[#FFC857]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">确认定格照片</h3>
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed">
+                  定格后，此照片将在【照片墙】中公开展示，所有访客都可以浏览和点赞，并且会被永久保留（不会7天后消失）。
+                  <br />
+                  <br />
+                  请确保您已获得照片中所有人物的肖像权授权。
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setConfirmPhotoId(null)}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+                >
+                  取消
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    togglePublic(confirmPhotoId);
+                    setConfirmPhotoId(null);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+                >
+                  确认定格
+                </motion.button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
