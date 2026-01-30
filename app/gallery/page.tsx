@@ -123,7 +123,7 @@ export default function GalleryPage() {
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>作品墙</h1>
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
           <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
             <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📸 贩卖人间路过的温柔 📸</p>
           </div>
@@ -131,20 +131,20 @@ export default function GalleryPage() {
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-3 pt-4 pb-20">
+      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20">
         {/* 双列瀑布流布局 */}
-        <div className="columns-2 gap-3">
+        <div className="columns-2 gap-2">
           {photos.map((photo, index) => (
             <motion.div
               key={photo.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="break-inside-avoid mb-3"
+              className="break-inside-avoid mb-2"
             >
               {/* 小红书风格卡片 */}
-              <div className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_8px_20px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden transition-shadow duration-300">
-                {/* 图片区域 */}
+              <div className="bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-shadow duration-300">
+                {/* 图片区域 - 无padding，图片撑满 */}
                 <div
                   className="relative cursor-pointer"
                   onClick={() => setPreviewPhoto(photo)}
@@ -156,42 +156,42 @@ export default function GalleryPage() {
                   />
                 </div>
 
-                {/* 信息区域 */}
-                <div className="p-3">
+                {/* 信息区域 - 紧凑布局 */}
+                <div className="p-2">
                   {/* 标题 */}
-                  <h3 className="text-sm font-bold text-[#5D4037] line-clamp-2 mb-2">
+                  <h3 className="text-[13px] font-bold text-[#5D4037] leading-snug line-clamp-2">
                     {photo.title}
                   </h3>
 
                   {/* 用户与互动 */}
-                  <div className="flex justify-between items-center">
+                  <div className="flex items-center justify-between mt-1.5">
                     {/* 左侧：用户信息 */}
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center">
                       <img
                         src={photo.user.avatar}
                         alt={photo.user.name}
-                        className="w-5 h-5 rounded-full bg-gray-200"
+                        className="w-4 h-4 rounded-full bg-gray-200"
                       />
-                      <span className="text-xs text-[#5D4037]/60">{photo.user.name}</span>
+                      <span className="text-[10px] text-[#8D6E63] ml-1">{photo.user.name}</span>
                     </div>
 
                     {/* 右侧：点赞 */}
                     <motion.button
                       whileTap={{ scale: 0.85 }}
                       onClick={() => handleLike(photo.id)}
-                      className="flex items-center gap-1"
+                      className="flex items-center gap-0.5"
                     >
                       <motion.div
                         animate={photo.isLiked ? { scale: [1, 1.4, 1] } : {}}
                         transition={{ duration: 0.4, ease: "easeOut" }}
                       >
                         <Heart
-                          className={`w-4 h-4 transition-all duration-300 ${
-                            photo.isLiked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#5D4037]/40'
+                          className={`w-3 h-3 transition-all duration-300 ${
+                            photo.isLiked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#8D6E63]/60'
                           }`}
                         />
                       </motion.div>
-                      <span className="text-xs text-[#5D4037]/60">{photo.likeCount}</span>
+                      <span className="text-[10px] text-[#8D6E63]">{photo.likeCount}</span>
                     </motion.button>
                   </div>
                 </div>

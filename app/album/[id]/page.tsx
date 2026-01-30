@@ -267,18 +267,18 @@ export default function AlbumDetailPage() {
       </div>
 
       {/* 照片瀑布流 - 可滚动 */}
-      <div className="flex-1 overflow-y-auto px-3 pb-32">
-        <div className="columns-2 gap-3">
+      <div className="flex-1 overflow-y-auto px-2 pb-32">
+        <div className="columns-2 gap-2">
           {filteredPhotos.map((photo, index) => (
             <motion.div
               key={photo.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="break-inside-avoid mb-3"
+              className="break-inside-avoid mb-2"
             >
               {/* 瀑布流卡片 */}
-              <div className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden transition-shadow duration-300">
+              <div className="bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-shadow duration-300">
                 {/* 图片区域 */}
                 <div
                   className="relative cursor-pointer"
@@ -308,7 +308,7 @@ export default function AlbumDetailPage() {
                 </div>
 
                 {/* 操作栏 */}
-                <div className="p-3 flex items-center justify-center">
+                <div className="p-2 flex items-center justify-center">
                   <motion.button
                     whileTap={{ scale: 0.9 }}
                     onClick={() => photo.isPublic ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
@@ -383,7 +383,7 @@ export default function AlbumDetailPage() {
                 </div>
                 <h3 className="text-xl font-bold text-[#5D4037] mb-3">✨ 施展定格魔法？</h3>
                 <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
-                  魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【作品墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">[永恒]</span> 的魔法加持，打破 7 天消失的魔咒，永远在这里闪闪发光啦~ ✨
+                  魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【照片墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">[永恒]</span> 的魔法加持，打破 7 天消失的魔咒，永远在这里闪闪发光啦~ ✨
                 </p>
                 <p className="text-xs text-[#5D4037]/50 leading-relaxed">
                   💡 Tips：如果改变主意，可以随时再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
