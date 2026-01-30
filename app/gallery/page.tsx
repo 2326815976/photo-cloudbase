@@ -83,22 +83,23 @@ export default function GalleryPage() {
   };
 
   return (
-    <div className="min-h-screen px-4 py-8">
-      <div className="max-w-4xl mx-auto">
-        {/* 标题 */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8"
-        >
-          <h1 className="text-2xl font-bold text-foreground mb-2">
-            作品墙
-          </h1>
-          <p className="text-sm text-foreground/60">
-            分享美好瞬间 ✨
-          </p>
-        </motion.div>
+    <div className="flex flex-col h-full w-full">
+      {/* 标题区域 */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex-none px-4 pt-8 pb-4 text-center"
+      >
+        <h1 className="text-2xl font-bold text-foreground mb-2">
+          作品墙
+        </h1>
+        <p className="text-sm text-foreground/60">
+          分享美好瞬间 ✨
+        </p>
+      </motion.div>
 
+      {/* 滚动区域 */}
+      <div className="flex-1 overflow-y-auto px-4 pb-32 [&::-webkit-scrollbar]:hidden">
         {/* 双列瀑布流布局 */}
         <div className="columns-2 gap-4 space-y-4">
           {photos.map((photo, index) => (

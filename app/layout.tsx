@@ -23,11 +23,13 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body className="antialiased bg-gray-100" style={{ fontFamily: "'Nunito', sans-serif" }}>
-        <main className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] shadow-2xl relative overflow-x-hidden pb-32">
-          {children}
-        </main>
-        <BottomNav />
+      <body className="antialiased" style={{ fontFamily: "'Nunito', sans-serif" }}>
+        <div className="fixed inset-0 w-full h-[100dvh] bg-gray-100 flex justify-center items-center overflow-hidden">
+          <main className="w-full max-w-[430px] h-full bg-[#FFFBF0] relative flex flex-col shadow-2xl overflow-hidden">
+            {children}
+            <BottomNav />
+          </main>
+        </div>
       </body>
     </html>
   );

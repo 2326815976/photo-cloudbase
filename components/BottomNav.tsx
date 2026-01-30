@@ -16,7 +16,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[400px] bg-[#FFFBF0]/90 backdrop-blur-md rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-30 border-2 border-[#5D4037]/10">
+    <nav className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[400px] bg-[#FFFBF0]/90 backdrop-blur-md rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 border-2 border-[#5D4037]/10 pointer-events-none">
       <div className="px-4 py-3">
         <div className="flex justify-around items-center">
           {navItems.map((item) => {
@@ -24,7 +24,7 @@ export default function BottomNav() {
             const Icon = item.icon;
 
             return (
-              <Link key={item.href} href={item.href} className="flex-1">
+              <Link key={item.href} href={item.href} className="flex-1 pointer-events-auto">
                 <motion.div
                   whileTap={{ scale: 0.9 }}
                   animate={isActive ? { y: -2 } : { y: 0 }}
