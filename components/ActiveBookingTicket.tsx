@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Camera, X } from 'lucide-react';
+import { Calendar, MapPin, Camera, X, MessageCircle } from 'lucide-react';
 
 interface ActiveBookingTicketProps {
   booking: {
@@ -10,6 +10,7 @@ interface ActiveBookingTicketProps {
     type: string;
     location: string;
     phone: string;
+    wechat?: string;
     status: string;
   };
   onCancel: () => void;
@@ -97,12 +98,23 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
           {/* 虚线分隔 */}
           <div className="border-t-2 border-dashed border-[#5D4037]/20 my-6" />
 
-          {/* 提示信息 */}
-          <div className="bg-[#FFC857]/10 rounded-2xl p-4 mb-6">
-            <p className="text-xs text-[#5D4037]/70 text-center leading-relaxed">
-              📸 我们会尽快与您联系确认详情<br />
-              请保持手机 {booking.phone} 畅通
-            </p>
+          {/* 摄影师便利贴 */}
+          <div className="mx-auto w-[95%] bg-[#FFF9C4] p-4 rounded-xl shadow-sm transform rotate-1 border border-yellow-200">
+            <div className="flex items-start gap-3">
+              <MessageCircle className="w-5 h-5 text-[#FFC857] flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-bold text-[#5D4037] text-sm mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                  ✨ 收到你的邀请啦！
+                </p>
+                <p className="text-xs text-[#8D6E63] leading-relaxed">
+                  摄影师正在赶来的路上... 会尽快添加你的微信{' '}
+                  <span className="font-bold underline decoration-wavy decoration-[#FFC857]">
+                    {booking.wechat || booking.phone}
+                  </span>{' '}
+                  沟通细节哦，请留意"新的朋友"验证消息~ 💬
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* 取消按钮 */}
@@ -111,7 +123,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
             whileTap={{ scale: 0.98 }}
             onClick={onCancel}
             disabled={isCanceling}
-            className="w-full py-3 bg-[#5D4037]/10 hover:bg-[#5D4037]/20 text-[#5D4037] font-medium rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 bg-[#5D4037]/10 hover:bg-[#5D4037]/20 text-[#5D4037] font-medium rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
           >
             <X className="w-4 h-4" />
             <span>{isCanceling ? '取消中...' : '取消预约'}</span>
