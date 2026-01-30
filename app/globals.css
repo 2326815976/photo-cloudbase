@@ -3,24 +3,21 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --radius: 0.5rem;
-}
-
-.dark {
-  --background: oklch(0.08 0 0);
-  --foreground: oklch(0.98 0 0);
-  --card: oklch(0.12 0 0);
-  --card-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.98 0 0);
-  --primary-foreground: oklch(0.08 0 0);
-  --border: oklch(0.25 0 0);
+  /* 可爱治愈风配色 */
+  --background: #FFFBF0; /* 暖白/奶油色 */
+  --foreground: #5D4037; /* 深咖色 */
+  --card: #FFFFFF;
+  --card-foreground: #5D4037;
+  --primary: #FFC857; /* 落日黄 */
+  --primary-foreground: #5D4037;
+  --secondary: #A0C4FF; /* 马卡龙蓝 */
+  --secondary-foreground: #5D4037;
+  --accent: #FFADAD; /* 淡粉色 */
+  --accent-foreground: #5D4037;
+  --border: #5D4037;
+  --border-light: #E5E7EB;
+  --radius: 1rem;
+  --radius-lg: 1.5rem;
 }
 
 @theme inline {
@@ -30,16 +27,24 @@
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-border: var(--border);
-  --radius-lg: var(--radius);
+  --color-border-light: var(--border-light);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 3rem;
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border-light;
   }
   html,
   body {
-    @apply m-0 p-0 bg-background text-foreground;
+    @apply m-0 p-0 bg-background text-foreground antialiased;
   }
 }
