@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Heart } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Heart, X } from 'lucide-react';
 
 // 模拟数据：公开照片
 const mockGalleryPhotos = [
@@ -98,6 +98,7 @@ const mockGalleryPhotos = [
 
 export default function GalleryPage() {
   const [photos, setPhotos] = useState(mockGalleryPhotos);
+  const [previewPhoto, setPreviewPhoto] = useState<typeof mockGalleryPhotos[0] | null>(null);
 
   const handleLike = (photoId: number) => {
     setPhotos((prev) =>
@@ -122,8 +123,10 @@ export default function GalleryPage() {
         className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
       >
         <div className="px-6 pt-6 pb-3">
-          <h1 className="text-xl font-bold text-[#5D4037] mb-1">照片墙</h1>
-          <p className="text-xs text-[#5D4037]/50">分享美好瞬间 ✨</p>
+          <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
+          <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
+            <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ 分享美好瞬间 ✨</p>
+          </div>
         </div>
         <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
@@ -143,7 +146,10 @@ export default function GalleryPage() {
               {/* 小红书风格卡片 */}
               <div className="bg-white rounded-xl shadow-sm border border-[#5D4037]/10 overflow-hidden">
                 {/* 图片区域 */}
-                <div className="relative">
+                <div
+                  className="relative cursor-pointer"
+                  onClick={() => setPreviewPhoto(photo)}
+                >
                   <img
                     src={photo.url}
                     alt={photo.title}
@@ -200,6 +206,38 @@ export default function GalleryPage() {
           已加载全部照片 🎉
         </motion.div>
       </div>
+
+      {/* 图片预览弹窗 */}
+      <AnimatePresence>
+        {previewPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPreviewPhoto(null)}
+            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          >
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              onClick={() => setPreviewPhoto(null)}
+              className="absolute top-6 right-6 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors"
+            >
+              <X className="w-6 h-6 text-white" />
+            </motion.button>
+            <motion.img
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              src={previewPhoto.url}
+              alt={previewPhoto.title}
+              className="max-w-full max-h-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

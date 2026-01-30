@@ -156,8 +156,10 @@ export default function AlbumDetailPage() {
           </motion.button>
 
           <div className="text-center">
-            <h1 className="text-xl font-bold text-[#5D4037] mb-1">专属回忆</h1>
-            <p className="text-xs text-[#5D4037]/50">{filteredPhotos.length} 张照片 · 7天后消失</p>
+            <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属回忆</h1>
+            <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
+              <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ {filteredPhotos.length} 张照片 · 7天后消失 ✨</p>
+            </div>
           </div>
         </div>
         <div className="border-b border-dashed border-[#5D4037]/20"></div>
@@ -378,12 +380,13 @@ export default function AlbumDetailPage() {
                 <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Sparkles className="w-8 h-8 text-[#FFC857]" />
                 </div>
-                <h3 className="text-xl font-bold text-[#5D4037] mb-2">确认定格照片</h3>
-                <p className="text-sm text-[#5D4037]/70 leading-relaxed">
-                  定格后，此照片将在【照片墙】中公开展示，所有访客都可以浏览和点赞，并且会被永久保留（不会7天后消失）。
-                  <br />
-                  <br />
-                  请确保您已获得照片中所有人物的肖像权授权。
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3">✨ 准备好施展定格魔法了吗？</h3>
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
+                  魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【作品墙】</span> 上接受大家的赞美哦！💖
+                  而且它将获得 <span className="font-bold text-[#FFC857]">[永恒]</span> 属性，再也不会在 7 天后消失啦~
+                </p>
+                <p className="text-xs text-[#5D4037]/50 leading-relaxed">
+                  碎碎念：要确认照片里的小可爱们都愿意向世界展示这份美丽才行哦，毕竟美貌是要用来拯救世界的嘛~ 😉
                 </p>
               </div>
 
@@ -393,7 +396,7 @@ export default function AlbumDetailPage() {
                   onClick={() => setConfirmPhotoId(null)}
                   className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
                 >
-                  取消
+                  再想想
                 </motion.button>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
@@ -403,7 +406,7 @@ export default function AlbumDetailPage() {
                   }}
                   className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
                 >
-                  确认定格
+                  ✨ 确认定格
                 </motion.button>
               </div>
             </motion.div>

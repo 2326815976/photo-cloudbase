@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Lock, Image, Calendar } from 'lucide-react';
+import { Home, Lock, Image, Calendar, User } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { href: '/album', label: '返图', icon: Lock },
   { href: '/gallery', label: '照片墙', icon: Image },
   { href: '/booking', label: '约拍', icon: Calendar },
+  { href: '/profile', label: '我的', icon: User },
 ];
 
 export default function BottomNav() {

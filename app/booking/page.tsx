@@ -134,12 +134,14 @@ export default function BookingPage() {
         className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
       >
         <div className="px-6 pt-6 pb-3">
-          <h1 className="text-xl font-bold text-[#5D4037] mb-1">
+          <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
             {activeBooking ? '我的预约' : '约拍邀请'}
           </h1>
-          <p className="text-xs text-[#5D4037]/50">
-            {activeBooking ? '查看预约详情' : '写下你的约拍便利贴 ✨'}
-          </p>
+          <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
+            <p className="text-xs font-bold text-[#8D6E63] tracking-wide">
+              {activeBooking ? '✨ 查看预约详情 ✨' : '✨ 写下你的约拍便利贴 ✨'}
+            </p>
+          </div>
         </div>
         <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
