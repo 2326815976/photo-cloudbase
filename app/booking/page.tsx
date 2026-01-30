@@ -14,7 +14,14 @@ const bookingTypes = [
 ];
 
 // 模拟活跃订单数据
-const mockActiveBooking = null; // 设置为 null 表示无活跃订单，设置为对象表示有活跃订单
+const mockActiveBooking: {
+  id: string;
+  date: string;
+  type: string;
+  location: string;
+  phone: string;
+  status: string;
+} | null = null; // 设置为 null 表示无活跃订单，设置为对象表示有活跃订单
 // const mockActiveBooking = {
 //   id: 'booking-123',
 //   date: '2026-02-15',
