@@ -36,7 +36,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
       className="w-full max-w-md mx-auto"
     >
       {/* 票据卡片 */}
-      <div className="relative bg-[#fffdf5] rounded-3xl shadow-[0_8px_24px_rgba(93,64,55,0.15)] hover:shadow-[0_12px_32px_rgba(93,64,55,0.2)] transition-shadow duration-300 overflow-hidden border-2 border-[#5D4037]/20">
+      <div className="relative bg-[#fffdf5] rounded-2xl shadow-[0_8px_24px_rgba(93,64,55,0.15)] hover:shadow-[0_12px_32px_rgba(93,64,55,0.2)] transition-shadow duration-300 overflow-hidden border-2 border-[#5D4037]/20">
         {/* 顶部装饰条 */}
         <div className="h-3 bg-gradient-to-r from-[#FFC857] via-[#FFD700] to-[#FFC857]" />
 
@@ -99,7 +99,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
           <div className="border-t-2 border-dashed border-[#5D4037]/20 my-6" />
 
           {/* 摄影师便利贴 */}
-          <div className="mx-auto w-[95%] bg-[#FFF9C4] p-4 rounded-xl shadow-sm transform rotate-1 border border-yellow-200">
+          <div className="mx-auto w-[95%] bg-[#FFF9C4] p-4 rounded-2xl shadow-sm transform rotate-1 border border-yellow-200">
             <div className="flex items-start gap-3">
               <MessageCircle className="w-5 h-5 text-[#FFC857] flex-shrink-0 mt-0.5" />
               <div className="flex-1">

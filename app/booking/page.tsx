@@ -133,13 +133,13 @@ export default function BookingPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-6 pt-6 pb-3">
-          <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
             {activeBooking ? '我的预约' : '约拍邀请'}
           </h1>
-          <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-xs font-bold text-[#8D6E63] tracking-wide">
-              {activeBooking ? '✨ 查看预约详情 ✨' : '✨ 写下你的约拍便利贴 ✨'}
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">
+              {activeBooking ? '✨ 查看详情 ✨' : '✨ 写下便利贴 ✨'}
             </p>
           </div>
         </div>
@@ -215,7 +215,7 @@ export default function BookingPage() {
                             onClick={() => handleTypeSelect(type.name)}
                             whileTap={{ scale: 0.95 }}
                             className={`
-                              flex items-center justify-center gap-2 p-3 rounded-xl text-center transition-all
+                              flex items-center justify-center gap-2 p-3 rounded-2xl text-center transition-all
                               ${formData.type === type.name
                                 ? 'bg-[#FFC857] shadow-[2px_2px_0px_#5D4037] border-2 border-[#5D4037]'
                                 : 'bg-transparent border-2 border-dashed border-[#5D4037]/30 hover:border-[#5D4037]/50'
@@ -243,7 +243,7 @@ export default function BookingPage() {
                         value={formData.date}
                         onChange={handleChange}
                         required
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] focus:shadow-[0_2px_8px_rgba(255,200,87,0.2)] transition-all"
+                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] focus:shadow-[0_3px_12px_rgba(255,200,87,0.25)] transition-all"
                       />
                     </div>
 

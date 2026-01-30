@@ -38,7 +38,7 @@ export default function BottomNav() {
                   <motion.div
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="absolute -top-1 w-14 h-14 bg-[#FFC857]/20 rounded-full blur-md"
+                    className="absolute -top-1 w-14 h-14 bg-[#FFC857]/30 rounded-full blur-lg"
                   />
                 )}
 

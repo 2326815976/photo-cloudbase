@@ -31,7 +31,7 @@ export default function Modal({ isOpen, onClose, children, className }: ModalPro
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className={cn(
-                'bg-card rounded-3xl border-2 border-border-light shadow-2xl',
+                'bg-card rounded-2xl border-2 border-border-light shadow-[0_20px_60px_rgba(93,64,55,0.25)]',
                 'max-w-lg w-full max-h-[90vh] overflow-y-auto',
                 'relative',
                 className

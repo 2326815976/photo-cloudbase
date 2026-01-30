@@ -106,13 +106,13 @@ export default function AlbumLoginPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-6 pt-6 pb-3">
-          <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属返图空间</h1>
-          <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-xs font-bold text-[#8D6E63] tracking-wide">
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属返图空间</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">
               {hasBindings && !showKeyInput
-                ? '✨ 欢迎回来，点击卡片直接进入 📸'
-                : '✨ 输入密钥，开启专属回忆 ✨'}
+                ? '✨ 欢迎回来 📸'
+                : '✨ 输入密钥 ✨'}
             </p>
           </div>
         </div>
@@ -138,7 +138,7 @@ export default function AlbumLoginPage() {
                 >
                   <div className="flex gap-4 p-4">
                     {/* 封面图 */}
-                    <div className="flex-none w-24 h-24 rounded-xl overflow-hidden bg-gray-100">
+                    <div className="flex-none w-24 h-24 rounded-2xl overflow-hidden bg-gray-100">
                       <img
                         src={album.cover}
                         alt={album.title}
@@ -216,7 +216,7 @@ export default function AlbumLoginPage() {
                     value={accessKey}
                     onChange={(e) => setAccessKey(e.target.value)}
                     disabled={isLoading}
-                    className="w-full px-4 py-3 text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-xl focus:border-[#FFC857] focus:outline-none transition-colors disabled:opacity-50"
+                    className="w-full px-4 py-3 text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50"
                   />
                   {error && (
                     <motion.p
@@ -234,7 +234,7 @@ export default function AlbumLoginPage() {
                   disabled={isLoading}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="w-full h-12 rounded-xl bg-[#FFC857] border-2 border-[#5D4037] shadow-[2px_2px_0px_#5D4037] text-[#5D4037] font-bold flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+                  className="w-full h-12 rounded-2xl bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] hover:shadow-[2px_2px_0px_#5D4037] hover:translate-x-[2px] hover:translate-y-[2px] text-[#5D4037] font-bold flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
                 >
                   {isLoading ? (
                     <>

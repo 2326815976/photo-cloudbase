@@ -202,14 +202,15 @@ export default function AlbumDetailPage() {
               key={folder.id}
               whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedFolder(folder.id)}
-              animate={selectedFolder === folder.id ? { rotate: 2 } : { rotate: 0 }}
+              animate={selectedFolder === folder.id ? { rotate: 1.5 } : { rotate: 0 }}
               className={`
-                flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all
+                flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all
                 ${selectedFolder === folder.id
-                  ? 'bg-[#FFC857] text-white shadow-sm'
-                  : 'bg-transparent text-[#5D4037]/50 border border-[#5D4037]/15'
+                  ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
+                  : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
                 }
               `}
+              style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
             >
               {folder.name}
             </motion.button>

@@ -50,16 +50,23 @@ const mockPoses = [
   },
 ];
 
-// 风格选项
-const styleOptions = ['可爱', '文艺', '清新', '俏皮', '温柔', '酷飒'];
+// 风格选项（带emoji装饰）
+const styleOptions = [
+  { label: '可爱', emoji: '🌸' },
+  { label: '文艺', emoji: '📖' },
+  { label: '清新', emoji: '🍃' },
+  { label: '俏皮', emoji: '✨' },
+  { label: '温柔', emoji: '🌙' },
+  { label: '酷飒', emoji: '⚡' },
+];
 
-// 马卡龙色系
-const macaronColors = [
-  'bg-pink-100 text-pink-800',
-  'bg-blue-100 text-blue-800',
-  'bg-purple-100 text-purple-800',
-  'bg-yellow-100 text-yellow-800',
-  'bg-green-100 text-green-800',
+// 手账风格色系（温暖复古色调）
+const journalColors = [
+  'bg-[#FFE5E5] text-[#8B4545] border-[#D4A5A5]',
+  'bg-[#FFF4E0] text-[#8B6F47] border-[#D4B896]',
+  'bg-[#F0E6FF] text-[#6B4B8B] border-[#B89FD4]',
+  'bg-[#E8F5E9] text-[#4B7C4F] border-[#9FC5A1]',
+  'bg-[#FFF0F5] text-[#8B5A6B] border-[#D4A5B5]',
 ];
 
 export default function HomePage() {
@@ -68,11 +75,11 @@ export default function HomePage() {
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
 
-  const toggleStyle = (style: string) => {
+  const toggleStyle = (styleLabel: string) => {
     setSelectedStyles(prev =>
-      prev.includes(style)
-        ? prev.filter(s => s !== style)
-        : [...prev, style]
+      prev.includes(styleLabel)
+        ? prev.filter(s => s !== styleLabel)
+        : [...prev, styleLabel]
     );
   };
 
@@ -100,10 +107,10 @@ export default function HomePage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-6 pt-6 pb-3">
-          <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>拾光谣</h1>
-          <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ 记录此刻的不期而遇 ✨</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>拾光谣</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 记录不期而遇 ✨</p>
           </div>
         </div>
       </motion.div>
@@ -128,19 +135,21 @@ export default function HomePage() {
           <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#FFFBF0] to-transparent pointer-events-none z-10" />
           {styleOptions.map((style) => (
             <motion.button
-              key={style}
+              key={style.label}
               whileTap={{ scale: 0.95 }}
-              onClick={() => toggleStyle(style)}
-              animate={selectedStyles.includes(style) ? { rotate: 2 } : { rotate: 0 }}
+              onClick={() => toggleStyle(style.label)}
+              animate={selectedStyles.includes(style.label) ? { rotate: 1.5 } : { rotate: 0 }}
               className={`
-                flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all
-                ${selectedStyles.includes(style)
-                  ? 'bg-[#FFC857] text-white shadow-sm'
-                  : 'bg-transparent text-[#5D4037]/50 border border-[#5D4037]/15'
+                flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1
+                ${selectedStyles.includes(style.label)
+                  ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
+                  : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
                 }
               `}
+              style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
             >
-              {style}
+              <span className="text-sm">{style.emoji}</span>
+              <span>{style.label}</span>
             </motion.button>
           ))}
         </div>
@@ -159,7 +168,7 @@ export default function HomePage() {
           {/* 和纸胶带装饰 */}
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-2deg] z-10" />
 
-          <div className="bg-white p-4 pb-8 rounded-lg shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative">
+          <div className="bg-white p-4 pb-8 rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative">
             {/* 手账贴纸装饰 */}
             <div className="absolute top-2 right-2 text-2xl opacity-20 rotate-12">📷</div>
 
@@ -178,11 +187,11 @@ export default function HomePage() {
                 {currentPose.tags.map((tag, index) => (
                   <motion.span
                     key={index}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
+                    initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
+                    animate={{ opacity: 1, scale: 1, rotate: index % 2 === 0 ? -1.5 : 1.5 }}
                     transition={{ delay: index * 0.1 }}
-                    className={`px-3 py-1 text-sm rounded-full font-medium shadow-sm ${
-                      macaronColors[index % macaronColors.length]
+                    className={`px-3 py-1.5 text-sm rounded-lg font-bold shadow-[2px_2px_0px_rgba(93,64,55,0.1)] border-2 ${
+                      journalColors[index % journalColors.length]
                     }`}
                     style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
                   >

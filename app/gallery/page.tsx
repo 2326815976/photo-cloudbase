@@ -122,10 +122,10 @@ export default function GalleryPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-6 pt-6 pb-3">
-          <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
-          <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ 分享美好瞬间 ✨</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 分享美好瞬间 ✨</p>
           </div>
         </div>
       </motion.div>
