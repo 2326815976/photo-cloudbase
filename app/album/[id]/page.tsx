@@ -380,12 +380,12 @@ export default function AlbumDetailPage() {
                 <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Sparkles className="w-8 h-8 text-[#FFC857]" />
                 </div>
-                <h3 className="text-xl font-bold text-[#5D4037] mb-3">✨ 准备好施展定格魔法了吗？</h3>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3">✨ 施展定格魔法？</h3>
                 <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
                   魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【作品墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">[永恒]</span> 的魔法加持，打破 7 天消失的魔咒，永远在这里闪闪发光啦~ ✨
                 </p>
                 <p className="text-xs text-[#5D4037]/50 leading-relaxed">
-                  碎碎念：要确认照片里的小可爱们都愿意向世界展示这份美丽才行哦，毕竟美貌是要用来拯救世界的嘛~ 😉
+                  💡 小提示：如果改变主意了，随时可以再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
                 </p>
               </div>
 

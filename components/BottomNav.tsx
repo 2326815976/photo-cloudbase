@@ -17,7 +17,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 w-full h-[68px] bg-[#FFFBF0]/95 backdrop-blur-md border-t-2 border-dashed border-[#5D4037]/10 z-50">
+    <nav className="absolute bottom-0 left-0 w-full h-[68px] bg-[#FFFBF0]/95 backdrop-blur-md border-t-2 border-dashed border-[#5D4037]/10 z-50">
       <div className="flex justify-around items-center h-full px-4 pb-2">
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href === '/album' && pathname.startsWith('/album'));
