@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, Heart, Star, Sparkles } from 'lucide-react';
-import Button from '@/components/ui/Button';
+import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft } from 'lucide-react';
 import Card from '@/components/ui/Card';
-import Modal from '@/components/ui/Modal';
+import LetterOpeningModal from '@/components/LetterOpeningModal';
 
 // 模拟数据：相册信息
 const mockAlbum = {
@@ -21,53 +20,63 @@ const mockAlbum = {
 愿你每天都能像那天一样，笑得灿烂如花 🌸
 
 —— 你的摄影师朋友`,
+  folders: [
+    { id: 'all', name: '全部照片', count: 6 },
+    { id: 'outdoor', name: '户外', count: 3 },
+    { id: 'portrait', name: '人像', count: 2 },
+    { id: 'landscape', name: '风景', count: 1 },
+  ],
   photos: [
     {
       id: 1,
       url: 'https://picsum.photos/seed/album1/400/600',
       isPublic: false,
-      rating: 0,
+      folderId: 'outdoor',
     },
     {
       id: 2,
       url: 'https://picsum.photos/seed/album2/600/400',
       isPublic: false,
-      rating: 0,
+      folderId: 'outdoor',
     },
     {
       id: 3,
       url: 'https://picsum.photos/seed/album3/400/500',
-      isPublic: false,
-      rating: 0,
+      isPublic: true,
+      folderId: 'portrait',
     },
     {
       id: 4,
       url: 'https://picsum.photos/seed/album4/500/600',
       isPublic: false,
-      rating: 0,
+      folderId: 'portrait',
     },
     {
       id: 5,
       url: 'https://picsum.photos/seed/album5/600/500',
       isPublic: false,
-      rating: 0,
+      folderId: 'outdoor',
     },
     {
       id: 6,
       url: 'https://picsum.photos/seed/album6/400/600',
-      isPublic: false,
-      rating: 0,
+      isPublic: true,
+      folderId: 'landscape',
     },
   ],
 };
 
 export default function AlbumDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const [showWelcomeLetter, setShowWelcomeLetter] = useState(true);
   const [showToast, setShowToast] = useState(false);
+  const [selectedFolder, setSelectedFolder] = useState('all');
+  const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
+  const [photos, setPhotos] = useState(mockAlbum.photos);
+  const [selectedPhotos, setSelectedPhotos] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    // 显示提示条
     const timer = setTimeout(() => {
       setShowToast(true);
     }, 2000);
@@ -75,129 +84,263 @@ export default function AlbumDetailPage() {
     return () => clearTimeout(timer);
   }, []);
 
+  const filteredPhotos = selectedFolder === 'all'
+    ? photos
+    : photos.filter(photo => photo.folderId === selectedFolder);
+
+  const togglePublic = (photoId: number) => {
+    setPhotos(prev =>
+      prev.map(photo =>
+        photo.id === photoId
+          ? { ...photo, isPublic: !photo.isPublic }
+          : photo
+      )
+    );
+  };
+
+  const togglePhotoSelection = (photoId: number) => {
+    setSelectedPhotos(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(photoId)) {
+        newSet.delete(photoId);
+      } else {
+        newSet.add(photoId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedPhotos.size === filteredPhotos.length) {
+      setSelectedPhotos(new Set());
+    } else {
+      setSelectedPhotos(new Set(filteredPhotos.map(p => p.id)));
+    }
+  };
+
+  const handleBatchDownload = () => {
+    const selectedUrls = photos.filter(p => selectedPhotos.has(p.id)).map(p => p.url);
+    console.log('批量下载照片:', selectedUrls);
+    // TODO: 实现实际的批量下载逻辑
+  };
+
+  const handleBatchDelete = () => {
+    setPhotos(prev => prev.filter(p => !selectedPhotos.has(p.id)));
+    setSelectedPhotos(new Set());
+    // TODO: 实现实际的批量删除逻辑（调用 Supabase API）
+  };
+
   return (
-    <div className="min-h-screen px-4 py-8">
-      <div className="max-w-4xl mx-auto">
-        {/* 标题 */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8"
+    <div className="flex flex-col h-full w-full">
+      {/* 隐藏底部导航栏 */}
+      <style jsx global>{`
+        nav {
+          display: none !important;
+        }
+      `}</style>
+
+      {/* 标题区域 */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex-none px-6 pt-8 pb-4"
+      >
+        {/* 返回按钮 */}
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={() => router.push('/')}
+          className="absolute left-6 top-8 w-10 h-10 rounded-full bg-[#5D4037]/10 hover:bg-[#5D4037]/20 flex items-center justify-center transition-colors"
         >
-          <h1 className="text-2xl font-bold text-foreground mb-2">
+          <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
+        </motion.button>
+
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-[#5D4037] mb-2">
             {mockAlbum.title}
           </h1>
-          <p className="text-sm text-foreground/60">
-            专属返图空间 · {mockAlbum.photos.length} 张照片
+          <p className="text-sm text-[#5D4037]/60">
+            专属返图空间 · {filteredPhotos.length} 张照片
           </p>
-        </motion.div>
 
-        {/* 照片网格 */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          {mockAlbum.photos.map((photo, index) => (
+          {/* 简洁提示横幅 */}
+          <AnimatePresence>
+            {showToast && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-3 px-4 py-2 bg-[#FFC857]/20 rounded-full text-xs text-[#5D4037]/70 flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>照片 7 天后消失，定格后永久保留</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+
+      {/* 文件夹导航 - 吸顶 */}
+      <div className="flex-none sticky top-0 bg-[#FFFBF0] z-10 px-6 pb-4">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hidden mb-3">
+          {mockAlbum.folders.map((folder) => (
+            <motion.button
+              key={folder.id}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setSelectedFolder(folder.id)}
+              className={`
+                flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all
+                ${selectedFolder === folder.id
+                  ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
+                  : 'bg-transparent text-[#5D4037]/60 border-2 border-[#5D4037]/20 hover:border-[#5D4037]/40'
+                }
+              `}
+            >
+              {folder.name} ({folder.count})
+            </motion.button>
+          ))}
+        </div>
+
+        {/* 批量操作栏 */}
+        <div className="flex items-center justify-between gap-3">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={toggleSelectAll}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+          >
+            {selectedPhotos.size === filteredPhotos.length ? (
+              <>
+                <CheckSquare className="w-4 h-4" />
+                <span>取消全选</span>
+              </>
+            ) : (
+              <>
+                <Square className="w-4 h-4" />
+                <span>全选</span>
+              </>
+            )}
+          </motion.button>
+
+          {selectedPhotos.size > 0 && (
+            <div className="flex items-center gap-2">
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleBatchDelete}
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>删除</span>
+              </motion.button>
+
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleBatchDownload}
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+              >
+                <Download className="w-4 h-4" />
+                <span>下载 ({selectedPhotos.size})</span>
+              </motion.button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 照片网格 - 可滚动 */}
+      <div className="flex-1 overflow-y-auto px-6 pb-32 [&::-webkit-scrollbar]:hidden">
+        <div className="grid grid-cols-2 gap-4">
+          {filteredPhotos.map((photo, index) => (
             <motion.div
               key={photo.id}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.1 }}
+              transition={{ delay: index * 0.05 }}
             >
-              <Card hover className="overflow-hidden p-0">
-                <div className="relative aspect-[3/4] bg-accent/10">
+              <Card className="overflow-hidden p-0">
+                {/* 照片 */}
+                <div
+                  className="relative aspect-[3/4] bg-[#5D4037]/5 cursor-pointer"
+                  onClick={() => setSelectedPhoto(photo.id)}
+                >
                   <img
                     src={photo.url}
                     alt={`照片 ${photo.id}`}
                     className="w-full h-full object-cover"
                   />
+
+                  {/* 选择框 */}
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePhotoSelection(photo.id);
+                    }}
+                    className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md hover:bg-white transition-colors"
+                  >
+                    {selectedPhotos.has(photo.id) ? (
+                      <CheckSquare className="w-5 h-5 text-[#FFC857]" />
+                    ) : (
+                      <Square className="w-5 h-5 text-[#5D4037]/40" />
+                    )}
+                  </motion.button>
                 </div>
-                <div className="p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="accent"
-                      size="sm"
-                      className="flex items-center gap-1"
-                    >
-                      <Heart className="w-4 h-4" />
-                      <span className="text-xs">收藏</span>
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="flex items-center gap-1"
-                    >
-                      <Download className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        className="w-4 h-4 text-primary cursor-pointer hover:fill-primary transition-all"
-                      />
-                    ))}
-                  </div>
+
+                {/* 操作栏 */}
+                <div className="p-3 flex items-center justify-center bg-white">
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => togglePublic(photo.id)}
+                    className={`
+                      flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all
+                      ${photo.isPublic
+                        ? 'bg-[#FFC857] text-[#5D4037]'
+                        : 'bg-[#5D4037]/10 text-[#5D4037]/60'
+                      }
+                    `}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{photo.isPublic ? '已定格' : '定格'}</span>
+                  </motion.button>
                 </div>
               </Card>
             </motion.div>
           ))}
         </div>
-
-        {/* 手写信弹窗 */}
-        <Modal isOpen={showWelcomeLetter} onClose={() => setShowWelcomeLetter(false)}>
-          <div className="p-8 bg-[#FFF9E6]">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-4"
-            >
-              <div className="text-center mb-6">
-                <Sparkles className="w-8 h-8 text-primary mx-auto mb-2" />
-                <h2 className="text-xl font-bold text-foreground">
-                  来自摄影师的信
-                </h2>
-              </div>
-
-              <div
-                className="text-foreground/80 leading-relaxed whitespace-pre-line text-center"
-                style={{ fontFamily: 'cursive' }}
-              >
-                {mockAlbum.welcomeLetter}
-              </div>
-
-              <div className="pt-6">
-                <Button
-                  onClick={() => setShowWelcomeLetter(false)}
-                  variant="primary"
-                  size="lg"
-                  className="w-full"
-                >
-                  收下这份心意 💝
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        </Modal>
-
-        {/* 底部提示条 */}
-        <AnimatePresence>
-          {showToast && (
-            <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 50 }}
-              className="fixed bottom-32 left-4 right-4 mx-auto max-w-md"
-            >
-              <Card className="bg-accent/90 backdrop-blur-sm border-accent">
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-5 h-5 text-accent-foreground flex-shrink-0" />
-                  <p className="text-sm text-accent-foreground">
-                    虽然照片 7 天后会像魔法一样消失，但如果你愿意把它挂在【照片墙】上展示，它就会被魔法定格，永远保留哦！✨
-                  </p>
-                </div>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
+
+      {/* 拆信交互 */}
+      <LetterOpeningModal
+        isOpen={showWelcomeLetter}
+        onClose={() => setShowWelcomeLetter(false)}
+        letterContent={mockAlbum.welcomeLetter}
+      />
+
+      {/* 大图预览 */}
+      <AnimatePresence>
+        {selectedPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedPhoto(null)}
+            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          >
+            <motion.img
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              src={photos.find(p => p.id === selectedPhoto)?.url}
+              alt="预览"
+              className="max-w-full max-h-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

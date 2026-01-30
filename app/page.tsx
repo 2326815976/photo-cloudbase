@@ -10,33 +10,42 @@ const mockPoses = [
     id: 1,
     imageUrl: 'https://picsum.photos/seed/pose1/400/600',
     tags: ['#可爱', '#对镜拍', '#少女感'],
+    styles: ['可爱'],
   },
   {
     id: 2,
     imageUrl: 'https://picsum.photos/seed/pose2/400/600',
     tags: ['#文艺', '#侧脸', '#氛围感'],
+    styles: ['文艺'],
   },
   {
     id: 3,
     imageUrl: 'https://picsum.photos/seed/pose3/400/600',
     tags: ['#清新', '#回眸', '#自然'],
+    styles: ['清新'],
   },
   {
     id: 4,
     imageUrl: 'https://picsum.photos/seed/pose4/400/600',
     tags: ['#俏皮', '#跳跃', '#活力'],
+    styles: ['俏皮'],
   },
   {
     id: 5,
     imageUrl: 'https://picsum.photos/seed/pose5/400/600',
     tags: ['#温柔', '#低头', '#治愈'],
+    styles: ['温柔'],
   },
   {
     id: 6,
     imageUrl: 'https://picsum.photos/seed/pose6/400/600',
     tags: ['#酷飒', '#正面', '#自信'],
+    styles: ['酷飒'],
   },
 ];
+
+// 风格选项
+const styleOptions = ['可爱', '文艺', '清新', '俏皮', '温柔', '酷飒'];
 
 // 马卡龙色系
 const macaronColors = [
@@ -50,12 +59,28 @@ const macaronColors = [
 export default function HomePage() {
   const [currentPose, setCurrentPose] = useState(mockPoses[0]);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
+
+  const toggleStyle = (style: string) => {
+    setSelectedStyles(prev =>
+      prev.includes(style)
+        ? prev.filter(s => s !== style)
+        : [...prev, style]
+    );
+  };
+
+  const filteredPoses = selectedStyles.length === 0
+    ? mockPoses
+    : mockPoses.filter(pose =>
+        pose.styles.some(style => selectedStyles.includes(style))
+      );
 
   const getRandomPose = () => {
+    if (filteredPoses.length === 0) return;
     setIsAnimating(true);
     setTimeout(() => {
-      const randomIndex = Math.floor(Math.random() * mockPoses.length);
-      setCurrentPose(mockPoses[randomIndex]);
+      const randomIndex = Math.floor(Math.random() * filteredPoses.length);
+      setCurrentPose(filteredPoses[randomIndex]);
       setIsAnimating(false);
     }, 300);
   };
@@ -79,6 +104,33 @@ export default function HomePage() {
         <p className="text-[#5D4037]/70 text-sm">
           记录此刻的不期而遇 ✨
         </p>
+      </motion.div>
+
+      {/* 风格选择器 */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="flex-none px-2 mb-4"
+      >
+        <div className="flex gap-2 overflow-x-auto scrollbar-hidden">
+          {styleOptions.map((style) => (
+            <motion.button
+              key={style}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => toggleStyle(style)}
+              className={`
+                flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all
+                ${selectedStyles.includes(style)
+                  ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
+                  : 'bg-transparent text-[#5D4037]/60 border-2 border-[#5D4037]/20 hover:border-[#5D4037]/40'
+                }
+              `}
+            >
+              {style}
+            </motion.button>
+          ))}
+        </div>
       </motion.div>
 
       {/* 拍立得卡片 */}
