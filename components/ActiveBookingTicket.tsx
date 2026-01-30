@@ -36,7 +36,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
       className="w-full max-w-md mx-auto"
     >
       {/* 票据卡片 */}
-      <div className="relative bg-[#fffdf5] rounded-3xl shadow-2xl overflow-hidden border-2 border-[#5D4037]/20">
+      <div className="relative bg-[#fffdf5] rounded-3xl shadow-[0_8px_24px_rgba(93,64,55,0.15)] hover:shadow-[0_12px_32px_rgba(93,64,55,0.2)] transition-shadow duration-300 overflow-hidden border-2 border-[#5D4037]/20">
         {/* 顶部装饰条 */}
         <div className="h-3 bg-gradient-to-r from-[#FFC857] via-[#FFD700] to-[#FFC857]" />
 

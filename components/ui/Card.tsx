@@ -17,7 +17,7 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
           whileHover={{ scale: 1.02, y: -4 }}
           transition={{ type: 'spring', stiffness: 300 }}
           className={cn(
-            'bg-card rounded-3xl border-2 border-border-light p-6 shadow-sm',
+            'bg-card rounded-2xl border-2 border-border-light p-6 shadow-[0_4px_12px_rgba(93,64,55,0.08)]',
             className
           )}
           {...(props as any)}

@@ -120,7 +120,7 @@ export default function GalleryPage() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
+        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-6 pt-6 pb-3">
           <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
@@ -128,11 +128,10 @@ export default function GalleryPage() {
             <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ 分享美好瞬间 ✨</p>
           </div>
         </div>
-        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-3 pb-20">
+      <div className="flex-1 overflow-y-auto px-3 pt-4 pb-20">
         {/* 双列瀑布流布局 */}
         <div className="columns-2 gap-3">
           {photos.map((photo, index) => (
@@ -144,7 +143,7 @@ export default function GalleryPage() {
               className="break-inside-avoid mb-3"
             >
               {/* 小红书风格卡片 */}
-              <div className="bg-white rounded-xl shadow-sm border border-[#5D4037]/10 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_8px_20px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden transition-shadow duration-300">
                 {/* 图片区域 */}
                 <div
                   className="relative cursor-pointer"
@@ -178,15 +177,20 @@ export default function GalleryPage() {
 
                     {/* 右侧：点赞 */}
                     <motion.button
-                      whileTap={{ scale: 0.9 }}
+                      whileTap={{ scale: 0.85 }}
                       onClick={() => handleLike(photo.id)}
                       className="flex items-center gap-1"
                     >
-                      <Heart
-                        className={`w-4 h-4 transition-colors ${
-                          photo.isLiked ? 'fill-[#FFC857] text-[#FFC857]' : 'text-[#5D4037]/40'
-                        }`}
-                      />
+                      <motion.div
+                        animate={photo.isLiked ? { scale: [1, 1.4, 1] } : {}}
+                        transition={{ duration: 0.4, ease: "easeOut" }}
+                      >
+                        <Heart
+                          className={`w-4 h-4 transition-all duration-300 ${
+                            photo.isLiked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#5D4037]/40'
+                          }`}
+                        />
+                      </motion.div>
                       <span className="text-xs text-[#5D4037]/60">{photo.likeCount}</span>
                     </motion.button>
                   </div>

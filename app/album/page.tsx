@@ -104,7 +104,7 @@ export default function AlbumLoginPage() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
+        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-6 pt-6 pb-3">
           <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属返图空间</h1>
@@ -116,7 +116,6 @@ export default function AlbumLoginPage() {
             </p>
           </div>
         </div>
-        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 滚动区域 */}
@@ -135,7 +134,7 @@ export default function AlbumLoginPage() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => handleAlbumClick(album.id)}
-                  className="bg-white rounded-2xl shadow-sm border border-[#5D4037]/10 overflow-hidden cursor-pointer"
+                  className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden cursor-pointer transition-shadow duration-300"
                 >
                   <div className="flex gap-4 p-4">
                     {/* 封面图 */}

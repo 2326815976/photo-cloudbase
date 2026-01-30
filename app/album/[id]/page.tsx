@@ -277,7 +277,7 @@ export default function AlbumDetailPage() {
               className="break-inside-avoid mb-3"
             >
               {/* 瀑布流卡片 */}
-              <div className="bg-white rounded-xl shadow-sm border border-[#5D4037]/10 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden transition-shadow duration-300">
                 {/* 图片区域 */}
                 <div
                   className="relative cursor-pointer"
@@ -296,12 +296,12 @@ export default function AlbumDetailPage() {
                       e.stopPropagation();
                       togglePhotoSelection(photo.id);
                     }}
-                    className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md hover:bg-white transition-colors"
+                    className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-transparent flex items-center justify-center hover:bg-white/20 transition-colors"
                   >
                     {selectedPhotos.has(photo.id) ? (
                       <CheckSquare className="w-5 h-5 text-[#FFC857]" />
                     ) : (
-                      <Square className="w-5 h-5 text-[#5D4037]/40" />
+                      <Square className="w-5 h-5 text-white/80" />
                     )}
                   </motion.button>
                 </div>
@@ -385,7 +385,7 @@ export default function AlbumDetailPage() {
                   魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【作品墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">[永恒]</span> 的魔法加持，打破 7 天消失的魔咒，永远在这里闪闪发光啦~ ✨
                 </p>
                 <p className="text-xs text-[#5D4037]/50 leading-relaxed">
-                  💡 Tips：如果改变主意了，随时可以再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
+                  💡 Tips：如果改变主意，可以随时再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
                 </p>
               </div>
 

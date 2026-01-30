@@ -11,36 +11,42 @@ const mockPoses = [
     imageUrl: 'https://picsum.photos/seed/pose1/400/600',
     tags: ['#可爱', '#对镜拍', '#少女感'],
     styles: ['可爱'],
+    rotation: -1.2,
   },
   {
     id: 2,
     imageUrl: 'https://picsum.photos/seed/pose2/400/600',
     tags: ['#文艺', '#侧脸', '#氛围感'],
     styles: ['文艺'],
+    rotation: 0.8,
   },
   {
     id: 3,
     imageUrl: 'https://picsum.photos/seed/pose3/400/600',
     tags: ['#清新', '#回眸', '#自然'],
     styles: ['清新'],
+    rotation: -0.5,
   },
   {
     id: 4,
     imageUrl: 'https://picsum.photos/seed/pose4/400/600',
     tags: ['#俏皮', '#跳跃', '#活力'],
     styles: ['俏皮'],
+    rotation: 1.5,
   },
   {
     id: 5,
     imageUrl: 'https://picsum.photos/seed/pose5/400/600',
     tags: ['#温柔', '#低头', '#治愈'],
     styles: ['温柔'],
+    rotation: -0.9,
   },
   {
     id: 6,
     imageUrl: 'https://picsum.photos/seed/pose6/400/600',
     tags: ['#酷飒', '#正面', '#自信'],
     styles: ['酷飒'],
+    rotation: 1.1,
   },
 ];
 
@@ -92,7 +98,7 @@ export default function HomePage() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
+        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-6 pt-6 pb-3">
           <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>拾光谣</h1>
@@ -100,14 +106,13 @@ export default function HomePage() {
             <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ 记录此刻的不期而遇 ✨</p>
           </div>
         </div>
-        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 主内容区 */}
       <div
         className="flex-1 flex flex-col px-6 pt-4 pb-4 min-h-0"
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulance type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
         }}
       >
 
@@ -118,7 +123,9 @@ export default function HomePage() {
           transition={{ delay: 0.1 }}
           className="flex-none mb-6"
         >
-        <div className="flex gap-2 overflow-x-auto scrollbar-hidden">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hidden relative">
+          {/* 滚动渐变提示 */}
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#FFFBF0] to-transparent pointer-events-none z-10" />
           {styleOptions.map((style) => (
             <motion.button
               key={style}
@@ -144,14 +151,20 @@ export default function HomePage() {
         <motion.div
           key={currentPose.id}
           initial={{ opacity: 0, scale: 0.9, rotate: -5 }}
-          animate={{ opacity: 1, scale: 1, rotate: Math.random() > 0.5 ? 1 : -1 }}
+          animate={{ opacity: 1, scale: 1, rotate: currentPose.rotation }}
           exit={{ opacity: 0, scale: 0.9, rotate: 5 }}
           transition={{ type: 'spring', damping: 20, stiffness: 300 }}
           className="flex-1 min-h-0 relative w-full mb-4"
         >
-          <div className="bg-white p-4 pb-8 rounded-lg shadow-lg h-full flex flex-col">
+          {/* 和纸胶带装饰 */}
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-2deg] z-10" />
+
+          <div className="bg-white p-4 pb-8 rounded-lg shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative">
+            {/* 手账贴纸装饰 */}
+            <div className="absolute top-2 right-2 text-2xl opacity-20 rotate-12">📷</div>
+
             <div
-              className="relative flex-1 bg-white overflow-hidden cursor-pointer"
+              className="relative flex-1 bg-white overflow-hidden cursor-pointer rounded-sm"
               onClick={() => setShowPreview(true)}
             >
               <img
@@ -163,15 +176,18 @@ export default function HomePage() {
             <div className="mt-4 flex-none">
               <div className="flex flex-wrap gap-2 justify-center">
                 {currentPose.tags.map((tag, index) => (
-                  <span
+                  <motion.span
                     key={index}
-                    className={`px-3 py-1 text-sm rounded-full font-medium ${
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.1 }}
+                    className={`px-3 py-1 text-sm rounded-full font-medium shadow-sm ${
                       macaronColors[index % macaronColors.length]
                     }`}
                     style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
                   >
                     {tag}
-                  </span>
+                  </motion.span>
                 ))}
               </div>
             </div>
@@ -185,7 +201,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="flex items-center justify-center mb-1"
+            className="flex items-center justify-center mb-3"
           >
             <motion.button
               onClick={getRandomPose}

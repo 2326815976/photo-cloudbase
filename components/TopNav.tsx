@@ -22,7 +22,7 @@ export default function TopNav({ title, showBack = false, onBack }: TopNavProps)
   };
 
   return (
-    <div className="flex-none h-[44px] flex items-center justify-center px-4 relative bg-[#FFFBF0]/80 backdrop-blur-sm">
+    <div className="flex-none h-[44px] flex items-center justify-center px-4 relative bg-[#FFFBF0]/80 backdrop-blur-sm border-b border-[#5D4037]/10 shadow-[0_2px_8px_rgba(93,64,55,0.06)]">
       {showBack && (
         <motion.button
           whileTap={{ scale: 0.9 }}

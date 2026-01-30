@@ -131,7 +131,7 @@ export default function BookingPage() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
+        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-6 pt-6 pb-3">
           <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
@@ -143,7 +143,6 @@ export default function BookingPage() {
             </p>
           </div>
         </div>
-        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 滚动区域 */}
@@ -244,7 +243,7 @@ export default function BookingPage() {
                         value={formData.date}
                         onChange={handleChange}
                         required
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] transition-colors"
+                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] focus:shadow-[0_2px_8px_rgba(255,200,87,0.2)] transition-all"
                       />
                     </div>
 
@@ -261,7 +260,7 @@ export default function BookingPage() {
                         value={formData.location}
                         onChange={handleChange}
                         required
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] transition-colors"
+                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
                       />
                     </div>
 
@@ -279,7 +278,7 @@ export default function BookingPage() {
                           value={formData.phone}
                           onChange={handleChange}
                           required
-                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] transition-colors"
+                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
                         />
                       </div>
                       <div>
@@ -293,7 +292,7 @@ export default function BookingPage() {
                           placeholder="微信号"
                           value={formData.wechat}
                           onChange={handleChange}
-                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] transition-colors"
+                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
                         />
                       </div>
                     </div>
@@ -309,7 +308,7 @@ export default function BookingPage() {
                         value={formData.notes}
                         onChange={handleChange}
                         rows={4}
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] transition-colors resize-none"
+                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all resize-none"
                       />
                     </div>
 

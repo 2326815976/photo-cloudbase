@@ -25,7 +25,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased" style={{ fontFamily: "'Nunito', sans-serif" }}>
         <div className="fixed inset-0 w-full h-[100dvh] bg-gray-100 flex justify-center items-center overflow-hidden">
-          <main className="w-full max-w-[430px] h-full bg-[#FFFBF0] relative flex flex-col shadow-2xl overflow-hidden">
+          <main className="w-full max-w-[430px] h-full bg-[#FFFBF0] relative flex flex-col shadow-[0_0_40px_rgba(93,64,55,0.15)] overflow-hidden">
             {children}
             <BottomNav />
           </main>
