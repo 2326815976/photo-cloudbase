@@ -171,10 +171,10 @@ export default function BookingPage() {
                 >
                   <Camera className="w-10 h-10 text-[#FFC857]" />
                 </motion.div>
-                <h2 className="text-xl font-bold text-[#5D4037] mb-2">
-                  邀请函已发送！
+                <h2 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                  收到你的邀请啦！
                 </h2>
-                <p className="text-sm text-[#5D4037]/70">
+                <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
                   我们会尽快与您联系确认详情 ✨
                 </p>
               </div>

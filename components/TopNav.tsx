@@ -33,10 +33,7 @@ export default function TopNav({ title, showBack = false, onBack }: TopNavProps)
         </motion.button>
       )}
 
-      <h1
-        className="text-lg font-bold text-[#5D4037]"
-        style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
-      >
+      <h1 className="text-lg font-bold text-[#5D4037]">
         {title}
       </h1>
     </div>

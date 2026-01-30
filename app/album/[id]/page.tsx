@@ -175,12 +175,12 @@ export default function AlbumDetailPage() {
             className="flex-none h-6 bg-[#FFC857]/15 flex items-center justify-center relative overflow-hidden"
           >
             <motion.div
-              animate={{ x: [0, -10, 0] }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              className="text-[10px] text-[#5D4037]/60 flex items-center gap-1"
+              animate={{ x: ['0%', '-50%'] }}
+              transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+              className="text-[10px] text-[#5D4037]/60 whitespace-nowrap"
             >
-              <Sparkles className="w-3 h-3" />
-              <span>定格后永久保留，可在照片墙展示</span>
+              <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
+              <span className="inline-block ml-8">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
             </motion.div>
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -210,7 +210,6 @@ export default function AlbumDetailPage() {
                   : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
                 }
               `}
-              style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
             >
               {folder.name}
             </motion.button>

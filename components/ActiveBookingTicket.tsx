@@ -106,7 +106,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
                 <p className="font-bold text-[#5D4037] text-sm mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
                   ✨ 收到你的邀请啦！
                 </p>
-                <p className="text-xs text-[#8D6E63] leading-relaxed">
+                <p className="text-xs text-[#8D6E63] leading-relaxed" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
                   摄影师正在赶来的路上... 会尽快添加你的微信{' '}
                   <span className="font-bold underline decoration-wavy decoration-[#FFC857]">
                     {booking.wechat || booking.phone}

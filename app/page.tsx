@@ -146,7 +146,6 @@ export default function HomePage() {
                   : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
                 }
               `}
-              style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
             >
               <span className="text-sm">{style.emoji}</span>
               <span>{style.label}</span>
@@ -193,7 +192,6 @@ export default function HomePage() {
                     className={`px-2.5 py-1 text-xs rounded-2xl font-bold shadow-[2px_2px_0px_rgba(93,64,55,0.1)] border-2 ${
                       journalColors[index % journalColors.length]
                     }`}
-                    style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
                   >
                     {tag}
                   </motion.span>
@@ -232,7 +230,6 @@ export default function HomePage() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
             className="text-center text-sm text-[#5D4037]/70 font-medium"
-            style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
           >
             {isAnimating ? '正在切换...' : '点击换个姿势'}
           </motion.p>
