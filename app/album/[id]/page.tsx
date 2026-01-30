@@ -385,7 +385,7 @@ export default function AlbumDetailPage() {
                   魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【作品墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">[永恒]</span> 的魔法加持，打破 7 天消失的魔咒，永远在这里闪闪发光啦~ ✨
                 </p>
                 <p className="text-xs text-[#5D4037]/50 leading-relaxed">
-                  💡 小提示：如果改变主意了，随时可以再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
+                  💡 Tips：如果改变主意了，随时可以再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
                 </p>
               </div>
 
