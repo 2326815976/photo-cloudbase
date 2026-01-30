@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -40,13 +40,35 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [cachedPoses, setCachedPoses] = useState<Pose[]>([]);
   const [cacheKey, setCacheKey] = useState<string>('');
+  const [nextPose, setNextPose] = useState<Pose | null>(null);
+  const preloadedImagesRef = useRef<Set<string>>(new Set());
 
   // 加载标签
   useEffect(() => {
     loadTags();
   }, []);
 
-  const loadTags = async () => {
+  // 图片预加载函数
+  const preloadImage = useCallback((url: string) => {
+    if (preloadedImagesRef.current.has(url)) return;
+
+    const img = new Image();
+    img.src = url;
+    preloadedImagesRef.current.add(url);
+  }, []);
+
+  // 从缓存中选择下一个摆姿（不显示，仅预加载）
+  const selectNextPose = useCallback((poses: Pose[], excludeIds: number[]) => {
+    if (poses.length === 0) return null;
+
+    const availablePoses = poses.filter(p => !excludeIds.includes(p.id));
+    if (availablePoses.length === 0) return poses[0];
+
+    const randomIndex = Math.floor(Math.random() * availablePoses.length);
+    return availablePoses[randomIndex];
+  }, []);
+
+  const loadTags = useCallback(async () => {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('pose_tags')
@@ -57,17 +79,17 @@ export default function HomePage() {
       setTags(data);
     }
     setLoading(false);
-  };
+  }, []);
 
-  const toggleTag = (tagName: string) => {
+  const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev =>
       prev.includes(tagName)
         ? prev.filter(t => t !== tagName)
         : [...prev, tagName]
     );
-  };
+  }, []);
 
-  const getRandomPose = async () => {
+  const getRandomPose = useCallback(async () => {
     if (isAnimating) return;
 
     setIsAnimating(true);
@@ -77,6 +99,30 @@ export default function HomePage() {
       // 生成缓存键（基于选中的标签）
       const currentCacheKey = selectedTags.sort().join(',');
       let poses: Pose[] = [];
+
+      // 优先使用预加载的下一个摆姿
+      if (nextPose && cacheKey === currentCacheKey) {
+        setCurrentPose({ ...nextPose, view_count: nextPose.view_count + 1 });
+        setLastPoseId(nextPose.id);
+
+        // 异步更新浏览次数
+        supabase
+          .from('poses')
+          .update({ view_count: nextPose.view_count + 1 })
+          .eq('id', nextPose.id)
+          .then(() => {})
+          .catch((err: any) => console.error('更新浏览次数失败:', err));
+
+        // 立即预加载下一个
+        const next = selectNextPose(cachedPoses, [nextPose.id, lastPoseId].filter(Boolean) as number[]);
+        if (next) {
+          setNextPose(next);
+          preloadImage(next.image_url);
+        }
+
+        setIsAnimating(false);
+        return;
+      }
 
       // 检查缓存：如果标签选择未改变且有缓存数据，直接使用缓存
       if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
@@ -134,20 +180,30 @@ export default function HomePage() {
           .eq('id', selectedPose.id)
           .then(() => {})
           .catch((err: any) => console.error('更新浏览次数失败:', err));
+
+        // 预加载下一个摆姿
+        const next = selectNextPose(poses, [selectedPose.id]);
+        if (next) {
+          setNextPose(next);
+          preloadImage(next.image_url);
+        }
       }
     } catch (error) {
       console.error('抽取摆姿失败:', error);
     } finally {
       setIsAnimating(false);
     }
-  };
+  }, [isAnimating, selectedTags, cacheKey, cachedPoses, nextPose, lastPoseId, selectNextPose, preloadImage]);
 
   // 初始加载一个随机摆姿
   useEffect(() => {
     if (!loading && !currentPose) {
       getRandomPose();
     }
-  }, [loading]);
+  }, [loading, currentPose, getRandomPose]);
+
+  // 缓存标签列表，避免重复渲染
+  const displayTags = useMemo(() => tags.slice(0, 8), [tags]);
 
   return (
     <div className="flex flex-col h-[100dvh] w-full">
@@ -173,51 +229,44 @@ export default function HomePage() {
         }}
       >
 
-        {/* 标签选择器 */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="flex-none mb-4"
-        >
+        {/* 标签选择器 - 优化移动端性能 */}
+        <div className="flex-none mb-4" style={{ contain: 'layout style' }}>
           <div className="flex items-center gap-2">
             {/* 横向滚动标签区域 */}
-            <div className="flex-1 overflow-x-auto scrollbar-hidden">
+            <div className="flex-1 overflow-x-auto scrollbar-hidden" style={{ willChange: 'scroll-position' }}>
               <div className="flex gap-2 pb-1">
-                {tags.slice(0, 8).map((tag) => (
-                  <motion.button
+                {displayTags.map((tag) => (
+                  <button
                     key={tag.id}
-                    whileTap={{ scale: 0.95 }}
                     onClick={() => toggleTag(tag.name)}
-                    animate={selectedTags.includes(tag.name) ? { rotate: 1.5 } : { rotate: 0 }}
                     className={`
-                      flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all
+                      flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors
                       ${selectedTags.includes(tag.name)
                         ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
                         : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
                       }
                     `}
+                    style={{ transform: 'translateZ(0)' }}
                   >
                     {tag.name}
-                  </motion.button>
+                  </button>
                 ))}
               </div>
             </div>
 
             {/* 全部标签按钮 */}
             {tags.length > 0 && (
-              <motion.button
-                whileTap={{ scale: 0.95 }}
+              <button
                 onClick={() => setShowTagSelector(true)}
-                className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all bg-[#5D4037] text-white border-2 border-[#5D4037] flex items-center gap-1"
+                className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors bg-[#5D4037] text-white border-2 border-[#5D4037] flex items-center gap-1"
               >
                 全部
-              </motion.button>
+              </button>
             )}
           </div>
-        </motion.div>
+        </div>
 
-        {/* 拍立得卡片 */}
+        {/* 拍立得卡片 - 启用硬件加速 */}
         {currentPose && (
           <AnimatePresence mode="wait">
             <motion.div
@@ -227,22 +276,27 @@ export default function HomePage() {
               exit={{ opacity: 0, scale: 0.9, rotate: 5 }}
               transition={{ type: 'spring', damping: 20, stiffness: 300 }}
               className="flex-1 min-h-0 relative w-full mb-4"
+              style={{ willChange: 'transform, opacity' }}
             >
               {/* 和纸胶带装饰 */}
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-2deg] z-10" />
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-2deg] z-10" style={{ transform: 'translateZ(0)' }} />
 
-              <div className="bg-white p-3 pb-5 rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative">
+              <div className="bg-white p-3 pb-5 rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative" style={{ transform: 'translateZ(0)' }}>
                 {/* 手账贴纸装饰 */}
                 <div className="absolute top-1 right-1 text-xl opacity-20 rotate-12">📷</div>
 
                 <div
                   className="relative flex-1 bg-white overflow-hidden cursor-pointer rounded-sm"
                   onClick={() => setShowPreview(true)}
+                  style={{ contain: 'layout style paint' }}
                 >
                   <img
                     src={currentPose.image_url}
                     alt="拍照姿势"
                     className="w-full h-full object-contain"
+                    loading="eager"
+                    decoding="async"
+                    style={{ transform: 'translateZ(0)' }}
                   />
                 </div>
                 <div className="mt-3 flex-none">
@@ -281,6 +335,7 @@ export default function HomePage() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95, boxShadow: '2px 2px 0px #5D4037' }}
               className="w-14 h-14 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] flex items-center justify-center disabled:opacity-50 transition-all"
+              style={{ willChange: 'transform', transform: 'translateZ(0)' }}
             >
               {isAnimating ? (
                 <RefreshCw className="w-5 h-5 text-[#5D4037] animate-spin" />
@@ -353,37 +408,39 @@ export default function HomePage() {
               exit={{ opacity: 0, y: -20 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="fixed top-[72px] left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-5"
+              style={{ willChange: 'transform, opacity' }}
             >
-              <div className="bg-[#FFFBF0] rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.2)] border-2 border-[#5D4037]/10 max-h-[60vh] overflow-hidden flex flex-col">
+              <div className="bg-[#FFFBF0] rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.2)] border-2 border-[#5D4037]/10 max-h-[60vh] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
                 {/* 标题栏 */}
                 <div className="flex items-center justify-between p-4 border-b-2 border-dashed border-[#5D4037]/15">
                   <h3 className="text-lg font-bold text-[#5D4037]">选择标签</h3>
                   <button
                     onClick={() => setShowTagSelector(false)}
                     className="w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors"
+                    style={{ transform: 'translateZ(0)' }}
                   >
                     <X className="w-5 h-5 text-[#5D4037]" />
                   </button>
                 </div>
 
                 {/* 标签网格 */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex-1 overflow-y-auto p-4" style={{ contain: 'layout style paint', willChange: 'scroll-position' }}>
                   <div className="grid grid-cols-3 gap-3">
                     {tags.map((tag) => (
-                      <motion.button
+                      <button
                         key={tag.id}
-                        whileTap={{ scale: 0.95 }}
                         onClick={() => toggleTag(tag.name)}
                         className={`
-                          px-4 py-3 rounded-2xl text-sm font-bold transition-all
+                          px-4 py-3 rounded-2xl text-sm font-bold transition-colors
                           ${selectedTags.includes(tag.name)
                             ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
                             : 'bg-white text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
                           }
                         `}
+                        style={{ transform: 'translateZ(0)' }}
                       >
                         {tag.name}
-                      </motion.button>
+                      </button>
                     ))}
                   </div>
                 </div>

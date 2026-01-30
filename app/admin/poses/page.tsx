@@ -38,6 +38,9 @@ export default function PosesPage() {
   const [poseFormData, setPoseFormData] = useState({ image: null as File | null, tags: [] as string[] });
   const [uploading, setUploading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [batchImages, setBatchImages] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single');
 
   // 标签管理状态
   const [tags, setTags] = useState<PoseTag[]>([]);
@@ -79,7 +82,7 @@ export default function PosesPage() {
   };
 
   const handleAddPose = async () => {
-    if (!poseFormData.image) {
+    if (!poseFormData.image && batchImages.length === 0) {
       alert('请选择图片');
       return;
     }
@@ -88,37 +91,82 @@ export default function PosesPage() {
     const supabase = createClient();
 
     try {
-      // 上传图片到Storage
-      const fileExt = poseFormData.image.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `poses/${fileName}`;
+      // 批量上传模式
+      if (batchImages.length > 0) {
+        setUploadProgress({ current: 0, total: batchImages.length });
 
-      const { error: uploadError } = await supabase.storage
-        .from('poses')
-        .upload(filePath, poseFormData.image);
+        for (let i = 0; i < batchImages.length; i++) {
+          const file = batchImages[i];
+          setUploadProgress({ current: i + 1, total: batchImages.length });
 
-      if (uploadError) throw uploadError;
+          // 上传图片到Storage
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${Date.now()}_${i}.${fileExt}`;
+          const filePath = `poses/${fileName}`;
 
-      // 获取公开URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('poses')
-        .getPublicUrl(filePath);
+          const { error: uploadError } = await supabase.storage
+            .from('poses')
+            .upload(filePath, file);
 
-      // 插入数据库
-      const { error: insertError } = await supabase
-        .from('poses')
-        .insert({
-          image_url: publicUrl,
-          storage_path: filePath,
-          tags: poseFormData.tags,
-        });
+          if (uploadError) {
+            console.error(`上传第 ${i + 1} 张图片失败:`, uploadError);
+            continue; // 继续上传其他图片
+          }
 
-      if (insertError) throw insertError;
+          // 获取公开URL
+          const { data: { publicUrl } } = supabase.storage
+            .from('poses')
+            .getPublicUrl(filePath);
+
+          // 插入数据库
+          const { error: insertError } = await supabase
+            .from('poses')
+            .insert({
+              image_url: publicUrl,
+              storage_path: filePath,
+              tags: poseFormData.tags,
+            });
+
+          if (insertError) {
+            console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
+          }
+        }
+
+        alert(`批量上传完成！成功上传 ${batchImages.length} 张图片`);
+      } else {
+        // 单张上传模式
+        const fileExt = poseFormData.image!.name.split('.').pop();
+        const fileName = `${Date.now()}.${fileExt}`;
+        const filePath = `poses/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('poses')
+          .upload(filePath, poseFormData.image!);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('poses')
+          .getPublicUrl(filePath);
+
+        const { error: insertError } = await supabase
+          .from('poses')
+          .insert({
+            image_url: publicUrl,
+            storage_path: filePath,
+            tags: poseFormData.tags,
+          });
+
+        if (insertError) throw insertError;
+      }
 
       setShowPoseModal(false);
       setPoseFormData({ image: null, tags: [] });
+      setBatchImages([]);
+      setImagePreview(null);
+      setUploadProgress({ current: 0, total: 0 });
       loadPoses();
-      loadTags(); // 刷新标签使用次数
+      loadTags();
     } catch (error: any) {
       alert('添加失败：' + error.message);
     } finally {
@@ -254,6 +302,8 @@ export default function PosesPage() {
     setEditingPose(null);
     setPoseFormData({ image: null, tags: [] });
     setImagePreview(null);
+    setBatchImages([]);
+    setUploadMode('single');
     setShowPoseModal(true);
   };
 
@@ -269,6 +319,16 @@ export default function PosesPage() {
     } else {
       setImagePreview(null);
     }
+  };
+
+  const handleBatchImageSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      setBatchImages([]);
+      return;
+    }
+
+    const fileArray = Array.from(files);
+    setBatchImages(fileArray);
   };
 
   const togglePoseTag = (tagName: string) => {
@@ -306,12 +366,26 @@ export default function PosesPage() {
     const supabase = createClient();
 
     try {
+      // 解析标签：支持中文逗号、英文逗号分隔
+      const tagNames = newTagName
+        .split(/[,，]/)
+        .map(name => name.trim())
+        .filter(name => name.length > 0);
+
+      if (tagNames.length === 0) {
+        alert('请输入有效的标签名称');
+        return;
+      }
+
+      // 批量插入标签
+      const tagsToInsert = tagNames.map(name => ({ name }));
       const { error } = await supabase
         .from('pose_tags')
-        .insert({ name: newTagName.trim() });
+        .insert(tagsToInsert);
 
       if (error) throw error;
 
+      alert(`成功添加 ${tagNames.length} 个标签！`);
       setShowTagModal(false);
       setNewTagName('');
       loadTags();
@@ -791,33 +865,114 @@ export default function PosesPage() {
                     <label className="block text-sm font-medium text-[#5D4037] mb-2">
                       图片 <span className="text-red-500">*</span>
                     </label>
-                    {imagePreview ? (
-                      <div className="relative bg-gray-100 rounded-xl">
-                        <img
-                          src={imagePreview}
-                          alt="预览"
-                          className="w-full h-64 object-contain rounded-xl"
-                        />
-                        <button
-                          onClick={() => handleImageSelect(null)}
-                          className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
+
+                    {/* 单张/批量切换 */}
+                    <div className="flex gap-2 mb-3">
+                      <button
+                        onClick={() => {
+                          setUploadMode('single');
+                          setBatchImages([]);
+                          setImagePreview(null);
+                          setPoseFormData({ ...poseFormData, image: null });
+                        }}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
+                          uploadMode === 'single'
+                            ? 'bg-[#FFC857] text-[#5D4037] shadow-sm'
+                            : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
+                        }`}
+                      >
+                        单张上传
+                      </button>
+                      <button
+                        onClick={() => {
+                          setUploadMode('batch');
+                          setImagePreview(null);
+                          setPoseFormData({ ...poseFormData, image: null });
+                        }}
+                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
+                          uploadMode === 'batch'
+                            ? 'bg-[#FFC857] text-[#5D4037] shadow-sm'
+                            : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
+                        }`}
+                      >
+                        批量上传
+                      </button>
+                    </div>
+
+                    {uploadMode === 'single' ? (
+                      /* 单张上传模式 */
+                      imagePreview ? (
+                        <div className="relative bg-gray-100 rounded-xl">
+                          <img
+                            src={imagePreview}
+                            alt="预览"
+                            className="w-full h-64 object-contain rounded-xl"
+                          />
+                          <button
+                            onClick={() => handleImageSelect(null)}
+                            className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleImageSelect(e.target.files?.[0] || null)}
+                            className="hidden"
+                            id="pose-image-upload"
+                          />
+                          <label htmlFor="pose-image-upload" className="cursor-pointer">
+                            <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                            <p className="text-sm text-[#5D4037]/60">点击上传图片</p>
+                          </label>
+                        </div>
+                      )
                     ) : (
-                      <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleImageSelect(e.target.files?.[0] || null)}
-                          className="hidden"
-                          id="pose-image-upload"
-                        />
-                        <label htmlFor="pose-image-upload" className="cursor-pointer">
-                          <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
-                          <p className="text-sm text-[#5D4037]/60">点击上传图片</p>
-                        </label>
+                      /* 批量上传模式 */
+                      <div className="space-y-3">
+                        <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={(e) => handleBatchImageSelect(e.target.files)}
+                            className="hidden"
+                            id="pose-batch-upload"
+                          />
+                          <label htmlFor="pose-batch-upload" className="cursor-pointer">
+                            <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                            <p className="text-sm text-[#5D4037]/60">
+                              {batchImages.length > 0
+                                ? `已选择 ${batchImages.length} 张图片`
+                                : '点击选择多张图片'}
+                            </p>
+                          </label>
+                        </div>
+                        {batchImages.length > 0 && (
+                          <div className="bg-[#FFFBF0] rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-[#5D4037]">
+                                已选择 {batchImages.length} 张图片
+                              </span>
+                              <button
+                                onClick={() => setBatchImages([])}
+                                className="text-xs text-red-600 hover:text-red-700"
+                              >
+                                清空
+                              </button>
+                            </div>
+                            <div className="max-h-32 overflow-y-auto space-y-1">
+                              {batchImages.map((file, index) => (
+                                <div key={index} className="text-xs text-[#5D4037]/60 truncate">
+                                  {index + 1}. {file.name}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -844,12 +999,41 @@ export default function PosesPage() {
                   </div>
                 </div>
 
+                {/* 上传进度显示 */}
+                {uploading && uploadProgress.total > 0 && (
+                  <div className="bg-[#FFFBF0] rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-[#5D4037]">
+                        上传进度
+                      </span>
+                      <span className="text-sm text-[#5D4037]/60">
+                        {uploadProgress.current} / {uploadProgress.total}
+                      </span>
+                    </div>
+                    <div className="w-full bg-white rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full bg-[#FFC857] transition-all duration-300"
+                        style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <button
                   onClick={editingPose ? handleEditPose : handleAddPose}
-                  disabled={uploading || (!editingPose && !poseFormData.image)}
+                  disabled={uploading || (!editingPose && !poseFormData.image && batchImages.length === 0)}
                   className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
                 >
-                  {uploading ? '处理中...' : editingPose ? '保存修改' : '确认添加'}
+                  {uploading
+                    ? uploadProgress.total > 0
+                      ? `上传中 (${uploadProgress.current}/${uploadProgress.total})...`
+                      : '处理中...'
+                    : editingPose
+                      ? '保存修改'
+                      : batchImages.length > 0
+                        ? `批量添加 (${batchImages.length} 张)`
+                        : '确认添加'
+                  }
                 </button>
               </div>
             </motion.div>
@@ -889,13 +1073,16 @@ export default function PosesPage() {
                   <label className="block text-sm font-medium text-[#5D4037] mb-2">
                     标签名称 <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <textarea
                     value={newTagName}
                     onChange={(e) => setNewTagName(e.target.value)}
-                    placeholder="例如：户外、室内、情侣"
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                    placeholder="输入标签名称，多个标签用逗号分隔&#10;例如：户外,室内,情侣,全身照,半身照"
+                    rows={4}
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none resize-none"
                   />
+                  <p className="mt-2 text-xs text-[#5D4037]/60">
+                    💡 提示：可以一次添加多个标签，用逗号（中文或英文）分隔
+                  </p>
                 </div>
 
                 <button
