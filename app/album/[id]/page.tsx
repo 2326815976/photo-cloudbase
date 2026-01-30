@@ -160,7 +160,7 @@ export default function AlbumDetailPage() {
           </div>
 
           <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ {filteredPhotos.length}张 ✨</p>
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 趁魔法消失前，把美好定格 ✨</p>
           </div>
         </div>
       </motion.div>

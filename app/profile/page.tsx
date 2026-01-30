@@ -28,7 +28,7 @@ export default function ProfilePage() {
           <div className="px-4 py-3 flex items-center justify-between gap-2">
             <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>我的小天地</h1>
             <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-              <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 开启专属空间 ✨</p>
+              <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📒 管理你的拾光小秘密 📒</p>
             </div>
           </div>
         </motion.div>
@@ -81,7 +81,7 @@ export default function ProfilePage() {
         <div className="px-6 py-3 flex items-center justify-between gap-3">
           <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>我的小天地</h1>
           <div className="inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-xs font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 管理你的拾光时刻 ✨</p>
+            <p className="text-xs font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📒 管理你的拾光小秘密 📒</p>
           </div>
         </div>
       </motion.div>

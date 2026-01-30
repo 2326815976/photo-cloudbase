@@ -138,9 +138,7 @@ export default function BookingPage() {
             {activeBooking ? '我的预约' : '约拍邀请'}
           </h1>
           <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">
-              {activeBooking ? '✨ 查看详情 ✨' : '✨ 写下便利贴 ✨'}
-            </p>
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
           </div>
         </div>
       </motion.div>
