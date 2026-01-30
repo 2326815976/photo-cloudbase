@@ -38,6 +38,8 @@ export default function HomePage() {
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [cachedPoses, setCachedPoses] = useState<Pose[]>([]);
+  const [cacheKey, setCacheKey] = useState<string>('');
 
   // 加载标签
   useEffect(() => {
@@ -66,64 +68,66 @@ export default function HomePage() {
   };
 
   const getRandomPose = async () => {
-    if (isAnimating) return; // 防止重复点击
+    if (isAnimating) return;
 
     setIsAnimating(true);
     const supabase = createClient();
 
     try {
+      // 生成缓存键（基于选中的标签）
+      const currentCacheKey = selectedTags.sort().join(',');
       let poses: Pose[] = [];
 
-      if (selectedTags.length === 0) {
-        // 未选择标签：从所有摆姿中随机抽取
-        const { data, error } = await supabase
-          .from('poses')
-          .select('*');
-
-        if (!error && data && data.length > 0) {
-          poses = data;
-        }
+      // 检查缓存：如果标签选择未改变且有缓存数据，直接使用缓存
+      if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
+        poses = cachedPoses;
       } else {
-        // 选择了标签：先尝试绝对匹配（包含所有选中标签）
-        const { data: exactMatches } = await supabase
-          .from('poses')
-          .select('*')
-          .contains('tags', selectedTags);
-
-        if (exactMatches && exactMatches.length > 0) {
-          poses = exactMatches;
+        // 标签改变或无缓存，重新查询数据库
+        if (selectedTags.length === 0) {
+          const { data } = await supabase.from('poses').select('*');
+          if (data) poses = data;
         } else {
-          // 没有绝对匹配，使用模糊匹配（包含任意选中标签）
-          const { data: fuzzyMatches } = await supabase
+          // 先尝试精确匹配
+          const { data: exactMatches } = await supabase
             .from('poses')
             .select('*')
-            .overlaps('tags', selectedTags);
+            .contains('tags', selectedTags);
 
-          if (fuzzyMatches && fuzzyMatches.length > 0) {
-            poses = fuzzyMatches;
+          if (exactMatches && exactMatches.length > 0) {
+            poses = exactMatches;
+          } else {
+            // 模糊匹配
+            const { data: fuzzyMatches } = await supabase
+              .from('poses')
+              .select('*')
+              .overlaps('tags', selectedTags);
+
+            if (fuzzyMatches) poses = fuzzyMatches;
           }
         }
+
+        // 更新缓存
+        setCachedPoses(poses);
+        setCacheKey(currentCacheKey);
       }
 
       if (poses.length > 0) {
-        // 排除上一次抽取的摆姿（如果有多个选项）
+        // 排除上一次的摆姿
         let availablePoses = poses;
         if (poses.length > 1 && lastPoseId !== null) {
           const filtered = poses.filter(p => p.id !== lastPoseId);
-          if (filtered.length > 0) {
-            availablePoses = filtered;
-          }
+          if (filtered.length > 0) availablePoses = filtered;
         }
 
-        // 前端随机选择一个
+        // 前端随机选择
         const randomIndex = Math.floor(Math.random() * availablePoses.length);
         const selectedPose = availablePoses[randomIndex];
 
-        // 先更新UI，提升响应速度
+        // 立即更新UI
         setCurrentPose({ ...selectedPose, view_count: selectedPose.view_count + 1 });
         setLastPoseId(selectedPose.id);
 
-        // 异步更新浏览次数，不阻塞UI
+        // 异步更新浏览次数
         supabase
           .from('poses')
           .update({ view_count: selectedPose.view_count + 1 })
