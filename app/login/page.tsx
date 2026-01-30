@@ -2,28 +2,62 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Mail, Lock } from 'lucide-react';
-
-// 测试账号
-const TEST_ACCOUNT = {
-  email: 'demo@shiguangyao.com',
-  password: 'demo123456'
-};
+import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState({ email: TEST_ACCOUNT.email, password: TEST_ACCOUNT.password });
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setIsLoading(true);
-    setTimeout(() => {
-      // 登录成功，设置登录状态
-      localStorage.setItem('isLoggedIn', 'true');
+
+    try {
+      const supabase = createClient();
+      if (!supabase) {
+        setError('系统配置错误，请稍后重试');
+        setIsLoading(false);
+        return;
+      }
+
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (signInError) {
+        // 错误信息中文化（不区分大小写）
+        const errorMessages: Record<string, string> = {
+          'invalid login credentials': '邮箱或密码错误',
+          'email not confirmed': '请先验证您的邮箱',
+          'email rate limit exceeded': '登录尝试过于频繁，请稍后再试',
+        };
+        const errorMsg = errorMessages[signInError.message.toLowerCase()] || signInError.message;
+        setError(errorMsg);
+        setIsLoading(false);
+        return;
+      }
+
+      // 检查邮箱是否已验证
+      if (!data.user?.email_confirmed_at) {
+        await supabase.auth.signOut();
+        setError('请先验证您的邮箱后再登录');
+        setIsLoading(false);
+        return;
+      }
+
+      // 登录成功，跳转到个人中心
       router.push('/profile');
-    }, 800);
+      router.refresh();
+    } catch (err) {
+      setError('登录失败，请稍后重试');
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -115,6 +149,20 @@ export default function LoginPage() {
               required
             />
           </div>
+
+          {/* 错误提示 */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-red-50 border border-red-200 rounded-2xl p-3 text-sm text-red-600 text-center"
+              >
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* 提交按钮 */}
@@ -133,8 +181,17 @@ export default function LoginPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          className="text-center mt-8"
+          className="text-center mt-8 space-y-3"
         >
+          <p className="text-sm text-[#5D4037]/60">
+            <button
+              type="button"
+              onClick={() => router.push('/auth/forgot-password')}
+              className="text-[#FFC857] font-medium hover:underline"
+            >
+              忘记密码？
+            </button>
+          </p>
           <p className="text-sm text-[#5D4037]/60">
             还没有账号？
             <button

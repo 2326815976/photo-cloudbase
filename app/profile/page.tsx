@@ -1,20 +1,51 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Calendar, Lock, LogOut, Sparkles } from 'lucide-react';
+import { Calendar, Lock, LogOut } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 export default function ProfilePage() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   // 检查登录状态
-  useState(() => {
-    if (typeof window !== 'undefined') {
-      setIsLoggedIn(localStorage.getItem('isLoggedIn') === 'true');
-    }
-  });
+  useEffect(() => {
+    const checkAuth = async () => {
+      const supabase = createClient();
+      if (!supabase) {
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        setIsLoggedIn(true);
+        setUserEmail(session.user.email || '');
+        setUserName(session.user.user_metadata?.name || session.user.email?.split('@')[0] || '用户');
+      }
+
+      setIsLoading(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#FFFBF0]">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-sm text-[#5D4037]/60">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return (
@@ -100,8 +131,8 @@ export default function ProfilePage() {
               光
             </div>
             <div>
-              <h2 className="text-lg font-bold text-[#5D4037]">拾光者</h2>
-              <p className="text-xs text-[#5D4037]/50">记录美好瞬间</p>
+              <h2 className="text-lg font-bold text-[#5D4037]">{userName}</h2>
+              <p className="text-xs text-[#5D4037]/50">{userEmail}</p>
             </div>
           </div>
         </motion.div>
@@ -148,9 +179,13 @@ export default function ProfilePage() {
             transition={{ delay: 0.4 }}
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
-            onClick={() => {
-              localStorage.removeItem('isLoggedIn');
+            onClick={async () => {
+              const supabase = createClient();
+              if (supabase) {
+                await supabase.auth.signOut();
+              }
               setIsLoggedIn(false);
+              router.push('/login');
             }}
             className="w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md hover:border-red-500/30 transition-all"
           >

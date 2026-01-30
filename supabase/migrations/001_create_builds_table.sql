@@ -416,7 +416,12 @@ $$;
 create or replace function public.handle_new_user() returns trigger language plpgsql security definer as $$
 begin
   insert into public.profiles (id, email, name, role)
-  values (new.id, new.email, split_part(new.email, '@', 1), 'user');
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    'user'
+  );
   -- 尝试更新日增用户统计
   insert into public.analytics_daily (date, new_users_count) values (current_date, 1)
   on conflict (date) do update set new_users_count = analytics_daily.new_users_count + 1;
