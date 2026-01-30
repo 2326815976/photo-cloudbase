@@ -140,113 +140,125 @@ export default function AlbumDetailPage() {
         }
       `}</style>
 
-      {/* 标题区域 */}
+      {/* 手账风页头 */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none px-6 pt-8 pb-4"
+        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
       >
-        {/* 返回按钮 */}
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={() => router.push('/')}
-          className="absolute left-6 top-8 w-10 h-10 rounded-full bg-[#5D4037]/10 hover:bg-[#5D4037]/20 flex items-center justify-center transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-        </motion.button>
+        <div className="px-6 pt-6 pb-3 relative">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => router.push('/')}
+            className="absolute left-6 top-6"
+          >
+            <ArrowLeft className="w-6 h-6 text-[#FFC857]" strokeWidth={2.5} />
+          </motion.button>
 
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-[#5D4037] mb-2">
-            {mockAlbum.title}
-          </h1>
-          <p className="text-sm text-[#5D4037]/60">
-            专属返图空间 · {filteredPhotos.length} 张照片
-          </p>
-
-          {/* 简洁提示横幅 */}
-          <AnimatePresence>
-            {showToast && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-3 px-4 py-2 bg-[#FFC857]/20 rounded-full text-xs text-[#5D4037]/70 flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>照片 7 天后消失，定格后永久保留</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <div className="text-center">
+            <h1 className="text-xl font-bold text-[#5D4037] mb-1">专属回忆</h1>
+            <p className="text-xs text-[#5D4037]/50">{filteredPhotos.length} 张照片 · 7天后消失</p>
+          </div>
         </div>
+        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
-      {/* 文件夹导航 - 吸顶 */}
-      <div className="flex-none sticky top-0 bg-[#FFFBF0] z-10 px-6 pb-4">
-        <div className="flex gap-2 overflow-x-auto scrollbar-hidden mb-3">
+      {/* 极细提示跑马灯 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex-none h-6 bg-[#FFC857]/15 flex items-center justify-center relative overflow-hidden"
+          >
+            <motion.div
+              animate={{ x: [0, -10, 0] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              className="text-[10px] text-[#5D4037]/60 flex items-center gap-1"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>定格后永久保留，可在照片墙展示</span>
+            </motion.div>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setShowToast(false)}
+              className="absolute right-2 text-[#5D4037]/40 hover:text-[#5D4037]/60"
+            >
+              ×
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 折叠式工具栏 */}
+      <div className="flex-none h-12 sticky top-0 bg-[#FFFBF0] z-10 px-3 flex items-center gap-2 border-b border-[#5D4037]/5">
+        {/* 左侧：文件夹胶囊 */}
+        <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-hidden">
           {mockAlbum.folders.map((folder) => (
             <motion.button
               key={folder.id}
               whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedFolder(folder.id)}
+              animate={selectedFolder === folder.id ? { rotate: 2 } : { rotate: 0 }}
               className={`
-                flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all
+                flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all
                 ${selectedFolder === folder.id
-                  ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
-                  : 'bg-transparent text-[#5D4037]/60 border-2 border-[#5D4037]/20 hover:border-[#5D4037]/40'
+                  ? 'bg-[#FFC857] text-white shadow-sm'
+                  : 'bg-transparent text-[#5D4037]/50 border border-[#5D4037]/15'
                 }
               `}
             >
-              {folder.name} ({folder.count})
+              {folder.name}
             </motion.button>
           ))}
         </div>
 
-        {/* 批量操作栏 */}
-        <div className="flex items-center justify-between gap-3">
+        {/* 右侧：功能图标按钮 */}
+        <div className="flex-none flex items-center gap-1.5">
           <motion.button
-            whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.9 }}
             onClick={toggleSelectAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-[#5D4037]/5 rounded-full"
           >
             {selectedPhotos.size === filteredPhotos.length ? (
               <>
-                <CheckSquare className="w-4 h-4" />
-                <span>取消全选</span>
+                <CheckSquare className="w-4 h-4 text-[#FFC857]" />
+                <span className="text-xs font-medium text-[#5D4037]">全选</span>
               </>
             ) : (
               <>
-                <Square className="w-4 h-4" />
-                <span>全选</span>
+                <Square className="w-4 h-4 text-[#5D4037]/40" />
+                <span className="text-xs font-medium text-[#5D4037]/60">全选</span>
               </>
             )}
           </motion.button>
 
           {selectedPhotos.size > 0 && (
-            <div className="flex items-center gap-2">
+            <>
               <motion.button
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                whileTap={{ scale: 0.95 }}
+                whileTap={{ scale: 0.9 }}
                 onClick={handleBatchDelete}
-                className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all"
+                className="w-8 h-8 rounded-full bg-red-500/10 shadow-sm flex items-center justify-center"
               >
-                <Trash2 className="w-4 h-4" />
-                <span>删除</span>
+                <Trash2 className="w-4 h-4 text-red-600" />
               </motion.button>
 
               <motion.button
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                whileTap={{ scale: 0.95 }}
+                whileTap={{ scale: 0.9 }}
                 onClick={handleBatchDownload}
-                className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+                className="w-8 h-8 rounded-full bg-[#FFC857] shadow-sm flex items-center justify-center relative"
               >
-                <Download className="w-4 h-4" />
-                <span>下载 ({selectedPhotos.size})</span>
+                <Download className="w-4 h-4 text-[#5D4037]" />
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#5D4037] text-white text-[8px] rounded-full flex items-center justify-center">
+                  {selectedPhotos.size}
+                </span>
               </motion.button>
-            </div>
+            </>
           )}
         </div>
       </div>

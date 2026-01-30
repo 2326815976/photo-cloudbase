@@ -127,22 +127,25 @@ export default function BookingPage() {
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* 标题区域 */}
+      {/* 手账风页头 */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none px-6 pt-8 pb-4 text-center"
+        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
       >
-        <h1 className="text-2xl font-bold text-[#5D4037] mb-2">
-          {activeBooking ? '我的预约' : '约拍邀请函'}
-        </h1>
-        <p className="text-sm text-[#5D4037]/60">
-          {activeBooking ? '查看预约详情' : '写下你的约拍便利贴 ✨'}
-        </p>
+        <div className="px-6 pt-6 pb-3">
+          <h1 className="text-xl font-bold text-[#5D4037] mb-1">
+            {activeBooking ? '我的预约' : '约拍邀请'}
+          </h1>
+          <p className="text-xs text-[#5D4037]/50">
+            {activeBooking ? '查看预约详情' : '写下你的约拍便利贴 ✨'}
+          </p>
+        </div>
+        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-6 pb-32 [&::-webkit-scrollbar]:hidden">
+      <div className="flex-1 overflow-y-auto px-6 pt-4 pb-20 [&::-webkit-scrollbar]:hidden">
         {/* 场景 A: 有活跃订单 - 显示票据 */}
         {activeBooking && (
           <ActiveBookingTicket
@@ -198,7 +201,7 @@ export default function BookingPage() {
                   </div>
 
                   <form onSubmit={handleSubmit} className="space-y-8">
-                    {/* 约拍类型 - 贴纸选项卡 */}
+                    {/* 约拍类型 - 紧凑型网格 */}
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium mb-3 text-[#5D4037]">
                         <span>约拍类型</span>
@@ -211,17 +214,17 @@ export default function BookingPage() {
                             onClick={() => handleTypeSelect(type.name)}
                             whileTap={{ scale: 0.95 }}
                             className={`
-                              relative p-4 rounded-xl text-center transition-all
+                              flex items-center justify-center gap-2 p-3 rounded-xl text-center transition-all
                               ${formData.type === type.name
-                                ? 'bg-[#FFC857] shadow-[2px_2px_0px_#5D4037] rotate-1 border-2 border-[#5D4037]'
+                                ? 'bg-[#FFC857] shadow-[2px_2px_0px_#5D4037] border-2 border-[#5D4037]'
                                 : 'bg-transparent border-2 border-dashed border-[#5D4037]/30 hover:border-[#5D4037]/50'
                               }
                             `}
                           >
-                            <div className="text-2xl mb-1">{type.emoji}</div>
-                            <div className={`text-sm font-medium ${formData.type === type.name ? 'text-[#5D4037]' : 'text-[#5D4037]/60'}`}>
+                            <span className="text-xl">{type.emoji}</span>
+                            <span className={`text-sm font-medium ${formData.type === type.name ? 'text-[#5D4037]' : 'text-[#5D4037]/60'}`}>
                               {type.name}
-                            </div>
+                            </span>
                           </motion.button>
                         ))}
                       </div>

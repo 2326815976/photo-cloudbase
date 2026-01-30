@@ -86,44 +86,47 @@ export default function HomePage() {
   };
 
   return (
-    <div
-      className="flex flex-col h-full w-full px-6 pt-8 pb-28"
-      style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
-      }}
-    >
-      {/* Hero 区域 */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none text-center mb-4"
-      >
-        <h1 className="text-3xl font-bold mb-2 text-[#5D4037]">
-          拾光谣
-        </h1>
-        <p className="text-[#5D4037]/70 text-sm">
-          记录此刻的不期而遇 ✨
-        </p>
-      </motion.div>
-
-      {/* 风格选择器 */}
+    <div className="flex flex-col h-full w-full">
+      {/* 手账风页头 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="flex-none px-2 mb-4"
+        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
       >
+        <div className="px-6 pt-6 pb-3">
+          <h1 className="text-xl font-bold text-[#5D4037] mb-1">拾光谣</h1>
+          <p className="text-xs text-[#5D4037]/50">记录此刻的不期而遇 ✨</p>
+        </div>
+        <div className="border-b border-dashed border-[#5D4037]/20"></div>
+      </motion.div>
+
+      {/* 主内容区 */}
+      <div
+        className="flex-1 flex flex-col px-6 pt-4 pb-20"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
+        }}
+      >
+
+        {/* 风格选择器 */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="flex-none mb-4"
+        >
         <div className="flex gap-2 overflow-x-auto scrollbar-hidden">
           {styleOptions.map((style) => (
             <motion.button
               key={style}
               whileTap={{ scale: 0.95 }}
               onClick={() => toggleStyle(style)}
+              animate={selectedStyles.includes(style) ? { rotate: 2 } : { rotate: 0 }}
               className={`
-                flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all
+                flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all
                 ${selectedStyles.includes(style)
-                  ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
-                  : 'bg-transparent text-[#5D4037]/60 border-2 border-[#5D4037]/20 hover:border-[#5D4037]/40'
+                  ? 'bg-[#FFC857] text-white shadow-sm'
+                  : 'bg-transparent text-[#5D4037]/50 border border-[#5D4037]/15'
                 }
               `}
             >
@@ -131,9 +134,9 @@ export default function HomePage() {
             </motion.button>
           ))}
         </div>
-      </motion.div>
+        </motion.div>
 
-      {/* 拍立得卡片 */}
+        {/* 拍立得卡片 */}
       <AnimatePresence mode="wait">
         <motion.div
           key={currentPose.id}
@@ -167,10 +170,10 @@ export default function HomePage() {
             </div>
           </div>
         </motion.div>
-      </AnimatePresence>
+        </AnimatePresence>
 
-      {/* 贴纸按钮 */}
-      <motion.div
+        {/* 贴纸按钮 */}
+        <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
@@ -189,16 +192,17 @@ export default function HomePage() {
             <Sparkles className="w-6 h-6 text-[#5D4037]" />
           )}
         </motion.button>
-      </motion.div>
+        </motion.div>
 
-      <motion.p
+        <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
         className="flex-none text-center mt-2 text-sm text-[#5D4037]/60"
       >
         {isAnimating ? '正在切换...' : '点击换个姿势'}
-      </motion.p>
+        </motion.p>
+      </div>
     </div>
   );
 }

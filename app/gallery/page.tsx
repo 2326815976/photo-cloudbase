@@ -115,22 +115,21 @@ export default function GalleryPage() {
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* 标题区域 */}
+      {/* 手账风页头 */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none px-4 pt-8 pb-4 text-center"
+        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
       >
-        <h1 className="text-2xl font-bold text-[#5D4037] mb-2">
-          照片墙
-        </h1>
-        <p className="text-sm text-[#5D4037]/60">
-          分享美好瞬间 ✨
-        </p>
+        <div className="px-6 pt-6 pb-3">
+          <h1 className="text-xl font-bold text-[#5D4037] mb-1">照片墙</h1>
+          <p className="text-xs text-[#5D4037]/50">分享美好瞬间 ✨</p>
+        </div>
+        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-3 pb-32">
+      <div className="flex-1 overflow-y-auto px-3 pb-20">
         {/* 双列瀑布流布局 */}
         <div className="columns-2 gap-3">
           {photos.map((photo, index) => (
