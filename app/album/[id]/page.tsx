@@ -144,25 +144,25 @@ export default function AlbumDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/80 backdrop-blur-sm"
+        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-6 pt-6 pb-3 relative">
+        <div className="px-4 py-3 flex items-center justify-between gap-2 relative">
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={() => router.push('/')}
-            className="absolute left-6 top-6"
+            className="flex-shrink-0"
           >
-            <ArrowLeft className="w-6 h-6 text-[#FFC857]" strokeWidth={2.5} />
+            <ArrowLeft className="w-5 h-5 text-[#FFC857]" strokeWidth={2.5} />
           </motion.button>
 
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属回忆</h1>
-            <div className="mt-2 inline-block px-3 py-1 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-              <p className="text-xs font-bold text-[#8D6E63] tracking-wide">✨ {filteredPhotos.length} 张照片 · 7天后消失 ✨</p>
-            </div>
+          <div className="flex-1 text-center">
+            <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属回忆</h1>
+          </div>
+
+          <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ {filteredPhotos.length}张 ✨</p>
           </div>
         </div>
-        <div className="border-b border-dashed border-[#5D4037]/20"></div>
       </motion.div>
 
       {/* 极细提示跑马灯 */}
@@ -297,7 +297,7 @@ export default function AlbumDetailPage() {
                       e.stopPropagation();
                       togglePhotoSelection(photo.id);
                     }}
-                    className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-transparent flex items-center justify-center hover:bg-white/20 transition-colors"
+                    className="absolute top-3 right-3 w-8 h-8 rounded-2xl bg-transparent flex items-center justify-center hover:bg-white/20 transition-colors"
                   >
                     {selectedPhotos.has(photo.id) ? (
                       <CheckSquare className="w-5 h-5 text-[#FFC857]" />

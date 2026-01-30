@@ -117,7 +117,7 @@ export default function HomePage() {
 
       {/* 主内容区 */}
       <div
-        className="flex-1 flex flex-col px-6 pt-4 pb-4 min-h-0"
+        className="flex-1 flex flex-col px-5 pt-3 pb-3 min-h-0"
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
         }}
@@ -128,7 +128,7 @@ export default function HomePage() {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="flex-none mb-6"
+          className="flex-none mb-4"
         >
         <div className="flex gap-2 overflow-x-auto scrollbar-hidden relative">
           {/* 滚动渐变提示 */}
@@ -168,9 +168,9 @@ export default function HomePage() {
           {/* 和纸胶带装饰 */}
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-20 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-2deg] z-10" />
 
-          <div className="bg-white p-4 pb-8 rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative">
+          <div className="bg-white p-3 pb-5 rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.12)] hover:shadow-[0_12px_40px_rgba(93,64,55,0.16)] transition-shadow duration-300 h-full flex flex-col relative">
             {/* 手账贴纸装饰 */}
-            <div className="absolute top-2 right-2 text-2xl opacity-20 rotate-12">📷</div>
+            <div className="absolute top-1 right-1 text-xl opacity-20 rotate-12">📷</div>
 
             <div
               className="relative flex-1 bg-white overflow-hidden cursor-pointer rounded-sm"
@@ -182,7 +182,7 @@ export default function HomePage() {
                 className="w-full h-full object-contain"
               />
             </div>
-            <div className="mt-4 flex-none">
+            <div className="mt-3 flex-none">
               <div className="flex flex-wrap gap-2 justify-center">
                 {currentPose.tags.map((tag, index) => (
                   <motion.span
@@ -190,7 +190,7 @@ export default function HomePage() {
                     initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
                     animate={{ opacity: 1, scale: 1, rotate: index % 2 === 0 ? -1.5 : 1.5 }}
                     transition={{ delay: index * 0.1 }}
-                    className={`px-3 py-1.5 text-sm rounded-lg font-bold shadow-[2px_2px_0px_rgba(93,64,55,0.1)] border-2 ${
+                    className={`px-2.5 py-1 text-xs rounded-lg font-bold shadow-[2px_2px_0px_rgba(93,64,55,0.1)] border-2 ${
                       journalColors[index % journalColors.length]
                     }`}
                     style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
@@ -205,7 +205,7 @@ export default function HomePage() {
         </AnimatePresence>
 
         {/* 底部固定区域：按钮 + 文字 */}
-        <div className="flex-none pb-16">
+        <div className="flex-none pb-14">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -217,12 +217,12 @@ export default function HomePage() {
               disabled={isAnimating}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95, boxShadow: '2px 2px 0px #5D4037' }}
-              className="w-16 h-16 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] flex items-center justify-center disabled:opacity-50 transition-all"
+              className="w-14 h-14 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] flex items-center justify-center disabled:opacity-50 transition-all"
             >
               {isAnimating ? (
-                <RefreshCw className="w-6 h-6 text-[#5D4037] animate-spin" />
+                <RefreshCw className="w-5 h-5 text-[#5D4037] animate-spin" />
               ) : (
-                <Sparkles className="w-6 h-6 text-[#5D4037]" />
+                <Sparkles className="w-5 h-5 text-[#5D4037]" />
               )}
             </motion.button>
           </motion.div>
@@ -231,7 +231,7 @@ export default function HomePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            className="text-center text-sm text-[#5D4037]/60 mt-2"
+            className="text-center text-sm text-[#5D4037]/70 font-medium"
             style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
           >
             {isAnimating ? '正在切换...' : '点击换个姿势'}
