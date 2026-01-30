@@ -3,8 +3,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw } from 'lucide-react';
-import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
 
 // 模拟数据：拍照姿势
 const mockPoses = [
@@ -40,6 +38,15 @@ const mockPoses = [
   },
 ];
 
+// 马卡龙色系
+const macaronColors = [
+  'bg-pink-100 text-pink-800',
+  'bg-blue-100 text-blue-800',
+  'bg-purple-100 text-purple-800',
+  'bg-yellow-100 text-yellow-800',
+  'bg-green-100 text-green-800',
+];
+
 export default function HomePage() {
   const [currentPose, setCurrentPose] = useState(mockPoses[0]);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -54,7 +61,12 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen px-4 py-8">
+    <div
+      className="min-h-screen px-4 py-8 relative"
+      style={{
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
+      }}
+    >
       <div className="max-w-md mx-auto">
         {/* Hero 区域 */}
         <motion.div
@@ -62,25 +74,26 @@ export default function HomePage() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <h1 className="text-3xl font-bold mb-2 text-foreground">
+          <h1 className="text-3xl font-bold mb-2 text-[#5D4037]">
             拾光谣
           </h1>
-          <p className="text-foreground/70 text-sm">
+          <p className="text-[#5D4037]/70 text-sm">
             记录此刻的不期而遇 ✨
           </p>
         </motion.div>
 
-        {/* 姿势卡片 */}
+        {/* 拍立得卡片 */}
         <AnimatePresence mode="wait">
           <motion.div
             key={currentPose.id}
             initial={{ opacity: 0, scale: 0.9, rotate: -5 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            animate={{ opacity: 1, scale: 1, rotate: Math.random() > 0.5 ? 1 : -1 }}
             exit={{ opacity: 0, scale: 0.9, rotate: 5 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+            className="mb-6"
           >
-            <Card className="overflow-hidden">
-              <div className="relative aspect-[2/3] bg-accent/10">
+            <div className="bg-white p-4 pb-8 rounded-lg shadow-lg">
+              <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden">
                 <img
                   src={currentPose.imageUrl}
                   alt="拍照姿势"
@@ -88,58 +101,53 @@ export default function HomePage() {
                 />
               </div>
               <div className="mt-4">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 justify-center">
                   {currentPose.tags.map((tag, index) => (
                     <span
                       key={index}
-                      className="px-3 py-1 bg-accent/20 text-foreground text-sm rounded-full border border-accent"
+                      className={`px-3 py-1 text-sm rounded-full font-medium ${
+                        macaronColors[index % macaronColors.length]
+                      }`}
                     >
                       {tag}
                     </span>
                   ))}
                 </div>
               </div>
-            </Card>
+            </div>
           </motion.div>
         </AnimatePresence>
 
-        {/* 换姿势按钮 */}
+        {/* 贴纸按钮 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="mt-6"
+          className="flex justify-center"
         >
-          <Button
+          <motion.button
             onClick={getRandomPose}
             disabled={isAnimating}
-            variant="primary"
-            size="lg"
-            className="w-full flex items-center justify-center gap-2"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95, boxShadow: '2px 2px 0px #5D4037' }}
+            className="w-16 h-16 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] flex items-center justify-center disabled:opacity-50 transition-all"
           >
             {isAnimating ? (
-              <RefreshCw className="w-5 h-5 animate-spin" />
+              <RefreshCw className="w-6 h-6 text-[#5D4037] animate-spin" />
             ) : (
-              <Sparkles className="w-5 h-5" />
+              <Sparkles className="w-6 h-6 text-[#5D4037]" />
             )}
-            <span>{isAnimating ? '正在切换...' : '✨ 换个姿势'}</span>
-          </Button>
+          </motion.button>
         </motion.div>
 
-        {/* 专属空间入口 */}
-        <motion.div
+        <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="mt-8 text-center"
+          transition={{ delay: 0.3 }}
+          className="text-center mt-3 text-sm text-[#5D4037]/60"
         >
-          <a
-            href="/album"
-            className="inline-flex items-center gap-2 text-secondary hover:text-secondary/80 transition-colors"
-          >
-            <span className="text-sm">🔐 进入专属返图空间</span>
-          </a>
-        </motion.div>
+          {isAnimating ? '正在切换...' : '点击换个姿势'}
+        </motion.p>
       </div>
     </div>
   );
