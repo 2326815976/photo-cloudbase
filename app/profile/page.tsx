@@ -27,7 +27,15 @@ export default function ProfilePage() {
       if (session?.user) {
         setIsLoggedIn(true);
         setUserEmail(session.user.email || '');
-        setUserName(session.user.user_metadata?.name || session.user.email?.split('@')[0] || '用户');
+
+        // 从数据库profiles表获取用户名
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', session.user.id)
+          .single();
+
+        setUserName(profile?.name || session.user.email?.split('@')[0] || '用户');
       }
 
       setIsLoading(false);
@@ -162,6 +170,7 @@ export default function ProfilePage() {
             transition={{ delay: 0.3 }}
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
+            onClick={() => router.push('/profile/change-password')}
             className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
           >
             <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
@@ -179,6 +188,24 @@ export default function ProfilePage() {
             transition={{ delay: 0.4 }}
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
+            onClick={() => router.push('/profile/delete-account')}
+            className="w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md hover:border-red-500/30 transition-all"
+          >
+            <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+              <LogOut className="w-5 h-5 text-red-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-red-600">删除账户</h3>
+              <p className="text-xs text-[#5D4037]/50">永久删除账户和所有数据</p>
+            </div>
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5 }}
+            whileTap={{ scale: 0.98 }}
+            whileHover={{ x: 4 }}
             onClick={async () => {
               const supabase = createClient();
               if (supabase) {
@@ -187,13 +214,13 @@ export default function ProfilePage() {
               setIsLoggedIn(false);
               router.push('/login');
             }}
-            className="w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md hover:border-red-500/30 transition-all"
+            className="w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md transition-all"
           >
-            <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-              <LogOut className="w-5 h-5 text-red-600" />
+            <div className="w-10 h-10 rounded-full bg-[#5D4037]/10 flex items-center justify-center">
+              <LogOut className="w-5 h-5 text-[#5D4037]" />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-red-600">退出登录</h3>
+              <h3 className="text-sm font-medium text-[#5D4037]">退出登录</h3>
               <p className="text-xs text-[#5D4037]/50">安全退出当前账户</p>
             </div>
           </motion.button>
