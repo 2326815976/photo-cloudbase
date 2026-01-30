@@ -190,7 +190,7 @@ export default function HomePage() {
                     initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
                     animate={{ opacity: 1, scale: 1, rotate: index % 2 === 0 ? -1.5 : 1.5 }}
                     transition={{ delay: index * 0.1 }}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-bold shadow-[2px_2px_0px_rgba(93,64,55,0.1)] border-2 ${
+                    className={`px-2.5 py-1 text-xs rounded-2xl font-bold shadow-[2px_2px_0px_rgba(93,64,55,0.1)] border-2 ${
                       journalColors[index % journalColors.length]
                     }`}
                     style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
