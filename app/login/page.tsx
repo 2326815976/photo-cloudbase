@@ -51,8 +51,19 @@ export default function LoginPage() {
         return;
       }
 
-      // 登录成功，跳转到个人中心
-      router.push('/profile');
+      // 获取用户角色
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .single();
+
+      // 根据角色跳转
+      if (profile?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/profile');
+      }
       router.refresh();
     } catch (err) {
       setError('登录失败，请稍后重试');
