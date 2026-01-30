@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Camera, Plus, Trash2, Tag, Search } from 'lucide-react';
+import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Pose {
@@ -14,168 +14,931 @@ interface Pose {
   created_at: string;
 }
 
+interface PoseTag {
+  id: number;
+  name: string;
+  usage_count: number;
+  created_at: string;
+}
+
 export default function PosesPage() {
+  const [activeTab, setActiveTab] = useState<'poses' | 'tags'>('poses');
+
+  // 摆姿管理状态
   const [poses, setPoses] = useState<Pose[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTag, setSearchTag] = useState('');
-  const [page, setPage] = useState(1);
-  const pageSize = 12;
+  const [posesLoading, setPosesLoading] = useState(true);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const posesPerPage = 10;
+  const [selectedPoseIds, setSelectedPoseIds] = useState<number[]>([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showPoseModal, setShowPoseModal] = useState(false);
+  const [editingPose, setEditingPose] = useState<Pose | null>(null);
+  const [poseFormData, setPoseFormData] = useState({ image: null as File | null, tags: [] as string[] });
+  const [uploading, setUploading] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // 标签管理状态
+  const [tags, setTags] = useState<PoseTag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(true);
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [addingTag, setAddingTag] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [isTagSelectionMode, setIsTagSelectionMode] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
     loadPoses();
-  }, [page, searchTag]);
+    loadTags();
+  }, [selectedTags, currentPage]);
 
+  // 摆姿管理函数
   const loadPoses = async () => {
-    setLoading(true);
+    setPosesLoading(true);
     const supabase = createClient();
 
     let query = supabase
       .from('poses')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
+      .range((currentPage - 1) * posesPerPage, currentPage * posesPerPage - 1);
 
-    if (searchTag) {
-      query = query.contains('tags', [searchTag]);
+    if (selectedTags.length > 0) {
+      query = query.overlaps('tags', selectedTags);
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (!error && data) {
       setPoses(data);
+      setTotalCount(count || 0);
     }
-    setLoading(false);
+    setPosesLoading(false);
   };
 
-  const handleDelete = async (id: number) => {
+  const handleAddPose = async () => {
+    if (!poseFormData.image) {
+      alert('请选择图片');
+      return;
+    }
+
+    setUploading(true);
+    const supabase = createClient();
+
+    try {
+      // 上传图片到Storage
+      const fileExt = poseFormData.image.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `poses/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('poses')
+        .upload(filePath, poseFormData.image);
+
+      if (uploadError) throw uploadError;
+
+      // 获取公开URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('poses')
+        .getPublicUrl(filePath);
+
+      // 插入数据库
+      const { error: insertError } = await supabase
+        .from('poses')
+        .insert({
+          image_url: publicUrl,
+          storage_path: filePath,
+          tags: poseFormData.tags,
+        });
+
+      if (insertError) throw insertError;
+
+      setShowPoseModal(false);
+      setPoseFormData({ image: null, tags: [] });
+      loadPoses();
+      loadTags(); // 刷新标签使用次数
+    } catch (error: any) {
+      alert('添加失败：' + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleEditPose = async () => {
+    if (!editingPose) return;
+
+    setUploading(true);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('poses')
+        .update({ tags: poseFormData.tags })
+        .eq('id', editingPose.id);
+
+      if (error) throw error;
+
+      setShowPoseModal(false);
+      setEditingPose(null);
+      setPoseFormData({ image: null, tags: [] });
+      loadPoses();
+      loadTags();
+    } catch (error: any) {
+      alert('更新失败：' + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeletePose = async (id: number, storagePath: string) => {
     if (!confirm('确定要删除这个摆姿吗？')) return;
 
     const supabase = createClient();
-    const { error } = await supabase.from('poses').delete().eq('id', id);
 
-    if (!error) {
+    try {
+      // 先删除Storage中的文件
+      if (storagePath) {
+        const { error: storageError } = await supabase.storage
+          .from('poses')
+          .remove([storagePath]);
+
+        if (storageError) {
+          console.error('删除存储文件失败:', storageError);
+          // 继续删除数据库记录，即使文件删除失败
+        }
+      }
+
+      // 删除数据库记录
+      const { error: dbError } = await supabase
+        .from('poses')
+        .delete()
+        .eq('id', id);
+
+      if (dbError) throw dbError;
+
       loadPoses();
-    } else {
+      loadTags();
+    } catch (error: any) {
       alert('删除失败：' + error.message);
     }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedPoseIds.length === 0) {
+      alert('请先选择要删除的摆姿');
+      return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${selectedPoseIds.length} 个摆姿吗？`)) return;
+
+    const supabase = createClient();
+
+    try {
+      // 获取要删除的摆姿的storage_path
+      const posesToDelete = poses.filter(p => selectedPoseIds.includes(p.id));
+      const storagePaths = posesToDelete.map(p => p.storage_path).filter(Boolean);
+
+      // 批量删除Storage中的文件
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from('poses')
+          .remove(storagePaths);
+
+        if (storageError) {
+          console.error('批量删除存储文件失败:', storageError);
+          // 继续删除数据库记录
+        }
+      }
+
+      // 批量删除数据库记录
+      const { error: dbError } = await supabase
+        .from('poses')
+        .delete()
+        .in('id', selectedPoseIds);
+
+      if (dbError) throw dbError;
+
+      setSelectedPoseIds([]);
+      setIsSelectionMode(false);
+      loadPoses();
+      loadTags();
+    } catch (error: any) {
+      alert('批量删除失败：' + error.message);
+    }
+  };
+
+  const togglePoseSelection = (id: number) => {
+    setSelectedPoseIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllPoses = () => {
+    setSelectedPoseIds(poses.map(p => p.id));
+  };
+
+  const clearPoseSelection = () => {
+    setSelectedPoseIds([]);
+    setIsSelectionMode(false);
+  };
+
+  const openEditModal = (pose: Pose) => {
+    setEditingPose(pose);
+    setPoseFormData({ image: null, tags: pose.tags });
+    setShowPoseModal(true);
+  };
+
+  const openAddModal = () => {
+    setEditingPose(null);
+    setPoseFormData({ image: null, tags: [] });
+    setImagePreview(null);
+    setShowPoseModal(true);
+  };
+
+  const handleImageSelect = (file: File | null) => {
+    setPoseFormData({ ...poseFormData, image: file });
+
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImagePreview(null);
+    }
+  };
+
+  const togglePoseTag = (tagName: string) => {
+    setPoseFormData(prev => ({
+      ...prev,
+      tags: prev.tags.includes(tagName)
+        ? prev.tags.filter(t => t !== tagName)
+        : [...prev.tags, tagName]
+    }));
+  };
+
+  // 标签管理函数
+  const loadTags = async () => {
+    setTagsLoading(true);
+    const supabase = createClient();
+
+    const { data, error } = await supabase
+      .from('pose_tags')
+      .select('*')
+      .order('usage_count', { ascending: false });
+
+    if (!error && data) {
+      setTags(data);
+    }
+    setTagsLoading(false);
+  };
+
+  const handleAddTag = async () => {
+    if (!newTagName.trim()) {
+      alert('请输入标签名称');
+      return;
+    }
+
+    setAddingTag(true);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('pose_tags')
+        .insert({ name: newTagName.trim() });
+
+      if (error) throw error;
+
+      setShowTagModal(false);
+      setNewTagName('');
+      loadTags();
+    } catch (error: any) {
+      alert('添加失败：' + error.message);
+    } finally {
+      setAddingTag(false);
+    }
+  };
+
+  const handleDeleteTag = async (id: number, name: string) => {
+    if (!confirm(`确定要删除标签"${name}"吗？所有摆姿中的该标签也会被移除。`)) return;
+
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('pose_tags')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      loadTags();
+      loadPoses();
+    } catch (error: any) {
+      alert('删除失败：' + error.message);
+    }
+  };
+
+  const handleBatchDeleteTags = async () => {
+    if (selectedTagIds.length === 0) {
+      alert('请先选择要删除的标签');
+      return;
+    }
+
+    const tagNames = tags.filter(t => selectedTagIds.includes(t.id)).map(t => t.name).join('、');
+    if (!confirm(`确定要删除选中的 ${selectedTagIds.length} 个标签（${tagNames}）吗？所有摆姿中的这些标签也会被移除。`)) return;
+
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('pose_tags')
+        .delete()
+        .in('id', selectedTagIds);
+
+      if (error) throw error;
+
+      setSelectedTagIds([]);
+      setIsTagSelectionMode(false);
+      loadTags();
+      loadPoses();
+    } catch (error: any) {
+      alert('批量删除失败：' + error.message);
+    }
+  };
+
+  const toggleTagSelection = (id: number) => {
+    setSelectedTagIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllTags = () => {
+    setSelectedTagIds(tags.map(t => t.id));
+  };
+
+  const clearTagSelection = () => {
+    setSelectedTagIds([]);
+    setIsTagSelectionMode(false);
+  };
+
+  const toggleTagFilter = (tagName: string) => {
+    setCurrentPage(1); // 重置到第一页
+    setSelectedTags(prev =>
+      prev.includes(tagName)
+        ? prev.filter(t => t !== tagName)
+        : [...prev, tagName]
+    );
   };
 
   return (
     <div className="space-y-6">
       {/* 页面标题 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-            摆姿管理 📸
-          </h1>
-          <p className="text-sm text-[#5D4037]/60">管理拍照姿势库</p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          摆姿管理 📸
+        </h1>
+        <p className="text-sm text-[#5D4037]/60">管理拍照姿势库和标签</p>
+      </div>
+
+      {/* Tab切换 */}
+      <div className="flex gap-2 border-b border-[#5D4037]/10">
         <button
-          onClick={() => window.location.href = '/admin/poses/new'}
-          className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+          onClick={() => setActiveTab('poses')}
+          className={`px-6 py-3 font-medium transition-all relative ${
+            activeTab === 'poses'
+              ? 'text-[#5D4037]'
+              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
+          }`}
         >
-          <Plus className="w-5 h-5" />
-          新增摆姿
+          摆姿列表
+          {activeTab === 'poses' && (
+            <motion.div
+              layoutId="activeTab"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('tags')}
+          className={`px-6 py-3 font-medium transition-all relative ${
+            activeTab === 'tags'
+              ? 'text-[#5D4037]'
+              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
+          }`}
+        >
+          标签管理
+          {activeTab === 'tags' && (
+            <motion.div
+              layoutId="activeTab"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
+            />
+          )}
         </button>
       </div>
 
-      {/* 搜索栏 */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10">
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
-            <input
-              type="text"
-              placeholder="按标签搜索..."
-              value={searchTag}
-              onChange={(e) => setSearchTag(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-full border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
-            />
-          </div>
-        </div>
-      </div>
+      {/* 摆姿列表内容 */}
+      {activeTab === 'poses' && (
+        <div className="space-y-6">
+          {/* 操作栏 */}
+          <div className="flex items-center justify-between gap-4">
+            {/* 标签筛选 */}
+            <div className="flex-1 flex items-center gap-2 overflow-x-auto pb-2">
+              <Tag className="w-5 h-5 text-[#5D4037]/60 flex-shrink-0" />
+              {tags.map((tag) => (
+                <button
+                  key={tag.id}
+                  onClick={() => toggleTagFilter(tag.name)}
+                  className={`px-3 py-1 rounded-full text-sm whitespace-nowrap transition-all ${
+                    selectedTags.includes(tag.name)
+                      ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
+                      : 'bg-white text-[#5D4037]/60 border border-[#5D4037]/10 hover:bg-[#5D4037]/5'
+                  }`}
+                >
+                  {tag.name} ({tag.usage_count})
+                </button>
+              ))}
+            </div>
 
-      {/* 摆姿列表 */}
-      {loading ? (
-        <div className="text-center py-12">
-          <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-sm text-[#5D4037]/60">加载中...</p>
-        </div>
-      ) : poses.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-          <Camera className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-          <p className="text-[#5D4037]/60">暂无摆姿数据</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-4 gap-6">
-          <AnimatePresence>
-            {poses.map((pose) => (
-              <motion.div
-                key={pose.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-white rounded-2xl overflow-hidden shadow-sm border border-[#5D4037]/10 hover:shadow-md transition-shadow"
-              >
-                <div className="aspect-square relative">
-                  <img
-                    src={pose.image_url}
-                    alt="摆姿"
-                    className="w-full h-full object-cover"
-                  />
+            <div className="flex gap-2 flex-shrink-0">
+              {!isSelectionMode ? (
+                <>
                   <button
-                    onClick={() => handleDelete(pose.id)}
-                    className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                    onClick={() => setIsSelectionMode(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                  >
+                    批量删除
+                  </button>
+                  <button
+                    onClick={openAddModal}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                  >
+                    <Plus className="w-5 h-5" />
+                    新增摆姿
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={selectAllPoses}
+                    className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                  >
+                    全选 ({selectedPoseIds.length}/{poses.length})
+                  </button>
+                  <button
+                    onClick={handleBatchDelete}
+                    disabled={selectedPoseIds.length === 0}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" />
+                    删除选中 ({selectedPoseIds.length})
                   </button>
-                </div>
-                <div className="p-3">
-                  <div className="flex items-center gap-1 text-xs text-[#5D4037]/60 mb-2">
-                    <Camera className="w-3 h-3" />
-                    <span>浏览 {pose.view_count}</span>
-                  </div>
-                  {pose.tags && pose.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {pose.tags.map((tag, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-1 bg-[#FFC857]/20 text-[#5D4037] text-xs rounded-full"
-                        >
-                          {tag}
-                        </span>
-                      ))}
+                  <button
+                    onClick={clearPoseSelection}
+                    className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                  >
+                    取消
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 摆姿列表 */}
+          {posesLoading ? (
+            <div className="text-center py-12">
+              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-sm text-[#5D4037]/60">加载中...</p>
+            </div>
+          ) : poses.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+              <Camera className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+              <p className="text-[#5D4037]/60">暂无摆姿数据</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-5 gap-4">
+              <AnimatePresence>
+                {poses.map((pose) => (
+                  <motion.div
+                    key={pose.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all ${
+                      isSelectionMode
+                        ? selectedPoseIds.includes(pose.id)
+                          ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
+                          : 'border-[#5D4037]/10 hover:border-[#FFC857]/50'
+                        : 'border-[#5D4037]/10 hover:shadow-md'
+                    }`}
+                    onClick={() => isSelectionMode && togglePoseSelection(pose.id)}
+                    style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
+                  >
+                    <div className="aspect-[3/4] relative">
+                      {isSelectionMode && (
+                        <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
+                          selectedPoseIds.includes(pose.id)
+                            ? 'bg-[#FFC857] border-[#FFC857]'
+                            : 'bg-white border-[#5D4037]/30'
+                        }`}>
+                          {selectedPoseIds.includes(pose.id) && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                      )}
+                      <img
+                        src={pose.image_url}
+                        alt="摆姿"
+                        className="w-full h-full object-cover cursor-pointer"
+                        onClick={(e) => {
+                          if (!isSelectionMode) {
+                            e.stopPropagation();
+                            setPreviewImage(pose.image_url);
+                          }
+                        }}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent) {
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'absolute inset-0 flex items-center justify-center bg-gray-100';
+                            errorDiv.innerHTML = '<div class="text-center"><svg class="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><p class="text-xs text-gray-500">图片加载失败</p></div>';
+                            parent.appendChild(errorDiv);
+                          }
+                        }}
+                      />
+                      {!isSelectionMode && (
+                        <div className="absolute top-2 right-2 flex gap-2">
+                          <button
+                            onClick={() => openEditModal(pose)}
+                            className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePose(pose.id, pose.storage_path)}
+                            className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                    <div className="p-3">
+                      <div className="flex items-center gap-1 text-xs text-[#5D4037]/60 mb-2">
+                        <Camera className="w-3 h-3" />
+                        <span>浏览 {pose.view_count}</span>
+                      </div>
+                      {pose.tags && pose.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {pose.tags.map((tag, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-1 bg-[#FFC857]/20 text-[#5D4037] text-xs rounded-full"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* 分页 */}
+          {!posesLoading && totalCount > posesPerPage && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
+              >
+                上一页
+              </button>
+              <span className="px-4 py-2 bg-[#FFC857]/20 rounded-full text-[#5D4037] font-medium">
+                第 {currentPage} 页 / 共 {Math.ceil(totalCount / posesPerPage)} 页
+              </span>
+              <button
+                onClick={() => setCurrentPage(currentPage + 1)}
+                disabled={currentPage >= Math.ceil(totalCount / posesPerPage)}
+                className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
+              >
+                下一页
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* 分页 */}
-      {!loading && poses.length > 0 && (
-        <div className="flex justify-center gap-2">
-          <button
-            onClick={() => setPage(Math.max(1, page - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
-          >
-            上一页
-          </button>
-          <span className="px-4 py-2 bg-[#FFC857]/20 rounded-full text-[#5D4037] font-medium">
-            第 {page} 页
-          </span>
-          <button
-            onClick={() => setPage(page + 1)}
-            disabled={poses.length < pageSize}
-            className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
-          >
-            下一页
-          </button>
+      {/* 标签管理内容 */}
+      {activeTab === 'tags' && (
+        <div className="space-y-6">
+          {/* 操作按钮 */}
+          <div className="flex justify-end gap-2">
+            {!isTagSelectionMode ? (
+              <>
+                <button
+                  onClick={() => setIsTagSelectionMode(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                >
+                  批量删除
+                </button>
+                <button
+                  onClick={() => setShowTagModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                >
+                  <Plus className="w-5 h-5" />
+                  新增标签
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={selectAllTags}
+                  className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                >
+                  全选 ({selectedTagIds.length}/{tags.length})
+                </button>
+                <button
+                  onClick={handleBatchDeleteTags}
+                  disabled={selectedTagIds.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除选中 ({selectedTagIds.length})
+                </button>
+                <button
+                  onClick={clearTagSelection}
+                  className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                >
+                  取消
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* 标签列表 */}
+          {tagsLoading ? (
+            <div className="text-center py-12">
+              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-sm text-[#5D4037]/60">加载中...</p>
+            </div>
+          ) : tags.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+              <Tag className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+              <p className="text-[#5D4037]/60">暂无标签数据</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-6">
+              <AnimatePresence>
+                {tags.map((tag) => (
+                  <motion.div
+                    key={tag.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className={`bg-white rounded-2xl p-6 shadow-sm border transition-all ${
+                      isTagSelectionMode
+                        ? selectedTagIds.includes(tag.id)
+                          ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
+                          : 'border-[#5D4037]/10 hover:border-[#FFC857]/50'
+                        : 'border-[#5D4037]/10 hover:shadow-md'
+                    }`}
+                    onClick={() => isTagSelectionMode && toggleTagSelection(tag.id)}
+                    style={{ cursor: isTagSelectionMode ? 'pointer' : 'default' }}
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        {isTagSelectionMode && (
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                            selectedTagIds.includes(tag.id)
+                              ? 'bg-[#FFC857] border-[#FFC857]'
+                              : 'border-[#5D4037]/30'
+                          }`}>
+                            {selectedTagIds.includes(tag.id) && (
+                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                        )}
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center">
+                          <Tag className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-[#5D4037]">{tag.name}</h3>
+                          <p className="text-xs text-[#5D4037]/60">使用 {tag.usage_count} 次</p>
+                        </div>
+                      </div>
+                      {!isTagSelectionMode && (
+                        <button
+                          onClick={() => handleDeleteTag(tag.id, tag.name)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       )}
+
+      {/* 添加/编辑摆姿弹窗 */}
+      <AnimatePresence>
+        {showPoseModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setShowPoseModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#5D4037]">
+                  {editingPose ? '编辑摆姿' : '新增摆姿'}
+                </h2>
+                <button
+                  onClick={() => setShowPoseModal(false)}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {!editingPose && (
+                  <div>
+                    <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                      图片 <span className="text-red-500">*</span>
+                    </label>
+                    {imagePreview ? (
+                      <div className="relative bg-gray-100 rounded-xl">
+                        <img
+                          src={imagePreview}
+                          alt="预览"
+                          className="w-full h-64 object-contain rounded-xl"
+                        />
+                        <button
+                          onClick={() => handleImageSelect(null)}
+                          className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleImageSelect(e.target.files?.[0] || null)}
+                          className="hidden"
+                          id="pose-image-upload"
+                        />
+                        <label htmlFor="pose-image-upload" className="cursor-pointer">
+                          <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                          <p className="text-sm text-[#5D4037]/60">点击上传图片</p>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    标签
+                  </label>
+                  <div className="flex flex-wrap gap-2 p-3 bg-[#FFFBF0] rounded-xl min-h-[60px]">
+                    {tags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        onClick={() => togglePoseTag(tag.name)}
+                        className={`px-3 py-1 rounded-full text-sm transition-all ${
+                          poseFormData.tags.includes(tag.name)
+                            ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
+                            : 'bg-white text-[#5D4037]/60 border border-[#5D4037]/10 hover:bg-[#5D4037]/5'
+                        }`}
+                      >
+                        {tag.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={editingPose ? handleEditPose : handleAddPose}
+                  disabled={uploading || (!editingPose && !poseFormData.image)}
+                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {uploading ? '处理中...' : editingPose ? '保存修改' : '确认添加'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 添加标签弹窗 */}
+      <AnimatePresence>
+        {showTagModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setShowTagModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#5D4037]">新增标签</h2>
+                <button
+                  onClick={() => setShowTagModal(false)}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    标签名称 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    placeholder="例如：户外、室内、情侣"
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                  />
+                </div>
+
+                <button
+                  onClick={handleAddTag}
+                  disabled={addingTag || !newTagName.trim()}
+                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {addingTag ? '添加中...' : '确认添加'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 图片预览弹窗 */}
+      <AnimatePresence>
+        {previewImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/90 flex items-center justify-center z-50"
+            onClick={() => setPreviewImage(null)}
+          >
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <motion.img
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              src={previewImage}
+              alt="预览"
+              className="max-w-[90vw] max-h-[90vh] object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
