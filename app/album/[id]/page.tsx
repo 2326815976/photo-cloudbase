@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, Heart, Star, Sparkles } from 'lucide-react';
 import Button from '@/components/ui/Button';
@@ -60,7 +61,8 @@ const mockAlbum = {
   ],
 };
 
-export default function AlbumDetailPage({ params }: { params: { id: string } }) {
+export default function AlbumDetailPage() {
+  const params = useParams();
   const [showWelcomeLetter, setShowWelcomeLetter] = useState(true);
   const [showToast, setShowToast] = useState(false);
 
