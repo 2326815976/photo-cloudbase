@@ -133,7 +133,7 @@ export default function HomePage() {
           .update({ view_count: selectedPose.view_count + 1 })
           .eq('id', selectedPose.id)
           .then(() => {})
-          .catch((err) => console.error('更新浏览次数失败:', err));
+          .catch((err: any) => console.error('更新浏览次数失败:', err));
       }
     } catch (error) {
       console.error('抽取摆姿失败:', error);
