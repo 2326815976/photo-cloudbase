@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 
 const navItems = [
   { href: '/', label: '首页', icon: Home },
-  { href: '/album', label: '专属', icon: Lock },
+  { href: '/album', label: '返图', icon: Lock },
   { href: '/gallery', label: '作品', icon: Image },
   { href: '/booking', label: '约拍', icon: Calendar },
 ];

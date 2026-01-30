@@ -243,7 +243,7 @@ export default function BookingPage() {
                     {isSubmitting ? '发送中...' : (
                       <>
                         <span>✨ 发送约拍邀请</span>
-                        <span>💌</span>
+                        <span>✨</span>
                       </>
                     )}
                   </motion.button>
