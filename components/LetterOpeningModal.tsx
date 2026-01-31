@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { X, Sparkles } from 'lucide-react';
 
 interface LetterOpeningModalProps {
@@ -12,17 +12,39 @@ interface LetterOpeningModalProps {
 
 export default function LetterOpeningModal({ isOpen, onClose, letterContent }: LetterOpeningModalProps) {
   const [stage, setStage] = useState<'envelope' | 'opening' | 'letter' | 'closing'>('envelope');
+  const shouldReduceMotion = useReducedMotion();
+  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const addTimeout = (handler: () => void, delay: number) => {
+    const timeoutId = setTimeout(handler, delay);
+    timeoutsRef.current.push(timeoutId);
+  };
+
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current = [];
+      setStage('envelope');
+    }
+  }, [isOpen]);
 
   const handleSealClick = () => {
     setStage('opening');
-    setTimeout(() => {
+    addTimeout(() => {
       setStage('letter');
     }, 800);
   };
 
   const handleClose = () => {
     setStage('closing');
-    setTimeout(() => {
+    addTimeout(() => {
       setStage('envelope');
       onClose();
     }, 600);
@@ -49,13 +71,13 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent }: L
               <motion.div
                 key="envelope"
                 initial={{ scale: 0.8, opacity: 0 }}
-                animate={{
+                animate={shouldReduceMotion ? { scale: 1, opacity: 1, y: 0 } : {
                   scale: 1,
                   opacity: 1,
                   y: [0, -8, 0]
                 }}
                 exit={{ scale: 1.2, opacity: 0 }}
-                transition={{
+                transition={shouldReduceMotion ? { duration: 0.2 } : {
                   y: {
                     repeat: Infinity,
                     duration: 3,
@@ -124,8 +146,8 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent }: L
 
                 {/* 点击提示 - 底部独立 */}
                 <motion.p
-                  animate={{ opacity: [0.5, 1, 0.5] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  animate={shouldReduceMotion ? { opacity: 1 } : { opacity: [0.5, 1, 0.5] }}
+                  transition={shouldReduceMotion ? { duration: 0.2 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
                   className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] text-[#8d6e63]/60 tracking-widest whitespace-nowrap"
                   style={{ fontFamily: "'Ma Shan Zheng', cursive" }}
                 >

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 // 手账风格色系（温暖复古色调）
@@ -13,6 +13,8 @@ const journalColors = [
   'bg-[#E8F5E9] text-[#4B7C4F] border-[#9FC5A1]',
   'bg-[#FFF0F5] text-[#8B5A6B] border-[#D4A5B5]',
 ];
+
+const MAX_PRELOADED_IMAGES = 50;
 
 interface PoseTag {
   id: number;
@@ -42,6 +44,7 @@ export default function HomePage() {
   const [cacheKey, setCacheKey] = useState<string>('');
   const [nextPose, setNextPose] = useState<Pose | null>(null);
   const preloadedImagesRef = useRef<Set<string>>(new Set());
+  const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
 
   // 加载标签
   useEffect(() => {
@@ -50,11 +53,19 @@ export default function HomePage() {
 
   // 图片预加载函数
   const preloadImage = useCallback((url: string) => {
-    if (preloadedImagesRef.current.has(url)) return;
+    const preloadedImages = preloadedImagesRef.current;
+    if (preloadedImages.has(url)) return;
+
+    if (preloadedImages.size >= MAX_PRELOADED_IMAGES) {
+      const oldest = preloadedImages.values().next().value as string | undefined;
+      if (oldest) {
+        preloadedImages.delete(oldest);
+      }
+    }
 
     const img = new Image();
     img.src = url;
-    preloadedImagesRef.current.add(url);
+    preloadedImages.add(url);
   }, []);
 
   // 从缓存中选择下一个摆姿（不显示，仅预加载）
@@ -70,6 +81,10 @@ export default function HomePage() {
 
   const loadTags = useCallback(async () => {
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase
       .from('pose_tags')
       .select('*')
@@ -93,11 +108,12 @@ export default function HomePage() {
     if (isAnimating) return;
 
     setIsAnimating(true);
-    const supabase = createClient();
 
     try {
+      const supabase = createClient();
+      if (!supabase) return;
       // 生成缓存键（基于选中的标签）
-      const currentCacheKey = selectedTags.sort().join(',');
+      const currentCacheKey = selectedTagsKey;
       let poses: Pose[] = [];
 
       // 优先使用预加载的下一个摆姿
@@ -120,7 +136,6 @@ export default function HomePage() {
           preloadImage(next.image_url);
         }
 
-        setIsAnimating(false);
         return;
       }
 
@@ -193,7 +208,7 @@ export default function HomePage() {
     } finally {
       setIsAnimating(false);
     }
-  }, [isAnimating, selectedTags, cacheKey, cachedPoses, nextPose, lastPoseId, selectNextPose, preloadImage]);
+  }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, nextPose, lastPoseId, selectNextPose, preloadImage]);
 
   // 初始加载一个随机摆姿
   useEffect(() => {
@@ -381,6 +396,7 @@ export default function HomePage() {
               exit={{ scale: 0.9, opacity: 0 }}
               src={currentPose.image_url}
               alt="预览"
+              decoding="async"
               className="max-w-full max-h-full object-contain"
               onClick={(e) => e.stopPropagation()}
             />

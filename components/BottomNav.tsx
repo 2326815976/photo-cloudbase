@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Lock, Image, Calendar, User } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const navItems = [
   { href: '/', label: '首页', icon: Home },
@@ -15,6 +15,7 @@ const navItems = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const shouldReduceMotion = useReducedMotion();
 
   return (
     <nav className="absolute bottom-0 left-0 w-full h-[68px] bg-[#FFFBF0]/95 backdrop-blur-md border-t-2 border-dashed border-[#5D4037]/15 shadow-[0_-2px_12px_rgba(93,64,55,0.08)] z-50">
@@ -26,9 +27,9 @@ export default function BottomNav() {
           return (
             <Link key={item.href} href={item.href} className="flex-1">
               <motion.div
-                whileTap={{ scale: 0.9 }}
-                animate={isActive ? { scale: 1.05 } : { scale: 1 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.9 }}
+                animate={isActive && !shouldReduceMotion ? { scale: 1.05 } : { scale: 1 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 17 }}
                 className={`flex flex-col items-center gap-1 transition-colors relative ${
                   isActive ? 'text-[#FFC857]' : 'text-[#5D4037]/60'
                 }`}
@@ -43,8 +44,8 @@ export default function BottomNav() {
                 )}
 
                 <motion.div
-                  animate={isActive ? { y: [0, -3, 0] } : { y: 0 }}
-                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                  animate={isActive && !shouldReduceMotion ? { y: [0, -3, 0] } : { y: 0 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5, ease: 'easeOut' }}
                   className="relative"
                 >
                   <Icon

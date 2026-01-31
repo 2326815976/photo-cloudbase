@@ -48,6 +48,11 @@
     @apply m-0 p-0 bg-background text-foreground antialiased;
   }
 
+  :focus-visible {
+    outline: 2px solid rgba(255, 200, 87, 0.7);
+    outline-offset: 2px;
+  }
+
   /* 隐藏所有滚动条 */
   * {
     scrollbar-width: none;
@@ -56,5 +61,14 @@
 
   *::-webkit-scrollbar {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

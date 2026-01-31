@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Calendar, MapPin, Camera, X, MessageCircle } from 'lucide-react';
 
 interface ActiveBookingTicketProps {
@@ -18,6 +18,8 @@ interface ActiveBookingTicketProps {
 }
 
 export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: ActiveBookingTicketProps) {
+  const shouldReduceMotion = useReducedMotion();
+
   // 格式化日期
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -45,8 +47,8 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
           {/* 标题 */}
           <div className="text-center mb-6">
             <motion.div
-              animate={{ rotate: [0, 10, -10, 0] }}
-              transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+              animate={shouldReduceMotion ? { rotate: 0 } : { rotate: [0, 10, -10, 0] }}
+              transition={shouldReduceMotion ? { duration: 0.2 } : { duration: 2, repeat: Infinity, repeatDelay: 3 }}
               className="inline-block mb-3"
             >
               <Camera className="w-12 h-12 text-[#FFC857]" />

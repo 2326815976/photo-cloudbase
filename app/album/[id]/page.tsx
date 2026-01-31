@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft } from 'lucide-react';
-import Card from '@/components/ui/Card';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 
 // 模拟数据：相册信息
@@ -67,8 +66,8 @@ const mockAlbum = {
 };
 
 export default function AlbumDetailPage() {
-  const params = useParams();
   const router = useRouter();
+  const shouldReduceMotion = useReducedMotion();
   const [showWelcomeLetter, setShowWelcomeLetter] = useState(true);
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
@@ -85,9 +84,10 @@ export default function AlbumDetailPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const filteredPhotos = selectedFolder === 'all'
-    ? photos
-    : photos.filter(photo => photo.folderId === selectedFolder);
+  const filteredPhotos = useMemo(() => {
+    if (selectedFolder === 'all') return photos;
+    return photos.filter(photo => photo.folderId === selectedFolder);
+  }, [photos, selectedFolder]);
 
   const togglePublic = (photoId: number) => {
     setPhotos(prev =>
@@ -175,8 +175,8 @@ export default function AlbumDetailPage() {
             className="flex-none h-6 bg-[#FFC857]/15 flex items-center justify-center relative overflow-hidden"
           >
             <motion.div
-              animate={{ x: ['0%', '-50%'] }}
-              transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+              animate={shouldReduceMotion ? { x: 0 } : { x: ['0%', '-50%'] }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 20, repeat: Infinity, ease: "linear" }}
               className="text-[10px] text-[#5D4037]/60 whitespace-nowrap"
             >
               <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
@@ -202,7 +202,7 @@ export default function AlbumDetailPage() {
               key={folder.id}
               whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedFolder(folder.id)}
-              animate={selectedFolder === folder.id ? { rotate: 1.5 } : { rotate: 0 }}
+              animate={selectedFolder === folder.id && !shouldReduceMotion ? { rotate: 1.5 } : { rotate: 0 }}
               className={`
                 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all
                 ${selectedFolder === folder.id
@@ -286,6 +286,8 @@ export default function AlbumDetailPage() {
                   <img
                     src={photo.url}
                     alt={`照片 ${photo.id}`}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-auto object-cover"
                   />
 
@@ -352,6 +354,7 @@ export default function AlbumDetailPage() {
               exit={{ scale: 0.8 }}
               src={photos.find(p => p.id === selectedPhoto)?.url}
               alt="预览"
+              decoding="async"
               className="max-w-full max-h-full object-contain"
               onClick={(e) => e.stopPropagation()}
             />

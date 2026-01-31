@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Sparkles, Plus, Calendar } from 'lucide-react';
@@ -45,10 +45,10 @@ export default function AlbumLoginPage() {
   const [showToast, setShowToast] = useState(false);
 
   // 初始化时读取登录状态和绑定相册
-  useState(() => {
+  useEffect(() => {
     setIsLoggedIn(getIsLoggedIn());
     setBoundAlbums(getBoundAlbums());
-  });
+  }, []);
 
   const handleAlbumClick = (albumId: string) => {
     router.push(`/album/${albumId}`);
@@ -138,6 +138,8 @@ export default function AlbumLoginPage() {
                       <img
                         src={album.cover}
                         alt={album.title}
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-cover"
                       />
                     </div>

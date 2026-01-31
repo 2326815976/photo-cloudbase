@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Mail, Lock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   const router = useRouter();
+  const shouldReduceMotion = useReducedMotion();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -75,11 +76,11 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20 relative overflow-hidden">
       {/* 装饰性背景元素 */}
       <motion.div
-        animate={{
+        animate={shouldReduceMotion ? { scale: 1, opacity: 0.3 } : {
           scale: [1, 1.2, 1],
           opacity: [0.3, 0.5, 0.3]
         }}
-        transition={{
+        transition={shouldReduceMotion ? { duration: 0.2 } : {
           duration: 8,
           repeat: Infinity,
           ease: "easeInOut"
@@ -87,11 +88,11 @@ export default function LoginPage() {
         className="absolute top-20 right-10 w-32 h-32 bg-[#FFC857]/10 rounded-full blur-3xl"
       />
       <motion.div
-        animate={{
+        animate={shouldReduceMotion ? { scale: 1, opacity: 0.3 } : {
           scale: [1, 1.3, 1],
           opacity: [0.3, 0.5, 0.3]
         }}
-        transition={{
+        transition={shouldReduceMotion ? { duration: 0.2 } : {
           duration: 10,
           repeat: Infinity,
           ease: "easeInOut",
