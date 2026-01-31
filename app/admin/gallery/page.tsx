@@ -50,7 +50,7 @@ export default function AdminGalleryPage() {
 
     if (!error && data) {
       // 兼容处理：如果url不是完整URL则转换
-      const photosWithUrls = data.map(photo => ({
+      const photosWithUrls = data.map((photo: Photo) => ({
         ...photo,
         url: photo.url.startsWith('http')
           ? photo.url
