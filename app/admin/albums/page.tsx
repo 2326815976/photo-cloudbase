@@ -48,7 +48,7 @@ export default function AlbumsPage() {
 
     if (!error && data) {
       // 过滤掉照片墙系统相册
-      const filteredAlbums = data.filter(album =>
+      const filteredAlbums = data.filter((album: Album) =>
         album.id !== '00000000-0000-0000-0000-000000000000'
       );
       setAlbums(filteredAlbums);
