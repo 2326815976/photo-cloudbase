@@ -114,7 +114,7 @@ export default function AlbumDetailPage() {
       supabase.storage
         .from('albums')
         .createSignedUrl(photo.storage_path, 3600)
-        .then(({ data }) => ({ id: photo.id, url: data?.signedUrl }))
+        .then(({ data }: { data: { signedUrl: string } | null }) => ({ id: photo.id, url: data?.signedUrl }))
     );
 
     const results = await Promise.all(urlPromises);
