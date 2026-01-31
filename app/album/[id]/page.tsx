@@ -1,105 +1,142 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
+import { createClient } from '@/lib/supabase/client';
 
-// 模拟数据：相册信息
-const mockAlbum = {
-  id: 'demo123',
-  title: '江边的夏日时光',
-  welcomeLetter: `Hi，这是我们在江边相遇的证明...
+interface Folder {
+  id: string;
+  name: string;
+}
 
-那天阳光正好，微风轻拂，你的笑容比夏日的阳光还要温暖。
+interface Photo {
+  id: string;
+  folder_id: string | null;
+  storage_path: string;
+  width: number;
+  height: number;
+  is_public: boolean;
+  signedUrl?: string;
+}
 
-这些照片记录了那个美好的下午，希望它们能让你想起那些快乐的瞬间。
-
-愿你每天都能像那天一样，笑得灿烂如花 🌸
-
-—— 你的摄影师朋友`,
-  folders: [
-    { id: 'all', name: '全部照片', count: 6 },
-    { id: 'outdoor', name: '户外', count: 3 },
-    { id: 'portrait', name: '人像', count: 2 },
-    { id: 'landscape', name: '风景', count: 1 },
-  ],
-  photos: [
-    {
-      id: 1,
-      url: 'https://picsum.photos/seed/album1/400/600',
-      isPublic: false,
-      folderId: 'outdoor',
-    },
-    {
-      id: 2,
-      url: 'https://picsum.photos/seed/album2/600/400',
-      isPublic: false,
-      folderId: 'outdoor',
-    },
-    {
-      id: 3,
-      url: 'https://picsum.photos/seed/album3/400/500',
-      isPublic: true,
-      folderId: 'portrait',
-    },
-    {
-      id: 4,
-      url: 'https://picsum.photos/seed/album4/500/600',
-      isPublic: false,
-      folderId: 'portrait',
-    },
-    {
-      id: 5,
-      url: 'https://picsum.photos/seed/album5/600/500',
-      isPublic: false,
-      folderId: 'outdoor',
-    },
-    {
-      id: 6,
-      url: 'https://picsum.photos/seed/album6/400/600',
-      isPublic: true,
-      folderId: 'landscape',
-    },
-  ],
-};
+interface AlbumData {
+  album: {
+    id: string;
+    title: string;
+    welcome_letter: string;
+    cover_url: string | null;
+    enable_tipping: boolean;
+    recipient_name?: string;
+  };
+  folders: Folder[];
+  photos: Photo[];
+}
 
 export default function AlbumDetailPage() {
   const router = useRouter();
+  const params = useParams();
+  const accessKey = params.id as string;
   const shouldReduceMotion = useReducedMotion();
+
+  const [loading, setLoading] = useState(true);
+  const [albumData, setAlbumData] = useState<AlbumData | null>(null);
   const [showWelcomeLetter, setShowWelcomeLetter] = useState(true);
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
-  const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
-  const [photos, setPhotos] = useState(mockAlbum.photos);
-  const [selectedPhotos, setSelectedPhotos] = useState<Set<number>>(new Set());
-  const [confirmPhotoId, setConfirmPhotoId] = useState<number | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
+  const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // 加载相册数据
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowToast(true);
-    }, 2000);
+    loadAlbumData();
+  }, [accessKey]);
 
-    return () => clearTimeout(timer);
-  }, []);
+  // Toast提示
+  useEffect(() => {
+    if (!loading && albumData) {
+      const timer = setTimeout(() => {
+        setShowToast(true);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, albumData]);
+
+  const loadAlbumData = async () => {
+    setLoading(true);
+    const supabase = createClient();
+
+    // 调用RPC获取相册内容
+    const { data, error } = await supabase.rpc('get_album_content', {
+      input_key: accessKey
+    });
+
+    console.log('相册数据加载结果:', { data, error, accessKey });
+
+    if (error || !data) {
+      console.error('相册数据加载失败:', error);
+      setToast({ message: `加载失败：${error?.message || '相册不存在'}`, type: 'error' });
+      setTimeout(() => router.push('/album'), 2000);
+      return;
+    }
+
+    setAlbumData(data);
+    setPhotos(data.photos);
+    setLoading(false);
+
+    // 加载照片签名URL
+    loadPhotoUrls(data.photos);
+  };
+
+  const loadPhotoUrls = async (photoList: Photo[]) => {
+    const supabase = createClient();
+    const urls: Record<string, string> = {};
+
+    for (const photo of photoList) {
+      const { data } = await supabase.storage
+        .from('albums')
+        .createSignedUrl(photo.storage_path, 3600);
+
+      if (data?.signedUrl) {
+        urls[photo.id] = data.signedUrl;
+      }
+    }
+
+    setPhotoUrls(urls);
+  };
 
   const filteredPhotos = useMemo(() => {
     if (selectedFolder === 'all') return photos;
-    return photos.filter(photo => photo.folderId === selectedFolder);
+    return photos.filter(photo => photo.folder_id === selectedFolder);
   }, [photos, selectedFolder]);
 
-  const togglePublic = (photoId: number) => {
-    setPhotos(prev =>
-      prev.map(photo =>
-        photo.id === photoId
-          ? { ...photo, isPublic: !photo.isPublic }
-          : photo
-      )
-    );
+  const togglePublic = async (photoId: string) => {
+    const photo = photos.find(p => p.id === photoId);
+    if (!photo) return;
+
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('album_photos')
+      .update({ is_public: !photo.is_public })
+      .eq('id', photoId);
+
+    if (!error) {
+      setPhotos(prev =>
+        prev.map(p =>
+          p.id === photoId ? { ...p, is_public: !p.is_public } : p
+        )
+      );
+    }
   };
 
-  const togglePhotoSelection = (photoId: number) => {
+  const togglePhotoSelection = (photoId: string) => {
     setSelectedPhotos(prev => {
       const newSet = new Set(prev);
       if (newSet.has(photoId)) {
@@ -120,16 +157,64 @@ export default function AlbumDetailPage() {
   };
 
   const handleBatchDownload = () => {
-    const selectedUrls = photos.filter(p => selectedPhotos.has(p.id)).map(p => p.url);
+    const selectedUrls = photos.filter(p => selectedPhotos.has(p.id)).map(p => photoUrls[p.id]);
     console.log('批量下载照片:', selectedUrls);
     // TODO: 实现实际的批量下载逻辑
   };
 
-  const handleBatchDelete = () => {
-    setPhotos(prev => prev.filter(p => !selectedPhotos.has(p.id)));
-    setSelectedPhotos(new Set());
-    // TODO: 实现实际的批量删除逻辑（调用 Supabase API）
+  const handleBatchDelete = async () => {
+    setShowDeleteConfirm(true);
   };
+
+  const confirmBatchDelete = async () => {
+    const supabase = createClient();
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const photoId of Array.from(selectedPhotos)) {
+      const { error } = await supabase.rpc('delete_album_photo', {
+        p_access_key: accessKey,
+        p_photo_id: photoId
+      });
+
+      if (error) {
+        failCount++;
+      } else {
+        successCount++;
+      }
+    }
+
+    setShowDeleteConfirm(false);
+
+    if (successCount > 0) {
+      setPhotos(prev => prev.filter(p => !selectedPhotos.has(p.id)));
+      setSelectedPhotos(new Set());
+      setToast({ message: `成功删除 ${successCount} 张照片`, type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    }
+
+    if (failCount > 0) {
+      setToast({ message: `删除完成：成功 ${successCount} 张，失败 ${failCount} 张`, type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!albumData) {
+    return null;
+  }
+
+  const folders = [
+    { id: 'all', name: '全部照片' },
+    ...albumData.folders
+  ];
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -156,7 +241,9 @@ export default function AlbumDetailPage() {
           </motion.button>
 
           <div className="flex-1 text-center">
-            <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属回忆</h1>
+            <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+              {albumData.album.title || '专属回忆'}
+            </h1>
           </div>
 
           <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
@@ -197,7 +284,7 @@ export default function AlbumDetailPage() {
       <div className="flex-none h-12 sticky top-0 bg-[#FFFBF0] z-10 px-3 flex items-center gap-2 border-b border-[#5D4037]/5">
         {/* 左侧：文件夹胶囊 */}
         <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-hidden">
-          {mockAlbum.folders.map((folder) => (
+          {folders.map((folder) => (
             <motion.button
               key={folder.id}
               whileTap={{ scale: 0.95 }}
@@ -283,13 +370,19 @@ export default function AlbumDetailPage() {
                   className="relative cursor-pointer"
                   onClick={() => setSelectedPhoto(photo.id)}
                 >
-                  <img
-                    src={photo.url}
-                    alt={`照片 ${photo.id}`}
-                    loading="lazy"
-                    decoding="async"
-                    className="w-full h-auto object-cover"
-                  />
+                  {photoUrls[photo.id] ? (
+                    <img
+                      src={photoUrls[photo.id]}
+                      alt={`照片 ${photo.id}`}
+                      loading="lazy"
+                      decoding="async"
+                      className="w-full h-auto object-cover"
+                    />
+                  ) : (
+                    <div className="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                      <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
 
                   {/* 选择框 */}
                   <motion.button
@@ -312,17 +405,17 @@ export default function AlbumDetailPage() {
                 <div className="p-2 flex items-center justify-center">
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => photo.isPublic ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
+                    onClick={() => photo.is_public ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
                     className={`
                       flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all
-                      ${photo.isPublic
+                      ${photo.is_public
                         ? 'bg-[#FFC857] text-[#5D4037]'
                         : 'bg-[#5D4037]/10 text-[#5D4037]/60'
                       }
                     `}
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>{photo.isPublic ? '已定格' : '定格'}</span>
+                    <span>{photo.is_public ? '已定格' : '定格'}</span>
                   </motion.button>
                 </div>
               </div>
@@ -335,7 +428,8 @@ export default function AlbumDetailPage() {
       <LetterOpeningModal
         isOpen={showWelcomeLetter}
         onClose={() => setShowWelcomeLetter(false)}
-        letterContent={mockAlbum.welcomeLetter}
+        letterContent={albumData.album.welcome_letter || '欢迎来到专属空间 ✨'}
+        recipientName={albumData.album.recipient_name}
       />
 
       {/* 大图预览 */}
@@ -352,7 +446,7 @@ export default function AlbumDetailPage() {
               initial={{ scale: 0.8 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.8 }}
-              src={photos.find(p => p.id === selectedPhoto)?.url}
+              src={photoUrls[selectedPhoto]}
               alt="预览"
               decoding="async"
               className="max-w-full max-h-full object-contain"
@@ -412,6 +506,74 @@ export default function AlbumDetailPage() {
                 </motion.button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除确认弹窗 */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteConfirm(false)}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3">确定要删除吗？</h3>
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed">
+                  您即将删除 <span className="font-bold text-red-600">{selectedPhotos.size}</span> 张照片，此操作不可撤销。
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+                >
+                  取消
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={confirmBatchDelete}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-red-600 text-white shadow-md hover:bg-red-700 transition-all"
+                >
+                  确认删除
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast 提示 */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`px-6 py-3 rounded-full shadow-lg ${
+              toast.type === 'success'
+                ? 'bg-green-500 text-white'
+                : 'bg-red-500 text-white'
+            }`}>
+              {toast.message}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

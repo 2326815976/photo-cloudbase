@@ -81,7 +81,7 @@ export default function GalleryPage() {
           <p className="text-[#5D4037]/60">暂无公开照片</p>
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
           <AnimatePresence>
             {photos.map((photo) => (
               <motion.div

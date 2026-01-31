@@ -70,19 +70,20 @@ export default function ReleasesPage() {
   return (
     <div className="space-y-6">
       {/* 页面标题 */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
             发布版本 📦
           </h1>
           <p className="text-sm text-[#5D4037]/60">管理应用安装包发布</p>
         </div>
         <button
           onClick={() => window.location.href = '/admin/releases/new'}
-          className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+          className="flex items-center justify-center gap-2 px-6 py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow whitespace-nowrap"
         >
           <Plus className="w-5 h-5" />
-          发布版本
+          <span className="hidden sm:inline">发布版本</span>
+          <span className="sm:hidden">发布</span>
         </button>
       </div>
 
@@ -106,15 +107,15 @@ export default function ReleasesPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10 hover:shadow-md transition-shadow"
+                className="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-[#5D4037]/10 hover:shadow-md transition-shadow"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center flex-shrink-0">
                       {getPlatformIcon(release.platform)}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-bold text-[#5D4037]">版本 {release.version}</h3>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPlatformColor(release.platform)}`}>
                           {release.platform}
@@ -127,9 +128,9 @@ export default function ReleasesPage() {
                   </div>
                   <button
                     onClick={() => handleDelete(release.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                    className="p-3 text-red-600 hover:bg-red-50 rounded-full transition-colors self-end sm:self-start"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
 
@@ -143,9 +144,9 @@ export default function ReleasesPage() {
                   href={release.download_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
                 >
-                  <Download className="w-4 h-4" />
+                  <Download className="w-5 h-5" />
                   下载安装包
                 </a>
               </motion.div>

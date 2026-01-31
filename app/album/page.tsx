@@ -4,54 +4,51 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Sparkles, Plus, Calendar } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
-// 模拟数据 - 从 localStorage 读取登录状态和绑定相册
-const getIsLoggedIn = () => {
-  if (typeof window === 'undefined') return false;
-  return localStorage.getItem('isLoggedIn') === 'true';
-};
-
-const getBoundAlbums = () => {
-  if (typeof window === 'undefined') return [];
-  const stored = localStorage.getItem('boundAlbums');
-  return stored ? JSON.parse(stored) : [];
-};
-
-const saveBoundAlbum = (albumId: string, title: string) => {
-  if (typeof window === 'undefined') return;
-  const albums = getBoundAlbums();
-  const exists = albums.find((a: any) => a.id === albumId);
-  if (!exists) {
-    const newAlbum = {
-      id: albumId,
-      title: title || '专属回忆',
-      cover: 'https://picsum.photos/seed/album1/400/300',
-      date: new Date().toISOString().split('T')[0],
-      photoCount: 42
-    };
-    albums.push(newAlbum);
-    localStorage.setItem('boundAlbums', JSON.stringify(albums));
-  }
-};
+interface BoundAlbum {
+  id: string;
+  title: string;
+  cover_url: string | null;
+  created_at: string;
+  access_key: string;
+  bound_at: string;
+  expires_at: string;
+  is_expired: boolean;
+}
 
 export default function AlbumLoginPage() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [boundAlbums, setBoundAlbums] = useState<any[]>([]);
+  const [boundAlbums, setBoundAlbums] = useState<BoundAlbum[]>([]);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [accessKey, setAccessKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showToast, setShowToast] = useState(false);
 
-  // 初始化时读取登录状态和绑定相册
+  // 初始化时检查登录状态并加载绑定相册
   useEffect(() => {
-    setIsLoggedIn(getIsLoggedIn());
-    setBoundAlbums(getBoundAlbums());
+    loadUserData();
   }, []);
 
-  const handleAlbumClick = (albumId: string) => {
-    router.push(`/album/${albumId}`);
+  const loadUserData = async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    setIsLoggedIn(!!user);
+
+    if (user) {
+      // 加载用户绑定的相册
+      const { data, error } = await supabase.rpc('get_user_bound_albums');
+      if (!error && data) {
+        setBoundAlbums(data);
+      }
+    }
+  };
+
+  const handleAlbumClick = (accessKey: string) => {
+    router.push(`/album/${accessKey}`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,24 +62,54 @@ export default function AlbumLoginPage() {
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      if (accessKey === 'demo123') {
-        // 如果已登录，自动绑定该相册
-        if (isLoggedIn) {
-          saveBoundAlbum(accessKey, '江边的夏日时光');
-          setBoundAlbums(getBoundAlbums());
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 3000);
-        }
-        router.push(`/album/${accessKey}`);
-      } else {
-        setError('密钥错误，请重试');
-        setIsLoading(false);
+    const supabase = createClient();
+
+    // 验证密钥
+    const { data: albumData, error: queryError } = await supabase
+      .from('albums')
+      .select('id, access_key')
+      .eq('access_key', accessKey.toUpperCase())
+      .single();
+
+    if (queryError || !albumData) {
+      console.error('密钥验证失败:', queryError);
+      setError('密钥错误，请重试');
+      setIsLoading(false);
+      return;
+    }
+
+    // 如果已登录，自动绑定该相册
+    if (isLoggedIn) {
+      const { error: bindError } = await supabase.rpc('bind_user_to_album', {
+        p_access_key: accessKey.toUpperCase()
+      });
+
+      if (!bindError) {
+        await loadUserData();
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 3000);
       }
-    }, 800);
+    }
+
+    // 跳转到相册详情页
+    router.push(`/album/${accessKey.toUpperCase()}`);
   };
 
   const hasBindings = isLoggedIn && boundAlbums.length > 0;
+
+  // 格式化日期
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  };
+
+  // 计算剩余天数
+  const getDaysRemaining = (expiresAt: string) => {
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diff = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return diff;
+  };
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -121,52 +148,66 @@ export default function AlbumLoginPage() {
           <div className="space-y-4">
             {/* 我的相册列表 */}
             <div className="space-y-3">
-              {boundAlbums.map((album, index) => (
-                <motion.div
-                  key={album.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleAlbumClick(album.id)}
-                  className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden cursor-pointer transition-shadow duration-300"
-                >
-                  <div className="flex gap-4 p-4">
-                    {/* 封面图 */}
-                    <div className="flex-none w-24 h-24 rounded-2xl overflow-hidden bg-gray-100">
-                      <img
-                        src={album.cover}
-                        alt={album.title}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+              {boundAlbums.map((album, index) => {
+                const daysRemaining = getDaysRemaining(album.expires_at);
+                const isExpired = album.is_expired;
 
-                    {/* 信息区 */}
-                    <div className="flex-1 flex flex-col justify-center">
-                      <h3 className="text-base font-bold text-[#5D4037] mb-1">
-                        {album.title}
-                      </h3>
-                      <div className="flex items-center gap-3 text-xs text-[#5D4037]/50">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {album.date}
-                        </span>
-                        <span>{album.photoCount} 张照片</span>
+                return (
+                  <motion.div
+                    key={album.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleAlbumClick(album.access_key)}
+                    className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden cursor-pointer transition-shadow duration-300"
+                  >
+                    <div className="flex gap-4 p-4">
+                      {/* 封面图 */}
+                      <div className="flex-none w-24 h-24 rounded-2xl overflow-hidden bg-gray-100">
+                        {album.cover_url ? (
+                          <img
+                            src={album.cover_url}
+                            alt={album.title}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[#5D4037]/20">
+                            <Sparkles className="w-8 h-8" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 信息区 */}
+                      <div className="flex-1 flex flex-col justify-center">
+                        <h3 className="text-base font-bold text-[#5D4037] mb-1">
+                          {album.title || '未命名空间'}
+                        </h3>
+                        <div className="flex items-center gap-3 text-xs text-[#5D4037]/50 mb-1">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {formatDate(album.created_at)}
+                          </span>
+                        </div>
+                        {/* 有效期提示 */}
+                        <div className={`text-xs ${isExpired ? 'text-red-500' : daysRemaining <= 3 ? 'text-orange-500' : 'text-[#5D4037]/50'}`}>
+                          {isExpired ? '⚠️ 已过期' : `✨ 剩余 ${daysRemaining} 天`}
+                        </div>
+                      </div>
+
+                      {/* 箭头 */}
+                      <div className="flex-none flex items-center">
+                        <div className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
+                          <span className="text-[#FFC857]">→</span>
+                        </div>
                       </div>
                     </div>
-
-                    {/* 箭头 */}
-                    <div className="flex-none flex items-center">
-                      <div className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
-                        <span className="text-[#FFC857]">→</span>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
 
             {/* 添加新空间按钮 */}
@@ -255,20 +296,11 @@ export default function AlbumLoginPage() {
 
               {/* 提示信息 */}
               <div className="mt-6 pt-6 border-t border-[#5D4037]/10">
-                {!isLoggedIn && (
-                  <p className="text-xs text-[#5D4037]/50 text-center mb-2">
-                    💡 提示：
-                    <a href="/profile" className="text-[#FFC857] hover:underline ml-1">
-                      登录后
-                    </a>
-                    可绑定空间，下次无需输入密钥
-                  </p>
-                )}
+                <p className="text-xs text-[#5D4037]/50 text-center mb-2">
+                  💡 提示：{isLoggedIn ? '输入密钥后将自动绑定到您的账号' : '登录后可绑定空间，下次无需输入密钥'}
+                </p>
                 <p className="text-xs text-[#5D4037]/50 text-center">
                   密钥由摄影师提供，请妥善保管
-                </p>
-                <p className="text-xs text-[#5D4037]/50 text-center mt-1">
-                  （演示密钥：demo123）
                 </p>
               </div>
             </div>

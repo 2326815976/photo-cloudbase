@@ -8,9 +8,10 @@ interface LetterOpeningModalProps {
   isOpen: boolean;
   onClose: () => void;
   letterContent: string;
+  recipientName?: string;
 }
 
-export default function LetterOpeningModal({ isOpen, onClose, letterContent }: LetterOpeningModalProps) {
+export default function LetterOpeningModal({ isOpen, onClose, letterContent, recipientName = '拾光者' }: LetterOpeningModalProps) {
   const [stage, setStage] = useState<'envelope' | 'opening' | 'letter' | 'closing'>('envelope');
   const shouldReduceMotion = useReducedMotion();
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -118,7 +119,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent }: L
                   {/* 底部文字区域 - 修复重叠 */}
                   <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-3 z-0">
                     <p className="text-xl text-[#5D4037] font-medium tracking-wide" style={{ fontFamily: "'Ma Shan Zheng', cursive" }}>
-                      To: 拾光者
+                      To: {recipientName}
                     </p>
                     <div className="w-32 h-px bg-gradient-to-r from-transparent via-[#5D4037]/20 to-transparent" />
                   </div>

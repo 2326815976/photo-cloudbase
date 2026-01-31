@@ -83,7 +83,7 @@ export default async function StatsPage() {
       </div>
 
       {/* 核心指标卡片 */}
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {stats.map((stat) => {
           const Icon = stat.icon;
           return (

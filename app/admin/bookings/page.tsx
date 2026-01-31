@@ -268,10 +268,10 @@ export default function BookingsPage() {
       </div>
 
       {/* Tab切换 */}
-      <div className="flex gap-2 border-b border-[#5D4037]/10">
+      <div className="flex gap-2 border-b border-[#5D4037]/10 overflow-x-auto">
         <button
           onClick={() => setActiveTab('bookings')}
-          className={`px-6 py-3 font-medium transition-all relative ${
+          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
             activeTab === 'bookings'
               ? 'text-[#5D4037]'
               : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
@@ -287,7 +287,7 @@ export default function BookingsPage() {
         </button>
         <button
           onClick={() => setActiveTab('schedule')}
-          className={`px-6 py-3 font-medium transition-all relative ${
+          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
             activeTab === 'schedule'
               ? 'text-[#5D4037]'
               : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
@@ -366,7 +366,7 @@ export default function BookingsPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6 mb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-4">
                       <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
                         <Calendar className="w-4 h-4 text-[#FFC857]" />
                         <span>{booking.booking_date}</span>
@@ -494,7 +494,7 @@ export default function BookingsPage() {
               <p className="text-[#5D4037]/60">暂无锁定档期</p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               <AnimatePresence>
                 {blackouts.map((blackout) => (
                   <motion.div

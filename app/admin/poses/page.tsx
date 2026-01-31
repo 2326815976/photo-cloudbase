@@ -479,10 +479,10 @@ export default function PosesPage() {
       </div>
 
       {/* Tab切换 */}
-      <div className="flex gap-2 border-b border-[#5D4037]/10">
+      <div className="flex gap-2 border-b border-[#5D4037]/10 overflow-x-auto">
         <button
           onClick={() => setActiveTab('poses')}
-          className={`px-6 py-3 font-medium transition-all relative ${
+          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
             activeTab === 'poses'
               ? 'text-[#5D4037]'
               : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
@@ -498,7 +498,7 @@ export default function PosesPage() {
         </button>
         <button
           onClick={() => setActiveTab('tags')}
-          className={`px-6 py-3 font-medium transition-all relative ${
+          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
             activeTab === 'tags'
               ? 'text-[#5D4037]'
               : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
@@ -593,7 +593,7 @@ export default function PosesPage() {
               <p className="text-[#5D4037]/60">暂无摆姿数据</p>
             </div>
           ) : (
-            <div className="grid grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               <AnimatePresence>
                 {poses.map((pose) => (
                   <motion.div
@@ -772,7 +772,7 @@ export default function PosesPage() {
               <p className="text-[#5D4037]/60">暂无标签数据</p>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
               <AnimatePresence>
                 {tags.map((tag) => (
                   <motion.div
