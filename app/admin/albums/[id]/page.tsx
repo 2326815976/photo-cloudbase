@@ -96,7 +96,7 @@ export default function AlbumDetailPage() {
     // 并行生成所有签名URL
     const urlPromises = photosToLoad.map(photo =>
       supabase.storage.from('albums').createSignedUrl(photo.url, 3600)
-        .then(({ data }) => ({ id: photo.id, url: data?.signedUrl }))
+        .then(({ data }: { data: { signedUrl: string } | null }) => ({ id: photo.id, url: data?.signedUrl }))
     );
 
     const results = await Promise.all(urlPromises);
