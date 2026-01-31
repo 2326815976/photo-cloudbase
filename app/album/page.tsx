@@ -64,21 +64,7 @@ export default function AlbumLoginPage() {
 
     const supabase = createClient();
 
-    // 验证密钥
-    const { data: albumData, error: queryError } = await supabase
-      .from('albums')
-      .select('id, access_key')
-      .eq('access_key', accessKey.toUpperCase())
-      .single();
-
-    if (queryError || !albumData) {
-      console.error('密钥验证失败:', queryError);
-      setError('密钥错误，请重试');
-      setIsLoading(false);
-      return;
-    }
-
-    // 如果已登录，自动绑定该相册
+    // 如果已登录，先尝试绑定该相册
     if (isLoggedIn) {
       const { error: bindError } = await supabase.rpc('bind_user_to_album', {
         p_access_key: accessKey.toUpperCase()
@@ -91,7 +77,8 @@ export default function AlbumLoginPage() {
       }
     }
 
-    // 跳转到相册详情页
+    // 直接跳转到专属空间，让 get_album_content RPC 验证密钥
+    // 如果密钥错误，专属空间页面会显示错误信息
     router.push(`/album/${accessKey.toUpperCase()}`);
   };
 

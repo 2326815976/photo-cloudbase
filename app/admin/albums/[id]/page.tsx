@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X } from 'lucide-react';
+import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Album {
@@ -50,6 +50,11 @@ export default function AlbumDetailPage() {
   const [totalCount, setTotalCount] = useState(0);
   const photosPerPage = 20;
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<AlbumFolder | null>(null);
+  const [deletingPhoto, setDeletingPhoto] = useState<Photo | null>(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     loadAlbumData();
@@ -57,7 +62,11 @@ export default function AlbumDetailPage() {
 
   useEffect(() => {
     if (photos.length > 0) {
-      loadPhotoUrls();
+      // 只加载尚未加载的照片URL
+      const photosToLoad = photos.filter(photo => !photoUrls[photo.id]);
+      if (photosToLoad.length > 0) {
+        loadPhotoUrls(photosToLoad);
+      }
     }
   }, [photos]);
 
@@ -81,51 +90,81 @@ export default function AlbumDetailPage() {
     setLoading(false);
   };
 
-  const loadPhotoUrls = async () => {
+  const loadPhotoUrls = async (photosToLoad: Photo[]) => {
     const supabase = createClient();
-    const urls: Record<string, string> = {};
 
-    for (const photo of photos) {
-      const { data } = await supabase.storage.from('albums').createSignedUrl(photo.url, 3600);
-      if (data?.signedUrl) {
-        urls[photo.id] = data.signedUrl;
-      }
-    }
+    // 并行生成所有签名URL
+    const urlPromises = photosToLoad.map(photo =>
+      supabase.storage.from('albums').createSignedUrl(photo.url, 3600)
+        .then(({ data }) => ({ id: photo.id, url: data?.signedUrl }))
+    );
 
-    setPhotoUrls(urls);
+    const results = await Promise.all(urlPromises);
+
+    // 合并新加载的URL到现有的photoUrls
+    setPhotoUrls(prev => {
+      const newUrls = { ...prev };
+      results.forEach(result => {
+        if (result.url) {
+          newUrls[result.id] = result.url;
+        }
+      });
+      return newUrls;
+    });
   };
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
-      alert('请输入文件夹名称');
+      setShowToast({ message: '请输入文件夹名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
+    setActionLoading(true);
     const supabase = createClient();
     const { error } = await supabase.from('album_folders').insert({
       album_id: albumId,
       name: newFolderName,
     });
 
+    setActionLoading(false);
+
     if (!error) {
       setNewFolderName('');
       setShowNewFolderModal(false);
       loadAlbumData();
+      setShowToast({ message: '文件夹创建成功', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('创建失败：' + error.message);
+      setShowToast({ message: `创建失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
   const handleDeleteFolder = async (folderId: string) => {
-    if (!confirm('确定要删除这个文件夹吗？文件夹内的照片将移至根目录。')) return;
+    const folder = folders.find(f => f.id === folderId);
+    if (folder) {
+      setDeletingFolder(folder);
+    }
+  };
 
+  const confirmDeleteFolder = async () => {
+    if (!deletingFolder) return;
+
+    setActionLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from('album_folders').delete().eq('id', folderId);
+    const { error } = await supabase.from('album_folders').delete().eq('id', deletingFolder.id);
+
+    setActionLoading(false);
+    setDeletingFolder(null);
 
     if (!error) {
       loadAlbumData();
+      setShowToast({ message: '文件夹已删除，照片已移至根目录', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('删除失败：' + error.message);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -150,7 +189,8 @@ export default function AlbumDetailPage() {
 
   const handleUploadPhotos = async () => {
     if (batchImages.length === 0) {
-      alert('请选择图片');
+      setShowToast({ message: '请选择图片', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
@@ -206,20 +246,38 @@ export default function AlbumDetailPage() {
     }
 
     if (failCount > 0) {
-      alert(`上传完成：成功 ${successCount} 张，失败 ${failCount} 张`);
+      setShowToast({ message: `上传完成：成功 ${successCount} 张，失败 ${failCount} 张`, type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `成功上传 ${successCount} 张照片`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
   const handleDeletePhoto = async (photoId: string, photoUrl: string) => {
-    if (!confirm('确定要删除这张照片吗？')) return;
+    const photo = photos.find(p => p.id === photoId);
+    if (photo) {
+      setDeletingPhoto(photo);
+    }
+  };
 
+  const confirmDeletePhoto = async () => {
+    if (!deletingPhoto) return;
+
+    setActionLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from('album_photos').delete().eq('id', photoId);
+    const { error } = await supabase.from('album_photos').delete().eq('id', deletingPhoto.id);
+
+    setActionLoading(false);
+    setDeletingPhoto(null);
 
     if (!error) {
       loadAlbumData();
+      setShowToast({ message: '照片已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('删除失败：' + error.message);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -240,11 +298,17 @@ export default function AlbumDetailPage() {
 
   const handleBatchDelete = async () => {
     if (selectedPhotoIds.length === 0) {
-      alert('请先选择要删除的照片');
+      setShowToast({ message: '请先选择要删除的照片', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    if (!confirm(`确定要删除选中的 ${selectedPhotoIds.length} 张照片吗？`)) return;
+    setShowBatchDeleteConfirm(true);
+  };
+
+  const confirmBatchDelete = async () => {
+    setShowBatchDeleteConfirm(false);
+    setActionLoading(true);
 
     const supabase = createClient();
 
@@ -256,11 +320,16 @@ export default function AlbumDetailPage() {
 
       if (dbError) throw dbError;
 
+      setActionLoading(false);
       setSelectedPhotoIds([]);
       setIsSelectionMode(false);
       loadAlbumData();
+      setShowToast({ message: `成功删除 ${selectedPhotoIds.length} 张照片`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('批量删除失败：' + error.message);
+      setActionLoading(false);
+      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -278,62 +347,66 @@ export default function AlbumDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 pt-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button onClick={() => router.back()} className="text-[#5D4037] hover:text-[#FFC857] transition-colors">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <div>
-            <h1 className="text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
               {album?.title || '未命名空间'}
             </h1>
             <p className="text-sm text-[#5D4037]/60">密钥: {album?.access_key}</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {!isSelectionMode ? (
             <>
               <button
                 onClick={() => setShowNewFolderModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#FFC857]/20 text-[#5D4037] rounded-full hover:bg-[#FFC857]/30 transition-colors"
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#FFC857]/20 text-[#5D4037] rounded-full text-sm font-medium hover:bg-[#FFC857]/30 active:scale-95 transition-all whitespace-nowrap"
               >
-                <FolderPlus className="w-5 h-5" />
-                新建文件夹
+                <FolderPlus className="w-4 h-4" />
+                <span className="hidden sm:inline">新建文件夹</span>
+                <span className="sm:hidden">新建</span>
               </button>
               <button
                 onClick={() => setIsSelectionMode(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white text-[#5D4037] rounded-full text-sm font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 active:scale-95 transition-all whitespace-nowrap"
               >
-                批量删除
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden sm:inline">批量删除</span>
+                <span className="sm:hidden">批量</span>
               </button>
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full text-sm font-medium hover:shadow-md active:scale-95 transition-all whitespace-nowrap"
               >
-                <Upload className="w-5 h-5" />
-                上传照片
+                <Upload className="w-4 h-4" />
+                <span className="hidden sm:inline">上传照片</span>
+                <span className="sm:hidden">上传</span>
               </button>
             </>
           ) : (
             <>
               <button
                 onClick={selectAllPhotos}
-                className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                className="px-3 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 active:scale-95 transition-all whitespace-nowrap"
               >
                 全选 ({selectedPhotoIds.length}/{filteredPhotos.length})
               </button>
               <button
                 onClick={handleBatchDelete}
                 disabled={selectedPhotoIds.length === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-2 bg-red-500 text-white rounded-full text-sm font-medium hover:bg-red-600 active:scale-95 transition-all disabled:opacity-50 whitespace-nowrap"
               >
                 <Trash2 className="w-4 h-4" />
-                删除选中 ({selectedPhotoIds.length})
+                删除 ({selectedPhotoIds.length})
               </button>
               <button
                 onClick={clearPhotoSelection}
-                className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                className="px-3 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 active:scale-95 transition-all"
               >
                 取消
               </button>
@@ -345,8 +418,8 @@ export default function AlbumDetailPage() {
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => setSelectedFolder(null)}
-          className={`px-4 py-2 rounded-full text-sm transition-colors ${
-            selectedFolder === null ? 'bg-[#FFC857] text-[#5D4037]' : 'bg-white text-[#5D4037] border border-[#5D4037]/20'
+          className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
+            selectedFolder === null ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
           }`}
         >
           根目录 ({photos.filter((p) => !p.folder_id).length})
@@ -355,18 +428,22 @@ export default function AlbumDetailPage() {
           <div key={folder.id} className="relative group">
             <button
               onClick={() => setSelectedFolder(folder.id)}
-              className={`px-4 py-2 rounded-full text-sm transition-colors ${
-                selectedFolder === folder.id ? 'bg-[#FFC857] text-[#5D4037]' : 'bg-white text-[#5D4037] border border-[#5D4037]/20'
+              className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
+                selectedFolder === folder.id ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
               }`}
             >
               <Folder className="w-4 h-4 inline mr-1" />
               {folder.name} ({photos.filter((p) => p.folder_id === folder.id).length})
             </button>
             <button
-              onClick={() => handleDeleteFolder(folder.id)}
-              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDeleteFolder(folder.id);
+              }}
+              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 md:opacity-100 md:scale-75 md:group-hover:scale-100 transition-all flex items-center justify-center active:scale-95"
+              aria-label="删除文件夹"
             >
-              <Trash2 className="w-3 h-3 mx-auto" />
+              <Trash2 className="w-3 h-3" />
             </button>
           </div>
         ))}
@@ -423,8 +500,12 @@ export default function AlbumDetailPage() {
                   )}
                   {!isSelectionMode && (
                     <button
-                      onClick={() => handleDeletePhoto(photo.id, photo.url)}
-                      className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeletePhoto(photo.id, photo.url);
+                      }}
+                      className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full opacity-0 hover:opacity-100 md:opacity-70 md:hover:opacity-100 transition-opacity flex items-center justify-center active:scale-95"
+                      aria-label="删除照片"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -460,35 +541,219 @@ export default function AlbumDetailPage() {
       )}
 
       {showNewFolderModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowNewFolderModal(false)}>
-          <div className="bg-white rounded-2xl p-6 w-96" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewFolderModal(false)}>
+          <div className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-[#5D4037] mb-4">新建文件夹</h3>
             <input
               type="text"
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               placeholder="输入文件夹名称"
-              className="w-full px-4 py-2 border border-[#5D4037]/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFC857] mb-4"
+              className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 mb-4 transition-all"
               autoFocus
               onKeyPress={(e) => e.key === 'Enter' && handleCreateFolder()}
             />
             <div className="flex gap-2">
               <button
                 onClick={() => setShowNewFolderModal(false)}
-                className="flex-1 px-4 py-2 border border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 transition-colors"
+                className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateFolder}
-                className="flex-1 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                disabled={actionLoading}
+                className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
               >
-                创建
+                {actionLoading ? '创建中...' : '创建'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* 删除文件夹确认对话框 */}
+      <AnimatePresence>
+        {deletingFolder && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingFolder(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Folder className="w-8 h-8 text-orange-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">删除文件夹</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除文件夹 <span className="font-bold">{deletingFolder.name}</span> 吗？
+                </p>
+                <div className="bg-orange-50 rounded-xl p-4 text-left">
+                  <p className="text-sm text-orange-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    文件夹内的照片将移至根目录
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDeletingFolder(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDeleteFolder}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-full font-medium hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 删除照片确认对话框 */}
+      <AnimatePresence>
+        {deletingPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingPhoto(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">删除照片</h3>
+                <p className="text-sm text-[#5D4037]/80">
+                  确定要删除这张照片吗？此操作不可撤销。
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDeletingPhoto(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDeletePhoto}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除确认对话框 */}
+      <AnimatePresence>
+        {showBatchDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowBatchDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除照片</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除选中的 <span className="font-bold text-red-600">{selectedPhotoIds.length}</span> 张照片吗？
+                </p>
+                <div className="bg-red-50 rounded-xl p-4">
+                  <p className="text-sm text-red-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    此操作不可撤销！
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBatchDeleteConfirm(false)}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmBatchDelete}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all"
+                >
+                  确认删除
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast通知 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
+              showToast.type === 'success'
+                ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
+                : 'bg-red-500/95 text-white'
+            }`}>
+              {showToast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <XCircle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{showToast.message}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 上传照片模态框 */}
       <AnimatePresence>

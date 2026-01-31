@@ -12,6 +12,13 @@ interface Folder {
   name: string;
 }
 
+interface Comment {
+  id: string;
+  content: string;
+  nickname: string;
+  created_at: string;
+}
+
 interface Photo {
   id: string;
   folder_id: string | null;
@@ -19,6 +26,9 @@ interface Photo {
   width: number;
   height: number;
   is_public: boolean;
+  blurhash?: string;
+  rating?: number;
+  comments?: Comment[];
   signedUrl?: string;
 }
 
@@ -99,15 +109,21 @@ export default function AlbumDetailPage() {
     const supabase = createClient();
     const urls: Record<string, string> = {};
 
-    for (const photo of photoList) {
-      const { data } = await supabase.storage
+    // 并行生成所有签名URL
+    const urlPromises = photoList.map(photo =>
+      supabase.storage
         .from('albums')
-        .createSignedUrl(photo.storage_path, 3600);
+        .createSignedUrl(photo.storage_path, 3600)
+        .then(({ data }) => ({ id: photo.id, url: data?.signedUrl }))
+    );
 
-      if (data?.signedUrl) {
-        urls[photo.id] = data.signedUrl;
+    const results = await Promise.all(urlPromises);
+
+    results.forEach(result => {
+      if (result.url) {
+        urls[result.id] = result.url;
       }
-    }
+    });
 
     setPhotoUrls(urls);
   };
@@ -122,17 +138,37 @@ export default function AlbumDetailPage() {
     if (!photo) return;
 
     const supabase = createClient();
-    const { error } = await supabase
-      .from('album_photos')
-      .update({ is_public: !photo.is_public })
-      .eq('id', photoId);
+
+    // 使用RPC函数确保安全性
+    const { error } = await supabase.rpc('pin_photo_to_wall', {
+      p_access_key: accessKey,
+      p_photo_id: photoId
+    });
 
     if (!error) {
+      const newIsPublic = !photo.is_public;
       setPhotos(prev =>
         prev.map(p =>
-          p.id === photoId ? { ...p, is_public: !p.is_public } : p
+          p.id === photoId ? { ...p, is_public: newIsPublic } : p
         )
       );
+
+      // 显示提示信息
+      if (newIsPublic) {
+        setToast({
+          message: '✨ 照片已定格到照片墙！虽然照片7天后会像魔法一样消失，但现在它会被魔法定格，永远保留哦！',
+          type: 'success'
+        });
+      } else {
+        setToast({
+          message: '照片已从照片墙移除',
+          type: 'success'
+        });
+      }
+      setTimeout(() => setToast(null), 5000);
+    } else {
+      setToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -172,12 +208,21 @@ export default function AlbumDetailPage() {
     let failCount = 0;
 
     for (const photoId of Array.from(selectedPhotos)) {
-      const { error } = await supabase.rpc('delete_album_photo', {
+      const photo = photos.find(p => p.id === photoId);
+      if (!photo) continue;
+
+      // 先删除Storage中的文件
+      const { error: storageError } = await supabase.storage
+        .from('albums')
+        .remove([photo.storage_path]);
+
+      // 即使Storage删除失败也继续删除数据库记录
+      const { error: dbError } = await supabase.rpc('delete_album_photo', {
         p_access_key: accessKey,
         p_photo_id: photoId
       });
 
-      if (error) {
+      if (dbError) {
         failCount++;
       } else {
         successCount++;

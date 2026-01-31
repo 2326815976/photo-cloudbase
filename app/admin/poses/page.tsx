@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload } from 'lucide-react';
+import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Pose {
@@ -51,6 +51,12 @@ export default function PosesPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [isTagSelectionMode, setIsTagSelectionMode] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const [deletingPose, setDeletingPose] = useState<Pose | null>(null);
+  const [deletingTag, setDeletingTag] = useState<PoseTag | null>(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [showBatchDeleteTagsConfirm, setShowBatchDeleteTagsConfirm] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     loadPoses();
@@ -83,7 +89,8 @@ export default function PosesPage() {
 
   const handleAddPose = async () => {
     if (!poseFormData.image && batchImages.length === 0) {
-      alert('请选择图片');
+      setShowToast({ message: '请选择图片', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
@@ -132,7 +139,8 @@ export default function PosesPage() {
           }
         }
 
-        alert(`批量上传完成！成功上传 ${batchImages.length} 张图片`);
+        setShowToast({ message: `批量上传完成！成功上传 ${batchImages.length} 张图片`, type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
       } else {
         // 单张上传模式
         const fileExt = poseFormData.image!.name.split('.').pop();
@@ -168,7 +176,8 @@ export default function PosesPage() {
       loadPoses();
       loadTags();
     } catch (error: any) {
-      alert('添加失败：' + error.message);
+      setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     } finally {
       setUploading(false);
     }
@@ -193,24 +202,35 @@ export default function PosesPage() {
       setPoseFormData({ image: null, tags: [] });
       loadPoses();
       loadTags();
+      setShowToast({ message: '摆姿标签已更新', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('更新失败：' + error.message);
+      setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     } finally {
       setUploading(false);
     }
   };
 
   const handleDeletePose = async (id: number, storagePath: string) => {
-    if (!confirm('确定要删除这个摆姿吗？')) return;
+    const pose = poses.find(p => p.id === id);
+    if (pose) {
+      setDeletingPose(pose);
+    }
+  };
 
+  const confirmDeletePose = async () => {
+    if (!deletingPose) return;
+
+    setActionLoading(true);
     const supabase = createClient();
 
     try {
       // 先删除Storage中的文件
-      if (storagePath) {
+      if (deletingPose.storage_path) {
         const { error: storageError } = await supabase.storage
           .from('poses')
-          .remove([storagePath]);
+          .remove([deletingPose.storage_path]);
 
         if (storageError) {
           console.error('删除存储文件失败:', storageError);
@@ -222,24 +242,37 @@ export default function PosesPage() {
       const { error: dbError } = await supabase
         .from('poses')
         .delete()
-        .eq('id', id);
+        .eq('id', deletingPose.id);
 
       if (dbError) throw dbError;
 
+      setActionLoading(false);
+      setDeletingPose(null);
       loadPoses();
       loadTags();
+      setShowToast({ message: '摆姿已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('删除失败：' + error.message);
+      setActionLoading(false);
+      setDeletingPose(null);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
   const handleBatchDelete = async () => {
     if (selectedPoseIds.length === 0) {
-      alert('请先选择要删除的摆姿');
+      setShowToast({ message: '请先选择要删除的摆姿', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    if (!confirm(`确定要删除选中的 ${selectedPoseIds.length} 个摆姿吗？`)) return;
+    setShowBatchDeleteConfirm(true);
+  };
+
+  const confirmBatchDelete = async () => {
+    setShowBatchDeleteConfirm(false);
+    setActionLoading(true);
 
     const supabase = createClient();
 
@@ -268,12 +301,17 @@ export default function PosesPage() {
 
       if (dbError) throw dbError;
 
+      setActionLoading(false);
       setSelectedPoseIds([]);
       setIsSelectionMode(false);
       loadPoses();
       loadTags();
+      setShowToast({ message: `成功删除 ${selectedPoseIds.length} 个摆姿`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('批量删除失败：' + error.message);
+      setActionLoading(false);
+      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -358,7 +396,8 @@ export default function PosesPage() {
 
   const handleAddTag = async () => {
     if (!newTagName.trim()) {
-      alert('请输入标签名称');
+      setShowToast({ message: '请输入标签名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
@@ -373,7 +412,8 @@ export default function PosesPage() {
         .filter(name => name.length > 0);
 
       if (tagNames.length === 0) {
-        alert('请输入有效的标签名称');
+        setShowToast({ message: '请输入有效的标签名称', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
         return;
       }
 
@@ -385,45 +425,67 @@ export default function PosesPage() {
 
       if (error) throw error;
 
-      alert(`成功添加 ${tagNames.length} 个标签！`);
       setShowTagModal(false);
       setNewTagName('');
       loadTags();
+      setShowToast({ message: `成功添加 ${tagNames.length} 个标签！`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('添加失败：' + error.message);
+      setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     } finally {
       setAddingTag(false);
     }
   };
 
   const handleDeleteTag = async (id: number, name: string) => {
-    if (!confirm(`确定要删除标签"${name}"吗？所有摆姿中的该标签也会被移除。`)) return;
+    const tag = tags.find(t => t.id === id);
+    if (tag) {
+      setDeletingTag(tag);
+    }
+  };
 
+  const confirmDeleteTag = async () => {
+    if (!deletingTag) return;
+
+    setActionLoading(true);
     const supabase = createClient();
 
     try {
       const { error } = await supabase
         .from('pose_tags')
         .delete()
-        .eq('id', id);
+        .eq('id', deletingTag.id);
 
       if (error) throw error;
 
+      setActionLoading(false);
+      setDeletingTag(null);
       loadTags();
       loadPoses();
+      setShowToast({ message: '标签已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('删除失败：' + error.message);
+      setActionLoading(false);
+      setDeletingTag(null);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
   const handleBatchDeleteTags = async () => {
     if (selectedTagIds.length === 0) {
-      alert('请先选择要删除的标签');
+      setShowToast({ message: '请先选择要删除的标签', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const tagNames = tags.filter(t => selectedTagIds.includes(t.id)).map(t => t.name).join('、');
-    if (!confirm(`确定要删除选中的 ${selectedTagIds.length} 个标签（${tagNames}）吗？所有摆姿中的这些标签也会被移除。`)) return;
+    setShowBatchDeleteTagsConfirm(true);
+  };
+
+  const confirmBatchDeleteTags = async () => {
+    setShowBatchDeleteTagsConfirm(false);
+    setActionLoading(true);
 
     const supabase = createClient();
 
@@ -435,12 +497,17 @@ export default function PosesPage() {
 
       if (error) throw error;
 
+      setActionLoading(false);
       setSelectedTagIds([]);
       setIsTagSelectionMode(false);
       loadTags();
       loadPoses();
+      setShowToast({ message: `成功删除 ${selectedTagIds.length} 个标签`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      alert('批量删除失败：' + error.message);
+      setActionLoading(false);
+      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -469,7 +536,7 @@ export default function PosesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-6">
       {/* 页面标题 */}
       <div>
         <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
@@ -772,7 +839,7 @@ export default function PosesPage() {
               <p className="text-[#5D4037]/60">暂无标签数据</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
               <AnimatePresence>
                 {tags.map((tag) => (
                   <motion.div
@@ -1123,6 +1190,251 @@ export default function PosesPage() {
               className="max-w-[90vw] max-h-[90vh] object-contain"
               onClick={(e) => e.stopPropagation()}
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 删除摆姿确认对话框 */}
+      <AnimatePresence>
+        {deletingPose && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingPose(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">删除摆姿</h3>
+                <p className="text-sm text-[#5D4037]/80">
+                  确定要删除这个摆姿吗？此操作不可撤销。
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDeletingPose(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDeletePose}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除摆姿确认对话框 */}
+      <AnimatePresence>
+        {showBatchDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setShowBatchDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除摆姿</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除选中的 <span className="font-bold text-red-600">{selectedPoseIds.length}</span> 个摆姿吗？
+                </p>
+                <div className="bg-red-50 rounded-xl p-4">
+                  <p className="text-sm text-red-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    此操作不可撤销！
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBatchDeleteConfirm(false)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmBatchDelete}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 删除标签确认对话框 */}
+      <AnimatePresence>
+        {deletingTag && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingTag(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Tag className="w-8 h-8 text-orange-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">删除标签</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除标签 <span className="font-bold">"{deletingTag.name}"</span> 吗？
+                </p>
+                <div className="bg-orange-50 rounded-xl p-4 text-left">
+                  <p className="text-sm text-orange-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    所有摆姿中的该标签也会被移除
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDeletingTag(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDeleteTag}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-full font-medium hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除标签确认对话框 */}
+      <AnimatePresence>
+        {showBatchDeleteTagsConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setShowBatchDeleteTagsConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除标签</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除选中的 <span className="font-bold text-red-600">{selectedTagIds.length}</span> 个标签吗？
+                </p>
+                <div className="bg-red-50 rounded-xl p-4 text-left">
+                  <p className="text-sm text-red-800 mb-2">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    标签列表：
+                  </p>
+                  <p className="text-sm text-red-700">
+                    {tags.filter(t => selectedTagIds.includes(t.id)).map(t => t.name).join('、')}
+                  </p>
+                  <p className="text-sm text-red-800 mt-2">
+                    所有摆姿中的这些标签也会被移除
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBatchDeleteTagsConfirm(false)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmBatchDeleteTags}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast通知 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
+              showToast.type === 'success'
+                ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
+                : 'bg-red-500/95 text-white'
+            }`}>
+              {showToast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <XCircle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{showToast.message}</span>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

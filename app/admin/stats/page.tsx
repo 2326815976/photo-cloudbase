@@ -73,7 +73,7 @@ export default async function StatsPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-6">
       {/* 页面标题 */}
       <div>
         <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>

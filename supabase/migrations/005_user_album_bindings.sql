@@ -94,9 +94,12 @@ begin
       'created_at', a.created_at,
       'access_key', a.access_key,
       'bound_at', b.created_at,
-      -- 计算有效期（7天）
-      'expires_at', a.created_at + interval '7 days',
-      'is_expired', (a.created_at + interval '7 days') < now()
+      -- 使用expires_at字段（如果为空则使用创建时间+7天作为默认值）
+      'expires_at', coalesce(a.expires_at, a.created_at + interval '7 days'),
+      'is_expired', case
+        when a.expires_at is not null then a.expires_at < now()
+        else (a.created_at + interval '7 days') < now()
+      end
     )
     order by b.created_at desc
   ), '[]'::json)

@@ -29,6 +29,7 @@ export default function AlbumsPage() {
   const [newExpiryDays, setNewExpiryDays] = useState(7);
   const [editingRecipient, setEditingRecipient] = useState<Album | null>(null);
   const [newRecipientName, setNewRecipientName] = useState('');
+  const [newWelcomeLetter, setNewWelcomeLetter] = useState('');
   const [deletingAlbum, setDeletingAlbum] = useState<Album | null>(null);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -46,7 +47,11 @@ export default function AlbumsPage() {
       .order('created_at', { ascending: false });
 
     if (!error && data) {
-      setAlbums(data);
+      // 过滤掉照片墙系统相册
+      const filteredAlbums = data.filter(album =>
+        album.id !== '00000000-0000-0000-0000-000000000000'
+      );
+      setAlbums(filteredAlbums);
     }
     setLoading(false);
   };
@@ -142,14 +147,18 @@ export default function AlbumsPage() {
     const supabase = createClient();
     const { error } = await supabase
       .from('albums')
-      .update({ recipient_name: newRecipientName || '拾光者' })
+      .update({
+        recipient_name: newRecipientName || '拾光者',
+        welcome_letter: newWelcomeLetter
+      })
       .eq('id', editingRecipient.id);
 
     if (!error) {
       setEditingRecipient(null);
       setNewRecipientName('');
+      setNewWelcomeLetter('');
       loadAlbums();
-      setShowToast({ message: '收件人名称已更新', type: 'success' });
+      setShowToast({ message: '收件人和信内容已更新', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
@@ -170,7 +179,7 @@ export default function AlbumsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
@@ -246,28 +255,29 @@ export default function AlbumsPage() {
                     </button>
                   </div>
 
-                  {album.recipient_name && (
-                    <div className="flex items-center gap-2 mb-3 p-2 bg-pink-50 rounded-lg">
-                      <span className="text-xs text-pink-600 flex-1">
-                        收件人: {album.recipient_name}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setEditingRecipient(album);
-                          setNewRecipientName(album.recipient_name || '');
-                        }}
-                        className="text-pink-600 hover:text-pink-700 transition-colors"
-                      >
-                        <Edit className="w-3 h-3" />
-                      </button>
+                  <div className="flex items-center gap-2 mb-3 p-2 bg-pink-50 rounded-lg">
+                    <div className="flex-1">
+                      <div className="text-xs text-pink-600 mb-1">
+                        收件人: {album.recipient_name || '拾光者'}
+                      </div>
+                      {album.welcome_letter && (
+                        <p className="text-xs text-[#5D4037]/60 line-clamp-2">
+                          {album.welcome_letter}
+                        </p>
+                      )}
                     </div>
-                  )}
-
-                  {album.welcome_letter && (
-                    <p className="text-xs text-[#5D4037]/60 mb-3 line-clamp-2">
-                      {album.welcome_letter}
-                    </p>
-                  )}
+                    <button
+                      onClick={() => {
+                        setEditingRecipient(album);
+                        setNewRecipientName(album.recipient_name || '');
+                        setNewWelcomeLetter(album.welcome_letter || '');
+                      }}
+                      className="text-pink-600 hover:text-pink-700 transition-colors"
+                      title="编辑收件人和信内容"
+                    >
+                      <Edit className="w-3 h-3" />
+                    </button>
+                  </div>
 
                   {album.expires_at && (
                     <div className="flex items-center gap-2 mb-3 p-2 bg-blue-50 rounded-lg">
@@ -496,22 +506,49 @@ export default function AlbumsPage() {
               className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-[#5D4037] mb-4">修改收件人名称</h3>
+              <h3 className="text-xl font-bold text-[#5D4037] mb-4">编辑收件人和信内容</h3>
               <p className="text-sm text-[#5D4037]/60 mb-4">空间：{editingRecipient.title}</p>
-              <input
-                type="text"
-                value={newRecipientName}
-                onChange={(e) => setNewRecipientName(e.target.value)}
-                placeholder="例如：小美、拾光者"
-                className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 mb-2 transition-all"
-                autoFocus
-              />
-              <p className="text-xs text-[#5D4037]/60 mb-4">
-                将显示在信封上的"To"后面，默认为"拾光者"
-              </p>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                  收件人名称
+                </label>
+                <input
+                  type="text"
+                  value={newRecipientName}
+                  onChange={(e) => setNewRecipientName(e.target.value)}
+                  placeholder="例如：小美、拾光者"
+                  className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all"
+                  autoFocus
+                />
+                <p className="text-xs text-[#5D4037]/60 mt-1">
+                  将显示在信封上的"To"后面，默认为"拾光者"
+                </p>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                  信内容
+                </label>
+                <textarea
+                  value={newWelcomeLetter}
+                  onChange={(e) => setNewWelcomeLetter(e.target.value)}
+                  placeholder="写下你想对收件人说的话..."
+                  rows={4}
+                  className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all resize-none"
+                />
+                <p className="text-xs text-[#5D4037]/60 mt-1">
+                  收件人打开专属空间时会看到这段话
+                </p>
+              </div>
+
               <div className="flex gap-2">
                 <button
-                  onClick={() => setEditingRecipient(null)}
+                  onClick={() => {
+                    setEditingRecipient(null);
+                    setNewRecipientName('');
+                    setNewWelcomeLetter('');
+                  }}
                   className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium"
                 >
                   取消

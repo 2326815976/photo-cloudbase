@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Calendar, Clock, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2 } from 'lucide-react';
+import { Calendar, Clock, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Booking {
@@ -49,6 +49,11 @@ export default function BookingsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const [cancelingBooking, setCancelingBooking] = useState<Booking | null>(null);
+  const [deletingBlackout, setDeletingBlackout] = useState<Blackout | null>(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     loadBookings();
@@ -82,18 +87,32 @@ export default function BookingsPage() {
   };
 
   const handleCancel = async (id: string) => {
-    if (!confirm('确定要取消这个预约吗？')) return;
+    const booking = bookings.find(b => b.id === id);
+    if (booking) {
+      setCancelingBooking(booking);
+    }
+  };
 
+  const confirmCancel = async () => {
+    if (!cancelingBooking) return;
+
+    setActionLoading(true);
     const supabase = createClient();
     const { error } = await supabase
       .from('bookings')
       .update({ status: 'cancelled' })
-      .eq('id', id);
+      .eq('id', cancelingBooking.id);
+
+    setActionLoading(false);
+    setCancelingBooking(null);
 
     if (!error) {
       loadBookings();
+      setShowToast({ message: '预约已取消', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('取消失败：' + error.message);
+      setShowToast({ message: `取消失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -106,8 +125,11 @@ export default function BookingsPage() {
 
     if (!error) {
       loadBookings();
+      setShowToast({ message: '预约已确认', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('确认失败：' + error.message);
+      setShowToast({ message: `确认失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -159,7 +181,8 @@ export default function BookingsPage() {
 
   const handleAdd = async () => {
     if (!formData.startDate) {
-      alert('请选择开始日期');
+      setShowToast({ message: '请选择开始日期', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
@@ -171,7 +194,8 @@ export default function BookingsPage() {
     const end = formData.endDate ? new Date(formData.endDate) : start;
 
     if (end < start) {
-      alert('结束日期不能早于开始日期');
+      setShowToast({ message: '结束日期不能早于开始日期', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       setSubmitting(false);
       return;
     }
@@ -195,35 +219,58 @@ export default function BookingsPage() {
       setShowAddModal(false);
       setFormData({ startDate: '', endDate: '', reason: '' });
       loadBlackouts();
+      setShowToast({ message: '档期已锁定', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('添加失败：' + error.message);
+      setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
     setSubmitting(false);
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个档期锁定吗？删除后该日期将恢复可预约状态。')) return;
+    const blackout = blackouts.find(b => b.id === id);
+    if (blackout) {
+      setDeletingBlackout(blackout);
+    }
+  };
 
+  const confirmDelete = async () => {
+    if (!deletingBlackout) return;
+
+    setActionLoading(true);
     const supabase = createClient();
     const { error } = await supabase
       .from('booking_blackouts')
       .delete()
-      .eq('id', id);
+      .eq('id', deletingBlackout.id);
+
+    setActionLoading(false);
+    setDeletingBlackout(null);
 
     if (!error) {
       loadBlackouts();
+      setShowToast({ message: '档期锁定已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('删除失败：' + error.message);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
   const handleBatchDelete = async () => {
     if (selectedIds.length === 0) {
-      alert('请先选择要删除的档期');
+      setShowToast({ message: '请先选择要删除的档期', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    if (!confirm(`确定要删除选中的 ${selectedIds.length} 个档期锁定吗？`)) return;
+    setShowBatchDeleteConfirm(true);
+  };
+
+  const confirmBatchDelete = async () => {
+    setShowBatchDeleteConfirm(false);
+    setActionLoading(true);
 
     const supabase = createClient();
     const { error } = await supabase
@@ -231,12 +278,17 @@ export default function BookingsPage() {
       .delete()
       .in('id', selectedIds);
 
+    setActionLoading(false);
+
     if (!error) {
       setSelectedIds([]);
       setIsSelectionMode(false);
       loadBlackouts();
+      setShowToast({ message: `成功删除 ${selectedIds.length} 个档期锁定`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('批量删除失败：' + error.message);
+      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -258,7 +310,7 @@ export default function BookingsPage() {
   const today = new Date().toISOString().split('T')[0];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-6">
       {/* 页面标题 */}
       <div>
         <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
@@ -641,6 +693,191 @@ export default function BookingsPage() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 取消预约确认对话框 */}
+      <AnimatePresence>
+        {cancelingBooking && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setCancelingBooking(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <X className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">取消预约</h3>
+                <p className="text-sm text-[#5D4037]/80">
+                  确定要取消这个预约吗？
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCancelingBooking(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  返回
+                </button>
+                <button
+                  onClick={confirmCancel}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '取消中...' : '确认取消'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 删除档期确认对话框 */}
+      <AnimatePresence>
+        {deletingBlackout && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingBlackout(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CalendarIcon className="w-8 h-8 text-orange-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">删除档期锁定</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除这个档期锁定吗？
+                </p>
+                <div className="bg-orange-50 rounded-xl p-4 text-left">
+                  <p className="text-sm text-orange-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    删除后该日期将恢复可预约状态
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDeletingBlackout(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-full font-medium hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除档期确认对话框 */}
+      <AnimatePresence>
+        {showBatchDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setShowBatchDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除档期</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除选中的 <span className="font-bold text-red-600">{selectedIds.length}</span> 个档期锁定吗？
+                </p>
+                <div className="bg-red-50 rounded-xl p-4">
+                  <p className="text-sm text-red-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    此操作不可撤销！
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBatchDeleteConfirm(false)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmBatchDelete}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast通知 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
+              showToast.type === 'success'
+                ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
+                : 'bg-red-500/95 text-white'
+            }`}>
+              {showToast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <XCircle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{showToast.message}</span>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

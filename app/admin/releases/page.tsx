@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Package, Plus, Trash2, Download, Smartphone } from 'lucide-react';
+import { Package, Plus, Trash2, Download, Smartphone, CheckCircle, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Release {
@@ -17,6 +17,9 @@ interface Release {
 export default function ReleasesPage() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingRelease, setDeletingRelease] = useState<Release | null>(null);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     loadReleases();
@@ -38,18 +41,32 @@ export default function ReleasesPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个版本吗？')) return;
+    const release = releases.find(r => r.id === id);
+    if (release) {
+      setDeletingRelease(release);
+    }
+  };
 
+  const confirmDelete = async () => {
+    if (!deletingRelease) return;
+
+    setActionLoading(true);
     const supabase = createClient();
     const { error } = await supabase
       .from('app_releases')
       .delete()
-      .eq('id', id);
+      .eq('id', deletingRelease.id);
+
+    setActionLoading(false);
+    setDeletingRelease(null);
 
     if (!error) {
       loadReleases();
+      setShowToast({ message: '版本已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      alert('删除失败：' + error.message);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -68,7 +85,7 @@ export default function ReleasesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-6">
       {/* 页面标题 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -128,7 +145,7 @@ export default function ReleasesPage() {
                   </div>
                   <button
                     onClick={() => handleDelete(release.id)}
-                    className="p-3 text-red-600 hover:bg-red-50 rounded-full transition-colors self-end sm:self-start"
+                    className="p-3 text-red-600 hover:bg-red-50 rounded-full transition-colors self-end sm:self-start active:scale-95"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
@@ -154,6 +171,79 @@ export default function ReleasesPage() {
           </AnimatePresence>
         </div>
       )}
+
+      {/* 删除确认对话框 */}
+      <AnimatePresence>
+        {deletingRelease && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingRelease(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">删除版本</h3>
+                <p className="text-sm text-[#5D4037]/80">
+                  确定要删除版本 <span className="font-bold">{deletingRelease.version}</span> ({deletingRelease.platform}) 吗？
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDeletingRelease(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast通知 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
+              showToast.type === 'success'
+                ? 'bg-green-500/95 text-white'
+                : 'bg-red-500/95 text-white'
+            }`}>
+              {showToast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <XCircle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{showToast.message}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,12 +1,29 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { useEffect } from 'react';
 import { MotionConfig } from 'framer-motion';
 import BottomNav from './BottomNav';
+import { createClient } from '@/lib/supabase/client';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith('/admin');
+
+  // 记录用户活跃日志
+  useEffect(() => {
+    const logActivity = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        // 调用RPC函数记录用户活跃日志
+        await supabase.rpc('log_user_activity');
+      }
+    };
+
+    logActivity();
+  }, [pathname]); // 每次路由变化时记录
 
   if (isAdminRoute) {
     // 管理后台：使用桌面端全屏布局

@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Key, Sparkles } from 'lucide-react';
+import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function NewAlbumPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     access_key: '',
@@ -35,7 +37,8 @@ export default function NewAlbumPage() {
     const accessKey = formData.auto_generate_key ? generateRandomKey() : formData.access_key;
 
     if (!accessKey) {
-      alert('请输入访问密钥');
+      setShowToast({ message: '请输入访问密钥', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
       setLoading(false);
       return;
     }
@@ -48,7 +51,8 @@ export default function NewAlbumPage() {
       .single();
 
     if (existing) {
-      alert('该访问密钥已存在，请使用其他密钥');
+      setShowToast({ message: '该访问密钥已存在，请使用其他密钥', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
       setLoading(false);
       return;
     }
@@ -67,31 +71,35 @@ export default function NewAlbumPage() {
     });
 
     if (error) {
-      alert('创建失败：' + error.message);
+      setShowToast({ message: `创建失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
       setLoading(false);
     } else {
-      router.push('/admin/albums');
+      setShowToast({ message: '专属空间创建成功！', type: 'success' });
+      setTimeout(() => {
+        router.push('/admin/albums');
+      }, 1000);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pt-6">
       <button
         onClick={() => router.back()}
-        className="flex items-center gap-2 text-[#5D4037] hover:text-[#FFC857] transition-colors"
+        className="flex items-center gap-2 text-[#5D4037] hover:text-[#FFC857] transition-colors active:scale-95"
       >
         <ArrowLeft className="w-5 h-5" />
         返回
       </button>
 
       <div>
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
           创建专属空间 ✨
         </h1>
         <p className="text-sm text-[#5D4037]/60">为模特创建专属返图空间</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 space-y-6 border border-[#5D4037]/10">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 sm:p-6 space-y-6 border border-[#5D4037]/10">
         <div>
           <label className="block text-sm font-medium text-[#5D4037] mb-2">
             空间名称
@@ -205,19 +213,49 @@ export default function NewAlbumPage() {
           <button
             type="button"
             onClick={() => router.back()}
-            className="flex-1 px-4 py-2 border border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 transition-colors"
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
           >
             取消
           </button>
           <button
             type="submit"
             disabled={loading}
-            className="flex-1 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+            className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? '创建中...' : '创建空间'}
           </button>
         </div>
       </form>
+
+      {/* Toast通知 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
+              showToast.type === 'success'
+                ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
+                : 'bg-red-500/95 text-white'
+            }`}>
+              {showToast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <XCircle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{showToast.message}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

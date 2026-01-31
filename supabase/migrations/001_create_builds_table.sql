@@ -432,9 +432,13 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 -- 删除照片 -> 加入删除队列
 create or replace function public.queue_storage_deletion() returns trigger language plpgsql security definer as $$
 begin
-  if old.storage_path is not null then
-    insert into public.sys_storage_delete_queue (bucket_name, file_path) 
-    values (case when TG_TABLE_NAME='album_photos' then 'albums' else 'poses' end, old.storage_path);
+  -- 根据表名判断存储桶和字段名
+  if TG_TABLE_NAME = 'album_photos' and old.url is not null then
+    insert into public.sys_storage_delete_queue (bucket_name, file_path)
+    values ('albums', old.url);
+  elsif old.storage_path is not null then
+    insert into public.sys_storage_delete_queue (bucket_name, file_path)
+    values ('poses', old.storage_path);
   end if;
   return old;
 end; $$;
