@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -27,6 +27,30 @@ export default function SimpleImage({
 }: SimpleImageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [loadingTime, setLoadingTime] = useState(0);
+
+  // 加载超时检测（30秒）
+  useEffect(() => {
+    if (!isLoading) return;
+
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
+    const timeout = setTimeout(() => {
+      if (isLoading) {
+        console.warn('图片加载超时:', src);
+        setHasError(true);
+        setIsLoading(false);
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(timer);
+      clearTimeout(timeout);
+    };
+  }, [isLoading, src]);
 
   return (
     <div className={`relative overflow-hidden ${className}`} onClick={onClick}>
@@ -37,7 +61,7 @@ export default function SimpleImage({
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2"
             style={{
               background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF4E0 100%)'
             }}
@@ -56,6 +80,15 @@ export default function SimpleImage({
             >
               ☁️
             </motion.div>
+            {loadingTime > 3 && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-[10px] text-[#5D4037]/40"
+              >
+                加载中 {loadingTime}s...
+              </motion.p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -81,8 +114,12 @@ export default function SimpleImage({
           className={`w-full h-auto transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
-          onLoad={() => setIsLoading(false)}
-          onError={() => {
+          onLoad={() => {
+            console.log('图片加载成功:', src);
+            setIsLoading(false);
+          }}
+          onError={(e) => {
+            console.error('图片加载失败:', src, e);
             setIsLoading(false);
             setHasError(true);
           }}
