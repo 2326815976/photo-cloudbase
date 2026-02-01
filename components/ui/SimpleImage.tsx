@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -31,6 +31,15 @@ export default function SimpleImage({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // 检查图片是否已缓存
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalHeight !== 0) {
+      setIsLoading(false);
+    }
+  }, [src]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -98,6 +107,7 @@ export default function SimpleImage({
       {/* 原生img标签 - 零额度消耗 */}
       {!hasError && (
         <img
+          ref={imgRef}
           src={src}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
