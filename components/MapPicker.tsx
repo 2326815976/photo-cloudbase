@@ -27,8 +27,21 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
   const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
-    if (!mapRef.current || !(window as any).AMap) return;
+    if (!mapRef.current) return;
 
+    // 等待AMap脚本加载完成
+    const checkAMapLoaded = () => {
+      if ((window as any).AMap) {
+        initializeMap();
+      } else {
+        setTimeout(checkAMapLoaded, 100);
+      }
+    };
+
+    checkAMapLoaded();
+  }, []);
+
+  const initializeMap = () => {
     // 获取当前位置
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -40,7 +53,7 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         initMap(22.8170, 108.3665);
       }
     );
-  }, []);
+  };
 
   // 实时搜索
   useEffect(() => {
