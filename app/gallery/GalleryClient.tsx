@@ -155,6 +155,8 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
                         src={photo.storage_path}
                         alt="照片"
                         className="w-full h-auto object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     </div>
 
@@ -265,6 +267,7 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
               src={previewPhoto.storage_path}
               alt="预览"
               className="max-w-full max-h-full object-contain"
+              decoding="async"
               onClick={(e) => e.stopPropagation()}
             />
           </motion.div>

@@ -4,7 +4,11 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
   images: {
-    unoptimized: false,
+    // 使用自定义 loader，绕过 Vercel Image Optimization
+    // 直接使用 Supabase Storage 的图片转换功能
+    loader: 'custom',
+    loaderFile: './lib/supabase/image-loader.ts',
+
     remotePatterns: [
       {
         protocol: 'https',
