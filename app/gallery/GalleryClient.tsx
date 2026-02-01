@@ -32,27 +32,66 @@ interface GalleryClientProps {
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [page, setPage] = useState(initialPage);
+  const [allPhotos, setAllPhotos] = useState<Photo[]>(initialPhotos);
+  const [hasMore, setHasMore] = useState(initialTotal > initialPhotos.length);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const pageSize = 20;
 
   // 使用 SWR 获取照片数据，自动缓存和重新验证
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(page, pageSize);
 
   // 从 SWR 数据中提取照片和总数
-  const photos = data?.photos || initialPhotos;
+  const photos = allPhotos;
   const total = data?.total || initialTotal;
 
-  // 预加载下一页图片
+  // 当 SWR 数据更新时，追加新照片
   useEffect(() => {
-    if (photos.length > 0) {
-      // 预加载当前页面的 preview 图片（增加到20张）
-      photos.forEach((photo: Photo, index: number) => {
-        if (index < 20) { // 预加载前20张的 preview
-          const img = new Image();
-          img.src = photo.preview_url;
-        }
+    if (data?.photos && page > 1) {
+      setAllPhotos(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const newPhotos = data.photos.filter((p: Photo) => !existingIds.has(p.id));
+        return [...prev, ...newPhotos];
+      });
+      setHasMore(allPhotos.length + data.photos.length < data.total);
+      setIsLoadingMore(false);
+    }
+  }, [data, page]);
+
+  // 预加载图片
+  useEffect(() => {
+    if (allPhotos.length > 0) {
+      const lastIndex = Math.min(allPhotos.length, 20);
+      allPhotos.slice(0, lastIndex).forEach((photo: Photo) => {
+        const img = new Image();
+        img.src = photo.preview_url;
       });
     }
-  }, [photos]);
+  }, [allPhotos]);
+
+  // 无限滚动监听
+  useEffect(() => {
+    const handleScroll = () => {
+      if (isLoadingMore || !hasMore) return;
+
+      const scrollContainer = document.querySelector('.gallery-scroll-container');
+      if (!scrollContainer) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+
+      // 当滚动到底部 80% 时加载更多
+      if (scrollPercentage > 0.8) {
+        setIsLoadingMore(true);
+        setPage(prev => prev + 1);
+      }
+    };
+
+    const scrollContainer = document.querySelector('.gallery-scroll-container');
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleScroll);
+      return () => scrollContainer.removeEventListener('scroll', handleScroll);
+    }
+  }, [isLoadingMore, hasMore]);
 
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
@@ -73,23 +112,17 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     if (!error && data) {
       // 使用 SWR mutate 乐观更新缓存
-      refreshGallery((currentData: { photos: Photo[]; total: number } | undefined) => {
-        if (!currentData) return currentData;
-
-        return {
-          ...currentData,
-          photos: currentData.photos.map(photo => {
-            if (photo.id === photoId) {
-              return {
-                ...photo,
-                is_liked: data.liked,
-                like_count: data.liked ? photo.like_count + 1 : photo.like_count - 1
-              };
-            }
-            return photo;
-          })
-        };
-      }, false); // false 表示不重新验证，使用乐观更新
+      // 更新 allPhotos 中的点赞状态
+      setAllPhotos(prev => prev.map(photo => {
+        if (photo.id === photoId) {
+          return {
+            ...photo,
+            is_liked: data.liked,
+            like_count: data.liked ? photo.like_count + 1 : photo.like_count - 1
+          };
+        }
+        return photo;
+      }));
     }
   };
 
@@ -109,18 +142,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       p_session_id: sessionId
     });
 
-    // 使用 SWR mutate 更新本地浏览量
+    // 更新 allPhotos 中的浏览量
     if (data?.counted) {
-      refreshGallery((currentData: { photos: Photo[]; total: number } | undefined) => {
-        if (!currentData) return currentData;
-
-        return {
-          ...currentData,
-          photos: currentData.photos.map(p =>
-            p.id === photo.id ? { ...p, view_count: data.view_count } : p
-          )
-        };
-      }, false);
+      setAllPhotos(prev => prev.map(p =>
+        p.id === photo.id ? { ...p, view_count: data.view_count } : p
+      ));
     }
   };
 
@@ -149,7 +175,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20">
+      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20 gallery-scroll-container">
         {isLoading ? (
           <div className="text-center py-12">
             <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
@@ -220,31 +246,26 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               ))}
             </div>
 
-            {/* 分页 */}
-            {total > pageSize && (
+            {/* 加载更多指示器 */}
+            {isLoadingMore && hasMore && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
-                className="flex justify-center gap-2 mt-6"
+                className="flex justify-center items-center gap-2 mt-6 mb-4"
               >
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors text-sm text-[#5D4037]"
-                >
-                  上一页
-                </button>
-                <span className="px-4 py-2 bg-[#FFC857]/20 rounded-full text-[#5D4037] font-medium text-sm">
-                  {page} / {Math.ceil(total / pageSize)}
-                </span>
-                <button
-                  onClick={() => setPage(p => p + 1)}
-                  disabled={page >= Math.ceil(total / pageSize)}
-                  className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors text-sm text-[#5D4037]"
-                >
-                  下一页
-                </button>
+                <div className="w-6 h-6 border-3 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-sm text-[#5D4037]/60">加载更多...</p>
+              </motion.div>
+            )}
+
+            {/* 到底提示 */}
+            {!hasMore && allPhotos.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center mt-6 mb-4"
+              >
+                <p className="text-sm text-[#5D4037]/40">✨ 已经到底啦 ✨</p>
               </motion.div>
             )}
           </>
@@ -288,12 +309,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 {/* 图片容器 */}
                 <div className="p-4 pb-3">
                   <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
-                    <img
+                    <SimpleImage
                       src={previewPhoto.preview_url}
                       alt="预览"
-                      className="w-full h-auto max-h-[70vh] object-contain"
-                      loading="eager"
-                      decoding="async"
+                      priority={true}
+                      className="w-full h-auto max-h-[70vh]"
                     />
                   </div>
                 </div>
@@ -320,46 +340,54 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       {/* 未登录点赞提示弹窗 */}
       <AnimatePresence>
         {showLoginPrompt && (
-          <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowLoginPrompt(false)}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          >
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowLoginPrompt(false)}
-              className="fixed inset-0 bg-black/30 z-40"
-            />
-
-            <motion.div
-              initial={{ opacity: 0, y: -20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm px-4"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
             >
-              <div className="bg-[#FFFBF0] rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.2)] border-2 border-[#5D4037]/10 overflow-hidden">
-                {/* 标题区域 */}
-                <div className="p-4 border-b-2 border-dashed border-[#5D4037]/15 bg-[#FFC857]/20">
-                  <h3 className="text-lg font-bold text-[#5D4037] text-center" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-                    ✨ 温馨提示 ✨
-                  </h3>
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Heart className="w-8 h-8 text-[#FFC857]" />
                 </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3">✨ 想施展赞美魔法？</h3>
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
+                  登录后，你就能成为 <span className="font-bold text-[#FFC857]">【魔法使】</span>，为喜欢的照片施展 <span className="font-bold text-[#FFC857]">【赞美魔法】</span> 啦！每一个赞都是一道温暖的光，让美好的瞬间更加闪耀~ ✨
+                </p>
+                <p className="text-xs text-[#5D4037]/50 leading-relaxed">
+                  💡 Tips：魔法使还可以在【返图空间】施展【定格魔法】，让照片永久保存哦！
+                </p>
+              </div>
 
-                {/* 内容区域 */}
-                <div className="p-6 text-center">
-                  <p className="text-[#5D4037] text-base mb-6">
-                    登录后才能为喜欢的照片点赞哦~
-                  </p>
-
-                  <button
-                    onClick={() => setShowLoginPrompt(false)}
-                    className="w-full py-3 rounded-full bg-[#FFC857] text-[#5D4037] border-2 border-[#5D4037]/20 font-bold hover:shadow-md transition-shadow"
-                  >
-                    知道了
-                  </button>
-                </div>
+              <div className="flex gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowLoginPrompt(false)}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+                >
+                  随便看看
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setShowLoginPrompt(false);
+                    window.location.href = '/login';
+                  }}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+                >
+                  💛 去登录
+                </motion.button>
               </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

@@ -362,12 +362,11 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                 {/* 图片容器 */}
                 <div className="p-4 pb-3">
                   <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
-                    <img
+                    <SimpleImage
                       src={currentPose.image_url}
                       alt="预览"
-                      className="w-full h-auto max-h-[70vh] object-contain"
-                      loading="eager"
-                      decoding="async"
+                      priority={true}
+                      className="w-full h-auto max-h-[70vh]"
                     />
                   </div>
                 </div>
