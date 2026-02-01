@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, MapPin, Phone, MessageSquare, Camera, Clock } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
+import MapPicker from '@/components/MapPicker';
 import { createClient } from '@/lib/supabase/client';
 
 interface BookingType {
@@ -38,7 +39,7 @@ export default function BookingPage() {
   const [isCanceling, setIsCanceling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isLocating, setIsLocating] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   useEffect(() => {
     loadBookingTypes();
@@ -274,70 +275,12 @@ export default function BookingPage() {
     });
   };
 
-  const handleGetLocation = () => {
-    if (!('geolocation' in navigator)) {
-      setError('您的设备不支持定位功能');
-      return;
-    }
-
-    setIsLocating(true);
-    setError('');
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-
-        // 使用高德地图逆地理编码
-        if ((window as any).AMap) {
-          (window as any).AMap.plugin('AMap.Geocoder', () => {
-            const geocoder = new (window as any).AMap.Geocoder();
-            geocoder.getAddress([longitude, latitude], (status: string, result: any) => {
-              console.log('AMap geocoding status:', status);
-              console.log('AMap geocoding result:', result);
-              setIsLocating(false);
-              if (status === 'complete' && result.info === 'OK') {
-                const address = result.regeocode.formattedAddress;
-                setFormData({
-                  ...formData,
-                  location: address
-                });
-              } else {
-                console.log('解析失败 - status:', status, 'result.info:', result?.info);
-                setError('地址解析失败，请手动输入');
-              }
-            });
-          });
-        } else {
-          setIsLocating(false);
-          // 如果高德地图未加载，直接显示坐标
-          setFormData({
-            ...formData,
-            location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-          });
-        }
-      },
-      (error) => {
-        setIsLocating(false);
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            setError('定位权限被拒绝，请在设置中允许定位');
-            break;
-          case error.POSITION_UNAVAILABLE:
-            setError('定位信息不可用');
-            break;
-          case error.TIMEOUT:
-            setError('定位请求超时');
-            break;
-          default:
-            setError('定位失败，请手动输入地点');
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    );
+  const handleMapSelect = (location: string, lat: number, lng: number) => {
+    setFormData({
+      ...formData,
+      location,
+    });
+    setShowMapPicker(false);
   };
 
   if (loading) {
@@ -552,11 +495,10 @@ export default function BookingPage() {
                         />
                         <button
                           type="button"
-                          onClick={handleGetLocation}
-                          disabled={isLocating}
-                          className="px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded-lg text-sm font-medium hover:bg-[#FFB347] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                          onClick={() => setShowMapPicker(true)}
+                          className="px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded-lg text-sm font-medium hover:bg-[#FFB347] transition-colors whitespace-nowrap"
                         >
-                          {isLocating ? '定位中...' : '📍 定位'}
+                          🗺️ 地图选址
                         </button>
                       </div>
                     </div>
@@ -652,6 +594,16 @@ export default function BookingPage() {
           </motion.div>
         )}
       </div>
+
+      {/* 地图选择器弹窗 */}
+      <AnimatePresence>
+        {showMapPicker && (
+          <MapPicker
+            onSelect={handleMapSelect}
+            onClose={() => setShowMapPicker(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
