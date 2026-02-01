@@ -44,6 +44,11 @@ export default function BookingPage() {
     loadBookingTypes();
     checkActiveBooking();
 
+    // 设置高德地图安全密钥
+    (window as any)._AMapSecurityConfig = {
+      securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
+    };
+
     // 加载高德地图脚本
     const script = document.createElement('script');
     script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
