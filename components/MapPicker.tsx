@@ -194,7 +194,8 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ maxHeight: '90vh' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -212,7 +213,7 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 搜索框 */}
-        <div className="flex-none p-3 sm:p-4 border-b border-gray-200">
+        <div className="flex-none p-3 sm:p-4 border-b border-gray-200 max-h-[30vh] overflow-y-auto">
           <div className="relative">
             <input
               type="text"
@@ -247,8 +248,8 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 地图容器 */}
-        <div className="flex-1 relative min-h-0">
-          <div ref={mapRef} className="absolute inset-0 w-full h-full" />
+        <div className="relative flex-shrink-0">
+          <div ref={mapRef} className="w-full h-[350px]" />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <div className="text-[#5D4037]">加载地图中...</div>
