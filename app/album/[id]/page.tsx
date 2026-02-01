@@ -70,6 +70,7 @@ export default function AlbumDetailPage() {
   const [position, setPosition] = useState({ x: 0, y: 0 }); // 图片位置
   const [isDragging, setIsDragging] = useState(false); // 是否正在拖拽
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // 拖拽起始位置
+  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
 
   // 加载相册数据
   useEffect(() => {
@@ -483,7 +484,24 @@ export default function AlbumDetailPage() {
                     loading="lazy"
                     decoding="async"
                     className="w-full h-auto object-cover"
+                    onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
                   />
+
+                  {/* 拾光中加载动画 */}
+                  {!loadedImages.has(photo.id) && (
+                    <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                          className="w-8 h-8 rounded-full border-2 border-[#FFC857]/30 border-t-[#FFC857]"
+                        />
+                        <p className="text-xs text-[#5D4037]/60" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                          拾光中...
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 选择框 */}
                   <motion.button
