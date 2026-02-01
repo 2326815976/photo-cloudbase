@@ -140,15 +140,24 @@ export default function AdminGalleryPage() {
 
     try {
       const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
-      const filePaths = photosToDelete.map(p => {
-        let filePath = p.url;
-        if (filePath.startsWith('http')) {
-          const url = new URL(filePath);
-          const pathParts = url.pathname.split('/storage/v1/object/public/gallery/');
-          filePath = pathParts[1] || filePath;
+
+      // 提取文件路径的辅助函数
+      const extractPath = (url: string | undefined) => {
+        if (!url) return null;
+        if (url.startsWith('http')) {
+          const urlObj = new URL(url);
+          const pathParts = urlObj.pathname.split('/storage/v1/object/public/gallery/');
+          return pathParts[1] || url;
         }
-        return filePath;
-      }).filter(Boolean);
+        return url;
+      };
+
+      // 收集所有需要删除的文件路径（包括所有版本）
+      const filePaths = photosToDelete.flatMap(p => [
+        extractPath(p.thumbnail_url),
+        extractPath(p.preview_url),
+        extractPath(p.url)
+      ]).filter(Boolean) as string[];
 
       // 批量删除Storage文件
       if (filePaths.length > 0) {

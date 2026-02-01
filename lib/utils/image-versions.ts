@@ -84,12 +84,12 @@ async function getImageDimensions(file: File): Promise<{ width: number; height: 
 /**
  * 为首页摆姿生成单一优化版本
  * @param file - 原始图片文件
- * @param maxSizeKB - 最大文件大小（KB），默认 500KB
+ * @param maxSizeKB - 最大文件大小（KB），默认 100KB
  * @returns 优化后的文件
  */
 export async function generatePoseImage(
   file: File,
-  maxSizeKB: number = 500
+  maxSizeKB: number = 100
 ): Promise<File> {
   const maxSizeMB = maxSizeKB / 1024;
 
@@ -101,7 +101,7 @@ export async function generatePoseImage(
   // 压缩到指定大小
   const compressedFile = await imageCompression(file, {
     maxSizeMB,
-    maxWidthOrHeight: 1920,
+    maxWidthOrHeight: 1200,
     quality: 0.85,
     useWebWorker: true
   });

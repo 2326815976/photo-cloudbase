@@ -109,7 +109,7 @@ export default function PosesPage() {
           // 上传图片到Storage
           const fileExt = file.name.split('.').pop();
           const fileName = `${Date.now()}_${i}.${fileExt}`;
-          const filePath = `poses/${fileName}`;
+          const filePath = fileName;
 
           const { error: uploadError } = await supabase.storage
             .from('poses')
@@ -145,7 +145,7 @@ export default function PosesPage() {
         // 单张上传模式
         const fileExt = poseFormData.image!.name.split('.').pop();
         const fileName = `${Date.now()}.${fileExt}`;
-        const filePath = `poses/${fileName}`;
+        const filePath = fileName;
 
         const { error: uploadError } = await supabase.storage
           .from('poses')
