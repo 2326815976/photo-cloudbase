@@ -241,13 +241,12 @@ export default function AdminGalleryPage() {
         const blurhash = await generateBlurHash(thumbnailVersion.file);
 
         const timestamp = Date.now();
-        const fileExt = file.name.split('.').pop();
         let thumbnail_url = '';
         let preview_url = '';
 
-        // 3. 上传 thumbnail 和 preview 到 gallery 存储桶
+        // 3. 上传 thumbnail 和 preview 到 gallery 存储桶（使用WebP扩展名）
         for (const version of [thumbnailVersion, previewVersion]) {
-          const fileName = `${timestamp}_${i}_${version.type}.${fileExt}`;
+          const fileName = `${timestamp}_${i}_${version.type}.webp`;
 
           const { error: uploadError } = await supabase.storage
             .from('gallery')

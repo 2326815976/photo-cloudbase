@@ -218,14 +218,15 @@ export default function AlbumDetailPage() {
         const blurhash = await generateBlurHash(thumbnailVersion.file);
 
         const timestamp = Date.now();
-        const fileExt = file.name.split('.').pop();
         let thumbnail_url = '';
         let preview_url = '';
         let original_url = '';
 
-        // 3. 上传三个版本到 albums 存储桶
+        // 3. 上传三个版本到 albums 存储桶（WebP格式）
         for (const version of versions) {
-          const fileName = `${timestamp}_${i}_${version.type}.${fileExt}`;
+          // thumbnail 和 preview 使用 webp，original 保持原格式
+          const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
+          const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
           const { error: uploadError } = await supabase.storage
             .from('albums')

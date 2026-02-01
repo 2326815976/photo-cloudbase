@@ -22,11 +22,12 @@ export async function generateImageVersions(
 ): Promise<ImageVersion[]> {
   const versions: ImageVersion[] = [];
 
-  // 1. 生成速览图 (thumbnail) - 400px, 质量80, ~80-120KB
+  // 1. 生成速览图 (thumbnail) - 400px, 质量90, WebP格式, ~80-100KB
   const thumbnailFile = await imageCompression(originalFile, {
     maxWidthOrHeight: 400,
-    maxSizeMB: 0.12,  // 强制限制文件大小不超过 120KB
-    initialQuality: 0.8,
+    maxSizeMB: 0.1,  // 限制到100KB
+    initialQuality: 0.9,  // 提高质量到0.9
+    fileType: 'image/webp',
     useWebWorker: true
   });
 
@@ -38,12 +39,13 @@ export async function generateImageVersions(
     height: thumbnailDimensions.height
   });
 
-  // 2. 生成高质量预览图 (preview) - 1200px, 质量85, ~300-500KB
+  // 2. 生成高质量预览图 (preview) - 1200px, 质量90, WebP格式, ~300-500KB
   const previewFile = await imageCompression(originalFile, {
     maxWidthOrHeight: 1200,
-    maxSizeMB: 0.5,  // 强制限制文件大小不超过 500KB
-    initialQuality: 0.85,
-    useWebWorker: true
+    maxSizeMB: 0.5,  // 增加文件大小限制到500KB
+    initialQuality: 0.9,  // 提高质量到0.9
+    useWebWorker: true,
+    fileType: 'image/webp'
   });
 
   const previewDimensions = await getImageDimensions(previewFile);
@@ -98,11 +100,12 @@ export async function generatePoseImage(
     return file;
   }
 
-  // 压缩到指定大小
+  // 压缩到指定大小（WebP格式）
   const compressedFile = await imageCompression(file, {
     maxSizeMB,
     maxWidthOrHeight: 1200,
     initialQuality: 0.85,
+    fileType: 'image/webp',  // 使用WebP格式
     useWebWorker: true
   });
 

@@ -107,12 +107,11 @@ export default function PosesPage() {
           const file = batchImages[i];
           setUploadProgress({ current: i + 1, total: batchImages.length });
 
-          // 压缩图片到100KB以内
+          // 压缩图片到100KB以内（WebP格式）
           const compressedFile = await generatePoseImage(file, 100);
 
-          // 上传图片到Storage
-          const fileExt = file.name.split('.').pop();
-          const fileName = `${Date.now()}_${i}.${fileExt}`;
+          // 上传图片到Storage（使用WebP扩展名）
+          const fileName = `${Date.now()}_${i}.webp`;
           const filePath = fileName;
 
           const { error: uploadError } = await supabase.storage
@@ -147,11 +146,10 @@ export default function PosesPage() {
         setTimeout(() => setShowToast(null), 3000);
       } else {
         // 单张上传模式
-        // 压缩图片到100KB以内
+        // 压缩图片到100KB以内（WebP格式）
         const compressedFile = await generatePoseImage(poseFormData.image!, 100);
 
-        const fileExt = poseFormData.image!.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`;
+        const fileName = `${Date.now()}.webp`;
         const filePath = fileName;
 
         const { error: uploadError } = await supabase.storage

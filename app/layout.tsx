@@ -20,6 +20,9 @@ export default function RootLayout({
     <html lang="zh-CN">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        {/* 预连接优化 - 减少网络延迟 */}
+        <link rel="preconnect" href="https://oyezfcipxbgdkizvndil.supabase.co" />
+        <link rel="dns-prefetch" href="https://oyezfcipxbgdkizvndil.supabase.co" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet" />

@@ -32,12 +32,16 @@ export default function SimpleImage({
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
   const imgRef = useRef<HTMLImageElement>(null);
+  const loadStartTimeRef = useRef<number>(0);
 
   // 检查图片是否已缓存
   useEffect(() => {
     const img = imgRef.current;
     if (img && img.complete && img.naturalHeight !== 0) {
       setIsLoading(false);
+    } else {
+      // 记录加载开始时间
+      loadStartTimeRef.current = performance.now();
     }
   }, [src]);
 
@@ -202,7 +206,13 @@ export default function SimpleImage({
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
           style={{ objectFit: 'cover' }}
-          onLoad={() => setIsLoading(false)}
+          onLoad={() => {
+            const loadTime = performance.now() - loadStartTimeRef.current;
+            if (loadTime > 3000) {
+              console.warn(`⚠️ 图片加载缓慢: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
+            }
+            setIsLoading(false);
+          }}
           onError={() => {
             setIsLoading(false);
             setHasError(true);
