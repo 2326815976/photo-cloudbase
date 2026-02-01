@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, X, Eye } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
+import SimpleImage from '@/components/ui/SimpleImage';
+
 interface Photo {
   id: string;
   storage_path: string;
@@ -151,12 +153,10 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
                       className="relative cursor-pointer"
                       onClick={() => handlePreview(photo)}
                     >
-                      <img
+                      <SimpleImage
                         src={photo.storage_path}
                         alt="照片"
-                        className="w-full h-auto object-cover"
-                        loading="lazy"
-                        decoding="async"
+                        className="w-full h-auto rounded-t-xl"
                       />
                     </div>
 
