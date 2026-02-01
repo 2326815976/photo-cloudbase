@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { generatePoseImage } from '@/lib/utils/image-versions';
 
 interface Pose {
   id: number;
@@ -106,6 +107,9 @@ export default function PosesPage() {
           const file = batchImages[i];
           setUploadProgress({ current: i + 1, total: batchImages.length });
 
+          // 压缩图片到100KB以内
+          const compressedFile = await generatePoseImage(file, 100);
+
           // 上传图片到Storage
           const fileExt = file.name.split('.').pop();
           const fileName = `${Date.now()}_${i}.${fileExt}`;
@@ -113,7 +117,7 @@ export default function PosesPage() {
 
           const { error: uploadError } = await supabase.storage
             .from('poses')
-            .upload(filePath, file);
+            .upload(filePath, compressedFile);
 
           if (uploadError) {
             console.error(`上传第 ${i + 1} 张图片失败:`, uploadError);
@@ -143,13 +147,16 @@ export default function PosesPage() {
         setTimeout(() => setShowToast(null), 3000);
       } else {
         // 单张上传模式
+        // 压缩图片到100KB以内
+        const compressedFile = await generatePoseImage(poseFormData.image!, 100);
+
         const fileExt = poseFormData.image!.name.split('.').pop();
         const fileName = `${Date.now()}.${fileExt}`;
         const filePath = fileName;
 
         const { error: uploadError } = await supabase.storage
           .from('poses')
-          .upload(filePath, poseFormData.image!);
+          .upload(filePath, compressedFile);
 
         if (uploadError) throw uploadError;
 

@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, X, Eye } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useGallery } from '@/lib/swr/hooks';
+import { mutate } from 'swr';
+import { getSessionId } from '@/lib/utils/session';
 
 import SimpleImage from '@/components/ui/SimpleImage';
 
@@ -21,18 +24,22 @@ interface Photo {
 }
 
 interface GalleryClientProps {
-  initialPhotos: Photo[];
-  initialTotal: number;
-  initialPage: number;
+  initialPhotos?: Photo[];
+  initialTotal?: number;
+  initialPage?: number;
 }
 
-export default function GalleryClient({ initialPhotos, initialTotal, initialPage }: GalleryClientProps) {
-  const [photos, setPhotos] = useState<Photo[]>(initialPhotos);
-  const [loading, setLoading] = useState(false);
+export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [page, setPage] = useState(initialPage);
-  const [total, setTotal] = useState(initialTotal);
   const pageSize = 20;
+
+  // 使用 SWR 获取照片数据，自动缓存和重新验证
+  const { data, error, isLoading, mutate: refreshGallery } = useGallery(page, pageSize);
+
+  // 从 SWR 数据中提取照片和总数
+  const photos = data?.photos || initialPhotos;
+  const total = data?.total || initialTotal;
 
   // 预加载下一页图片
   useEffect(() => {
@@ -46,28 +53,6 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
       });
     }
   }, [photos]);
-
-  useEffect(() => {
-    if (page !== initialPage) {
-      loadPhotos();
-    }
-  }, [page]);
-
-  const loadPhotos = async () => {
-    setLoading(true);
-    const supabase = createClient();
-
-    const { data, error } = await supabase.rpc('get_public_gallery', {
-      page_no: page,
-      page_size: pageSize
-    });
-
-    if (!error && data) {
-      setPhotos(data.photos || []);
-      setTotal(data.total || 0);
-    }
-    setLoading(false);
-  };
 
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
@@ -87,16 +72,24 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
     });
 
     if (!error && data) {
-      setPhotos(prev => prev.map(photo => {
-        if (photo.id === photoId) {
-          return {
-            ...photo,
-            is_liked: data.liked,
-            like_count: data.liked ? photo.like_count + 1 : photo.like_count - 1
-          };
-        }
-        return photo;
-      }));
+      // 使用 SWR mutate 乐观更新缓存
+      refreshGallery((currentData) => {
+        if (!currentData) return currentData;
+
+        return {
+          ...currentData,
+          photos: currentData.photos.map(photo => {
+            if (photo.id === photoId) {
+              return {
+                ...photo,
+                is_liked: data.liked,
+                like_count: data.liked ? photo.like_count + 1 : photo.like_count - 1
+              };
+            }
+            return photo;
+          })
+        };
+      }, false); // false 表示不重新验证，使用乐观更新
     }
   };
 
@@ -107,16 +100,28 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
     const img = new Image();
     img.src = photo.preview_url;
 
-    // 增加浏览量
+    // 增加浏览量（带会话去重）
     const supabase = createClient();
-    await supabase.rpc('increment_photo_view', {
-      p_photo_id: photo.id
+    const sessionId = getSessionId();
+
+    const { data } = await supabase.rpc('increment_photo_view', {
+      p_photo_id: photo.id,
+      p_session_id: sessionId
     });
 
-    // 更新本地浏览量
-    setPhotos(prev => prev.map(p =>
-      p.id === photo.id ? { ...p, view_count: p.view_count + 1 } : p
-    ));
+    // 使用 SWR mutate 更新本地浏览量
+    if (data?.counted) {
+      refreshGallery((currentData) => {
+        if (!currentData) return currentData;
+
+        return {
+          ...currentData,
+          photos: currentData.photos.map(p =>
+            p.id === photo.id ? { ...p, view_count: data.view_count } : p
+          )
+        };
+      }, false);
+    }
   };
 
   const getSignedUrl = async (path: string) => {
@@ -145,7 +150,7 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
 
       {/* 滚动区域 */}
       <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20">
-        {loading ? (
+        {isLoading ? (
           <div className="text-center py-12">
             <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-sm text-[#5D4037]/60">加载中...</p>

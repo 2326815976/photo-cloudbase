@@ -22,14 +22,15 @@ interface Comment {
 interface Photo {
   id: string;
   folder_id: string | null;
-  storage_path: string;
+  thumbnail_url: string;  // 速览图 URL (300px, ~100KB)
+  preview_url: string;    // 高质量预览 URL (1200px, ~500KB)
+  original_url: string;   // 原图 URL (完整质量)
   width: number;
   height: number;
   is_public: boolean;
   blurhash?: string;
   rating?: number;
   comments?: Comment[];
-  signedUrl?: string;
 }
 
 interface AlbumData {
@@ -58,11 +59,11 @@ export default function AlbumDetailPage() {
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [previewMode, setPreviewMode] = useState<'preview' | 'original'>('preview'); // 预览模式
 
   // 加载相册数据
   useEffect(() => {
@@ -83,7 +84,7 @@ export default function AlbumDetailPage() {
     setLoading(true);
     const supabase = createClient();
 
-    // 调用RPC获取相册内容
+    // 调用RPC获取相册内容（已包含三个URL字段）
     const { data, error } = await supabase.rpc('get_album_content', {
       input_key: accessKey
     });
@@ -101,31 +102,13 @@ export default function AlbumDetailPage() {
     setPhotos(data.photos);
     setLoading(false);
 
-    // 加载照片签名URL
-    loadPhotoUrls(data.photos);
-  };
-
-  const loadPhotoUrls = async (photoList: Photo[]) => {
-    const supabase = createClient();
-    const urls: Record<string, string> = {};
-
-    // 并行生成所有签名URL
-    const urlPromises = photoList.map(photo =>
-      supabase.storage
-        .from('albums')
-        .createSignedUrl(photo.storage_path, 3600)
-        .then(({ data }: { data: { signedUrl: string } | null }) => ({ id: photo.id, url: data?.signedUrl }))
-    );
-
-    const results = await Promise.all(urlPromises);
-
-    results.forEach(result => {
-      if (result.url) {
-        urls[result.id] = result.url;
-      }
-    });
-
-    setPhotoUrls(urls);
+    // 预加载前10张照片的preview图片
+    if (data.photos && data.photos.length > 0) {
+      data.photos.slice(0, 10).forEach((photo: Photo) => {
+        const img = new Image();
+        img.src = photo.preview_url;
+      });
+    }
   };
 
   const filteredPhotos = useMemo(() => {
@@ -192,10 +175,32 @@ export default function AlbumDetailPage() {
     }
   };
 
-  const handleBatchDownload = () => {
-    const selectedUrls = photos.filter(p => selectedPhotos.has(p.id)).map(p => photoUrls[p.id]);
-    console.log('批量下载照片:', selectedUrls);
-    // TODO: 实现实际的批量下载逻辑
+  const handleBatchDownload = async () => {
+    const selectedPhotosList = photos.filter(p => selectedPhotos.has(p.id));
+
+    for (const photo of selectedPhotosList) {
+      try {
+        // 下载原图
+        const response = await fetch(photo.original_url);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `photo_${photo.id}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        // 添加延迟避免浏览器阻止多个下载
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error('下载失败:', error);
+      }
+    }
+
+    setToast({ message: `已开始下载 ${selectedPhotosList.length} 张原图`, type: 'success' });
+    setTimeout(() => setToast(null), 3000);
   };
 
   const handleBatchDelete = async () => {
@@ -211,12 +216,32 @@ export default function AlbumDetailPage() {
       const photo = photos.find(p => p.id === photoId);
       if (!photo) continue;
 
-      // 先删除Storage中的文件
-      const { error: storageError } = await supabase.storage
-        .from('albums')
-        .remove([photo.storage_path]);
+      // 从URL中提取文件路径的辅助函数
+      const extractPath = (url: string) => {
+        try {
+          const urlObj = new URL(url);
+          const pathParts = urlObj.pathname.split('/albums/');
+          return pathParts[1] || null;
+        } catch {
+          return null;
+        }
+      };
 
-      // 即使Storage删除失败也继续删除数据库记录
+      // 收集需要删除的文件路径
+      const filesToDelete = [
+        extractPath(photo.thumbnail_url),
+        extractPath(photo.preview_url),
+        extractPath(photo.original_url)
+      ].filter(Boolean) as string[];
+
+      // 删除Storage中的所有版本文件
+      if (filesToDelete.length > 0) {
+        await supabase.storage
+          .from('albums')
+          .remove(filesToDelete);
+      }
+
+      // 删除数据库记录
       const { error: dbError } = await supabase.rpc('delete_album_photo', {
         p_access_key: accessKey,
         p_photo_id: photoId
@@ -415,19 +440,13 @@ export default function AlbumDetailPage() {
                   className="relative cursor-pointer"
                   onClick={() => setSelectedPhoto(photo.id)}
                 >
-                  {photoUrls[photo.id] ? (
-                    <img
-                      src={photoUrls[photo.id]}
-                      alt={`照片 ${photo.id}`}
-                      loading="lazy"
-                      decoding="async"
-                      className="w-full h-auto object-cover"
-                    />
-                  ) : (
-                    <div className="w-full aspect-square bg-gray-100 flex items-center justify-center">
-                      <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  )}
+                  <img
+                    src={photo.thumbnail_url}
+                    alt={`照片 ${photo.id}`}
+                    loading="lazy"
+                    decoding="async"
+                    className="w-full h-auto object-cover"
+                  />
 
                   {/* 选择框 */}
                   <motion.button
@@ -477,27 +496,111 @@ export default function AlbumDetailPage() {
         recipientName={albumData.album.recipient_name}
       />
 
-      {/* 大图预览 */}
+      {/* 便利贴风格预览弹窗 */}
       <AnimatePresence>
         {selectedPhoto && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelectedPhoto(null)}
-            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
-          >
-            <motion.img
-              initial={{ scale: 0.8 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.8 }}
-              src={photoUrls[selectedPhoto]}
-              alt="预览"
-              decoding="async"
-              className="max-w-full max-h-full object-contain"
-              onClick={(e) => e.stopPropagation()}
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedPhoto(null)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
             />
-          </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, rotate: -2 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.9, rotate: 2 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="bg-[#FFFBF0] rounded-2xl shadow-[0_12px_40px_rgba(93,64,55,0.25)] border-2 border-[#5D4037]/10 max-w-4xl max-h-[90vh] overflow-hidden pointer-events-auto relative"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* 便利贴胶带效果 */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
+
+                {/* 关闭按钮 */}
+                <button
+                  onClick={() => setSelectedPhoto(null)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+
+                {/* 图片容器 */}
+                <div className="p-4 pb-3">
+                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                    <img
+                      src={
+                        previewMode === 'original'
+                          ? photos.find(p => p.id === selectedPhoto)?.original_url
+                          : photos.find(p => p.id === selectedPhoto)?.preview_url
+                      }
+                      alt="预览"
+                      className="w-full h-auto max-h-[70vh] object-contain"
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
+                </div>
+
+                {/* 信息区域 */}
+                <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
+                  <div className="flex items-center justify-center gap-6 text-[#5D4037]">
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewMode(previewMode === 'preview' ? 'original' : 'preview');
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        previewMode === 'original'
+                          ? 'bg-[#FFC857] text-[#5D4037]'
+                          : 'bg-white text-[#5D4037] border border-[#5D4037]/20'
+                      }`}
+                    >
+                      {previewMode === 'preview' ? '查看原图' : '高质量预览'}
+                    </motion.button>
+
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const photo = photos.find(p => p.id === selectedPhoto);
+                        if (!photo) return;
+
+                        try {
+                          const response = await fetch(photo.original_url);
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `photo_${photo.id}.jpg`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          window.URL.revokeObjectURL(url);
+
+                          setToast({ message: '原图下载已开始', type: 'success' });
+                          setTimeout(() => setToast(null), 3000);
+                        } catch (error) {
+                          setToast({ message: '下载失败', type: 'error' });
+                          setTimeout(() => setToast(null), 3000);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      下载原图
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

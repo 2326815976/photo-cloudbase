@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Sparkles, Plus, Calendar } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useAlbums } from '@/lib/swr/hooks';
+import { mutate } from 'swr';
 
 interface BoundAlbum {
   id: string;

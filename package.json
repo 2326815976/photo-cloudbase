@@ -22,6 +22,7 @@
     "react-blurhash": "^0.3.0",
     "react-dom": "^19",
     "react-window": "^2.2.6",
+    "swr": "^2.4.0",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {

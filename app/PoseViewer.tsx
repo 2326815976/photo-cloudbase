@@ -78,11 +78,18 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   }, []);
 
   const toggleTag = useCallback((tagName: string) => {
-    setSelectedTags(prev =>
-      prev.includes(tagName)
-        ? prev.filter(t => t !== tagName)
-        : [...prev, tagName]
-    );
+    setSelectedTags(prev => {
+      if (prev.includes(tagName)) {
+        // 取消选择
+        return prev.filter(t => t !== tagName);
+      } else {
+        // 添加选择，但限制最多3个
+        if (prev.length >= 3) {
+          return prev; // 已达到上限，不添加
+        }
+        return [...prev, tagName];
+      }
+    });
   }, []);
 
   const getRandomPose = useCallback(async () => {
@@ -321,34 +328,62 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
       <AnimatePresence>
         {showPreview && currentPose && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowPreview(false)}
-            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
-          >
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               onClick={() => setShowPreview(false)}
-              className="absolute top-6 right-6 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors"
-            >
-              <X className="w-6 h-6 text-white" />
-            </motion.button>
-            <motion.img
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              src={currentPose.image_url}
-              alt="预览"
-              loading="eager"
-              decoding="async"
-              className="max-w-full max-h-full object-contain"
-              onClick={(e) => e.stopPropagation()}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
             />
-          </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, rotate: -2 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.9, rotate: 2 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="bg-[#FFFBF0] rounded-2xl shadow-[0_12px_40px_rgba(93,64,55,0.25)] border-2 border-[#5D4037]/10 max-w-4xl max-h-[90vh] overflow-hidden pointer-events-auto relative"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* 便利贴胶带效果 */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
+
+                {/* 关闭按钮 */}
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+
+                {/* 图片容器 */}
+                <div className="p-4 pb-3">
+                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                    <img
+                      src={currentPose.image_url}
+                      alt="预览"
+                      className="w-full h-auto max-h-[70vh] object-contain"
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
+                </div>
+
+                {/* 信息区域 */}
+                <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
+                  <div className="flex items-center justify-center gap-6 text-[#5D4037]">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      <span className="text-sm font-medium">摆姿参考</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

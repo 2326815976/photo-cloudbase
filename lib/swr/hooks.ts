@@ -1,0 +1,141 @@
+/**
+ * SWR 自定义 Hooks
+ * 封装常用的数据获取逻辑，提供统一的缓存和错误处理
+ */
+
+import useSWR from 'swr';
+import { createClient } from '@/lib/supabase/client';
+import { CACHE_TIME } from './config';
+
+/**
+ * 照片墙数据 Hook
+ */
+export function useGallery(page: number = 1, pageSize: number = 20) {
+  const fetcher = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc('get_public_gallery', {
+      page_no: page,
+      page_size: pageSize
+    });
+
+    if (error) throw error;
+    return data;
+  };
+
+  return useSWR(
+    ['gallery', page, pageSize],
+    fetcher,
+    {
+      dedupingInterval: CACHE_TIME.GALLERY,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+    }
+  );
+}
+
+/**
+ * 相册列表 Hook
+ */
+export function useAlbums() {
+  const fetcher = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('albums')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  };
+
+  return useSWR(
+    'albums',
+    fetcher,
+    {
+      dedupingInterval: CACHE_TIME.ALBUMS,
+      revalidateOnFocus: true,
+    }
+  );
+}
+
+/**
+ * 相册内容 Hook
+ */
+export function useAlbumContent(albumId: string | null) {
+  const fetcher = async () => {
+    if (!albumId) return null;
+
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc('get_album_content', {
+      p_album_id: albumId
+    });
+
+    if (error) throw error;
+    return data;
+  };
+
+  return useSWR(
+    albumId ? ['album-content', albumId] : null,
+    fetcher,
+    {
+      dedupingInterval: CACHE_TIME.ALBUM_CONTENT,
+      revalidateOnFocus: true,
+    }
+  );
+}
+
+/**
+ * 摆姿列表 Hook
+ */
+export function usePoses(tags: string[] = []) {
+  const fetcher = async () => {
+    const supabase = createClient();
+    let query = supabase
+      .from('poses')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // 如果有标签筛选
+    if (tags.length > 0) {
+      query = query.contains('tags', tags);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data;
+  };
+
+  return useSWR(
+    ['poses', ...tags],
+    fetcher,
+    {
+      dedupingInterval: CACHE_TIME.POSES,
+      revalidateOnFocus: true,
+    }
+  );
+}
+
+/**
+ * 标签列表 Hook
+ */
+export function useTags() {
+  const fetcher = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('pose_tags')
+      .select('*')
+      .order('usage_count', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  };
+
+  return useSWR(
+    'tags',
+    fetcher,
+    {
+      dedupingInterval: CACHE_TIME.TAGS,
+      revalidateOnFocus: false, // 标签变化不频繁，不需要焦点重新验证
+    }
+  );
+}
