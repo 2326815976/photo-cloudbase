@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import { createClient } from '@/lib/supabase/client';
 
