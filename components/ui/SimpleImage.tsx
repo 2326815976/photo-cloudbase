@@ -4,12 +4,13 @@
  * 特性：
  * - 浏览器原生懒加载
  * - 治愈系加载动画
+ * - 加载时间显示
  * - 零Vercel额度消耗
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -29,6 +30,18 @@ export default function SimpleImage({
 }: SimpleImageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [loadingTime, setLoadingTime] = useState(0);
+
+  useEffect(() => {
+    if (!isLoading) return;
+
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isLoading]);
 
   return (
     <div className={`relative overflow-hidden ${className}`} onClick={onClick}>
@@ -58,6 +71,15 @@ export default function SimpleImage({
             >
               ☁️
             </motion.div>
+            {loadingTime > 3 && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-[10px] text-[#5D4037]/40"
+              >
+                加载中 {loadingTime}s...
+              </motion.p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
