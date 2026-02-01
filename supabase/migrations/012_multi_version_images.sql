@@ -123,11 +123,10 @@ BEGIN
                            'content', content,
                            'is_admin', is_admin_reply,
                            'created_at', created_at
-                       )
+                       ) ORDER BY created_at ASC
                    ), '[]'::json)
                    FROM public.photo_comments
                    WHERE photo_id = album_photos.id
-                   ORDER BY created_at ASC
                )
            ) ORDER BY created_at DESC
        ), '[]'::json)

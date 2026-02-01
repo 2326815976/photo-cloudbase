@@ -22,7 +22,10 @@ interface AlbumFolder {
 
 interface Photo {
   id: string;
-  url: string | null;
+  url: string | null;  // 兼容字段
+  thumbnail_url?: string | null;  // 新字段
+  preview_url?: string | null;    // 新字段
+  original_url?: string | null;   // 新字段
   folder_id: string | null;
   width: number | null;
   height: number | null;
@@ -57,6 +60,7 @@ export default function AlbumDetailPage() {
   const [deletingPhoto, setDeletingPhoto] = useState<Photo | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
 
   useEffect(() => {
     loadAlbumData();
@@ -95,14 +99,52 @@ export default function AlbumDetailPage() {
   const loadPhotoUrls = async (photosToLoad: Photo[]) => {
     const supabase = createClient();
 
-    // 过滤掉 url 为空的照片
-    const validPhotos = photosToLoad.filter(photo => photo.url);
+    console.log('📸 开始加载照片URL，照片数量:', photosToLoad.length);
+    if (photosToLoad.length > 0) {
+      console.log('📸 第一张照片数据:', photosToLoad[0]);
+    }
 
-    // 并行生成所有签名URL
-    const urlPromises = validPhotos.map(photo =>
-      supabase.storage.from('albums').createSignedUrl(photo.url, 3600)
-        .then(({ data }: { data: { signedUrl: string } | null }) => ({ id: photo.id, url: data?.signedUrl }))
-    );
+    // 过滤掉所有URL字段都为空的照片，优先使用新字段
+    const validPhotos = photosToLoad.filter((photo): photo is Photo & { thumbnail_url: string } => {
+      const url = photo.thumbnail_url || photo.preview_url || photo.url;
+      console.log(`📸 照片 ${photo.id} URL检查:`, {
+        thumbnail_url: photo.thumbnail_url,
+        preview_url: photo.preview_url,
+        url: photo.url,
+        finalUrl: url
+      });
+      return url !== null && url !== undefined;
+    });
+
+    console.log('📸 有效照片数量:', validPhotos.length);
+
+    if (validPhotos.length === 0) {
+      console.warn('⚠️ 没有找到有效的照片URL，所有URL字段都为空');
+      return;
+    }
+
+    // 并行生成所有签名URL，优先使用 thumbnail_url
+    const urlPromises = validPhotos.map(photo => {
+      const storageUrl = photo.thumbnail_url || photo.preview_url || photo.url;
+
+      // 如果已经是完整的公开URL，直接使用
+      if (storageUrl?.startsWith('https://')) {
+        console.log(`📸 照片 ${photo.id} 使用公开URL:`, storageUrl);
+        return Promise.resolve({ id: photo.id, url: storageUrl });
+      }
+
+      // 否则生成签名URL
+      console.log(`📸 为照片 ${photo.id} 生成签名URL，存储路径:`, storageUrl);
+      return supabase.storage.from('albums').createSignedUrl(storageUrl!, 3600)
+        .then(({ data }: { data: { signedUrl: string } | null }) => {
+          console.log(`✅ 照片 ${photo.id} 签名URL:`, data?.signedUrl ? '成功' : '失败');
+          return { id: photo.id, url: data?.signedUrl };
+        })
+        .catch((error: any) => {
+          console.error(`❌ 照片 ${photo.id} 签名URL生成失败:`, error);
+          return { id: photo.id, url: undefined };
+        });
+    });
 
     const results = await Promise.all(urlPromises);
 
@@ -114,6 +156,7 @@ export default function AlbumDetailPage() {
           newUrls[result.id] = result.url;
         }
       });
+      console.log('📸 最终photoUrls数量:', Object.keys(newUrls).length);
       return newUrls;
     });
   };
@@ -508,10 +551,16 @@ export default function AlbumDetailPage() {
                     ? selectedPhotoIds.includes(photo.id)
                       ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
                       : 'border-[#5D4037]/10 hover:border-[#FFC857]/50'
-                    : 'border-[#5D4037]/10 hover:shadow-md'
+                    : 'border-[#5D4037]/10 hover:shadow-md cursor-pointer'
                 }`}
-                onClick={() => isSelectionMode && togglePhotoSelection(photo.id)}
-                style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
+                onClick={() => {
+                  if (isSelectionMode) {
+                    togglePhotoSelection(photo.id);
+                  } else {
+                    setPreviewPhoto(photo);
+                  }
+                }}
+                style={{ cursor: isSelectionMode ? 'pointer' : 'pointer' }}
               >
                 <div className="aspect-[3/4] relative">
                   {isSelectionMode && (
@@ -527,17 +576,23 @@ export default function AlbumDetailPage() {
                       )}
                     </div>
                   )}
-                  {photoUrls[photo.id] ? (
-                    <img
-                      src={photoUrls[photo.id]}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                      <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  )}
+                  {(() => {
+                    const url = photoUrls[photo.id];
+                    console.log(`🖼️ 渲染照片 ${photo.id}，URL:`, url);
+                    return url ? (
+                      <img
+                        src={url}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onLoad={() => console.log(`✅ 照片 ${photo.id} 加载成功`)}
+                        onError={(e) => console.error(`❌ 照片 ${photo.id} 加载失败:`, e)}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                        <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    );
+                  })()}
                   {!isSelectionMode && (
                     <button
                       onClick={(e) => {
@@ -897,6 +952,67 @@ export default function AlbumDetailPage() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 便利贴风格预览弹窗 */}
+      <AnimatePresence>
+        {previewPhoto && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPreviewPhoto(null)}
+              className="fixed inset-0 bg-black/50 z-50"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, rotate: -2 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.9, rotate: 2 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="bg-[#FFFBF0] rounded-2xl shadow-[0_12px_40px_rgba(93,64,55,0.25)] border-2 border-[#5D4037]/10 max-w-4xl max-h-[90vh] overflow-hidden pointer-events-auto relative"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* 便利贴胶带效果 */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
+
+                {/* 关闭按钮 */}
+                <button
+                  onClick={() => setPreviewPhoto(null)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+
+                {/* 图片容器 */}
+                <div className="p-4 pb-3">
+                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                    {photoUrls[previewPhoto.id] && (
+                      <img
+                        src={photoUrls[previewPhoto.id]}
+                        alt="预览"
+                        className="w-full h-auto max-h-[70vh] object-contain"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* 信息区域 */}
+                <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
+                  <div className="flex items-center justify-center gap-6 text-[#5D4037]">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4" />
+                      <span className="text-sm font-medium">照片预览</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

@@ -1,11 +1,16 @@
 -- ================================================================================================
--- 📂 项目：拾光谣 - 浏览量机制优化
--- 📝 版本：v7.0 - View Count Optimization
--- 🎯 目标：防止单个用户无限刷浏览量，实现基于会话的去重机制
+-- 📂 项目：拾光谣 - 浏览量机制优化 + Storage 权限修复
+-- 📝 版本：v7.0 - View Count Optimization & Storage Fix
+-- 🎯 目标：
+--   1. 防止单个用户无限刷浏览量，实现基于会话的去重机制
+--   2. 修复 albums bucket 公开访问权限，解决图片无法加载问题
 -- 📅 日期：2026-02-01
 -- ================================================================================================
 
 -- ================================================================================================
+-- Part 1: 浏览量机制优化
+-- ================================================================================================
+
 -- 1. 创建照片浏览记录表
 -- ================================================================================================
 
@@ -121,6 +126,11 @@ COMMENT ON FUNCTION public.cleanup_old_photo_views() IS '清理90天前的照片
 -- 启用 RLS
 ALTER TABLE public.photo_views ENABLE ROW LEVEL SECURITY;
 
+-- 删除已存在的策略（如果存在）
+DROP POLICY IF EXISTS "Anyone can insert photo views" ON public.photo_views;
+DROP POLICY IF EXISTS "Users can view own photo views" ON public.photo_views;
+DROP POLICY IF EXISTS "Admins can view all photo views" ON public.photo_views;
+
 -- 允许所有人插入浏览记录
 CREATE POLICY "Anyone can insert photo views"
   ON public.photo_views FOR INSERT
@@ -145,6 +155,27 @@ CREATE POLICY "Admins can view all photo views"
   );
 
 -- ================================================================================================
+-- Part 2: 修复 albums bucket 公开访问权限
+-- ================================================================================================
+
+-- 问题：bucket 设置为私有，但数据库存储的是公开 URL，导致图片无法加载
+-- 解决：将 bucket 改为公开，允许直接访问公开 URL
+
+-- 将 albums bucket 改为公开
+UPDATE storage.buckets
+SET public = true
+WHERE id = 'albums';
+
+-- 删除已存在的策略（如果存在）
+DROP POLICY IF EXISTS "Public read access for albums" ON storage.objects;
+
+-- 添加公开读取策略（允许所有人读取公开文件）
+CREATE POLICY "Public read access for albums"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'albums');
+
+-- ================================================================================================
 -- 完成
 -- ================================================================================================
 
@@ -155,4 +186,9 @@ BEGIN
   RAISE NOTICE '🔄 已更新 RPC 函数：increment_photo_view（支持会话去重）';
   RAISE NOTICE '🧹 新增清理函数：cleanup_old_photo_views（清理90天前记录）';
   RAISE NOTICE '⚠️  前端需要传递 session_id 参数（未登录用户）';
+  RAISE NOTICE '';
+  RAISE NOTICE '✅ Storage 权限修复完成！';
+  RAISE NOTICE '📦 albums bucket 已改为公开';
+  RAISE NOTICE '🔓 所有 /object/public/albums/ URL 现在可以直接访问';
+  RAISE NOTICE '🚀 图片加载问题已解决';
 END $$;
