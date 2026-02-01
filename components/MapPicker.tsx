@@ -42,8 +42,24 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
   }, []);
 
   const initializeMap = () => {
-    // 直接使用默认位置初始化地图
-    initMap(22.8170, 108.3665);
+    // 设置3秒超时,防止定位请求卡住
+    const timeout = setTimeout(() => {
+      initMap(22.8170, 108.3665);
+    }, 3000);
+
+    // 获取当前位置
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        clearTimeout(timeout);
+        const { latitude, longitude } = position.coords;
+        initMap(latitude, longitude);
+      },
+      () => {
+        clearTimeout(timeout);
+        initMap(22.8170, 108.3665);
+      },
+      { timeout: 3000, enableHighAccuracy: false }
+    );
   };
 
   // 实时搜索
