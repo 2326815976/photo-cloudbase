@@ -22,7 +22,7 @@ interface AlbumFolder {
 
 interface Photo {
   id: string;
-  url: string;
+  url: string | null;
   folder_id: string | null;
   width: number | null;
   height: number | null;
@@ -95,8 +95,11 @@ export default function AlbumDetailPage() {
   const loadPhotoUrls = async (photosToLoad: Photo[]) => {
     const supabase = createClient();
 
+    // 过滤掉 url 为空的照片
+    const validPhotos = photosToLoad.filter(photo => photo.url);
+
     // 并行生成所有签名URL
-    const urlPromises = photosToLoad.map(photo =>
+    const urlPromises = validPhotos.map(photo =>
       supabase.storage.from('albums').createSignedUrl(photo.url, 3600)
         .then(({ data }: { data: { signedUrl: string } | null }) => ({ id: photo.id, url: data?.signedUrl }))
     );

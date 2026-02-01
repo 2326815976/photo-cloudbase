@@ -28,11 +28,19 @@ export default function SimpleImage({
   priority = false,
   onClick
 }: SimpleImageProps) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [loadingTime, setLoadingTime] = useState(0);
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
+
+  // 智能初始化：检查图片是否已在缓存中
+  const [isLoading, setIsLoading] = useState(() => {
+    // 尝试从缓存中获取图片
+    const img = new Image();
+    img.src = src;
+    return !(img.complete && img.naturalHeight !== 0);
+  });
+
+  const [hasError, setHasError] = useState(false);
+  const [loadingTime, setLoadingTime] = useState(0);
 
   // 检查图片是否已缓存 - 使用 useLayoutEffect 避免已缓存图片闪烁加载动画
   useLayoutEffect(() => {
