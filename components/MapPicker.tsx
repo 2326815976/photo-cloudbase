@@ -24,6 +24,7 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     if (!mapRef.current || !(window as any).AMap) return;
@@ -40,6 +41,22 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
       }
     );
   }, []);
+
+  // 实时搜索
+  useEffect(() => {
+    if (!searchQuery.trim() || !map) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
+
+    setIsSearching(true);
+    const timer = setTimeout(() => {
+      handleSearch();
+    }, 500); // 防抖500ms
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, map]);
 
   const initMap = (lat: number, lng: number) => {
     const AMap = (window as any).AMap;
@@ -94,7 +111,10 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
   };
 
   const handleSearch = () => {
-    if (!searchQuery.trim() || !map) return;
+    if (!searchQuery.trim() || !map) {
+      setIsSearching(false);
+      return;
+    }
 
     const AMap = (window as any).AMap;
     AMap.plugin('AMap.PlaceSearch', () => {
@@ -104,6 +124,7 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
       });
 
       placeSearch.search(searchQuery, (status: string, result: any) => {
+        setIsSearching(false);
         if (status === 'complete' && result.poiList) {
           const results = result.poiList.pois.map((poi: any) => ({
             name: poi.name,
@@ -139,18 +160,19 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-4"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+        initial={{ y: '100%', opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: '100%', opacity: 0 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="relative w-full sm:max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+        <div className="flex-none flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <MapPin className="w-5 h-5 text-[#FFC857]" />
             <h3 className="text-lg font-semibold text-[#5D4037]">选择位置</h3>
@@ -164,36 +186,34 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 搜索框 */}
-        <div className="p-4 border-b border-gray-200">
+        <div className="flex-none p-3 sm:p-4 border-b border-gray-200">
           <div className="relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="搜索地点、地址..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#FFC857] focus:ring-2 focus:ring-[#FFC857]/20"
+              className="w-full pl-10 pr-4 py-2.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#FFC857] focus:ring-2 focus:ring-[#FFC857]/20 text-base"
             />
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <button
-              onClick={handleSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded text-sm font-medium hover:bg-[#FFB347] transition-colors"
-            >
-              搜索
-            </button>
+            {isSearching && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="w-4 h-4 border-2 border-[#FFC857] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
           </div>
 
           {/* 搜索结果列表 */}
           {showResults && searchResults.length > 0 && (
-            <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
+            <div className="mt-2 max-h-32 sm:max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
               {searchResults.map((result, index) => (
                 <button
                   key={index}
                   onClick={() => handleSelectResult(result)}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                  className="w-full text-left px-3 py-2.5 sm:py-2 hover:bg-gray-50 active:bg-gray-100 border-b border-gray-100 last:border-b-0 transition-colors"
                 >
                   <div className="font-medium text-[#5D4037] text-sm">{result.name}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{result.address}</div>
+                  <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{result.address}</div>
                 </button>
               ))}
             </div>
@@ -201,8 +221,8 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 地图容器 */}
-        <div className="relative">
-          <div ref={mapRef} className="w-full h-[400px]" />
+        <div className="flex-1 relative min-h-0">
+          <div ref={mapRef} className="w-full h-full" />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80">
               <div className="text-[#5D4037]">加载地图中...</div>
@@ -211,25 +231,25 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 地址显示 */}
-        <div className="p-4 bg-gray-50">
-          <div className="text-sm text-gray-600 mb-1">选中位置：</div>
-          <div className="text-base text-[#5D4037] font-medium">
+        <div className="flex-none p-3 sm:p-4 bg-gray-50 border-t border-gray-200">
+          <div className="text-xs sm:text-sm text-gray-600 mb-1">选中位置：</div>
+          <div className="text-sm sm:text-base text-[#5D4037] font-medium line-clamp-2">
             {address || '拖动标记或点击地图选择位置'}
           </div>
         </div>
 
         {/* 底部按钮 */}
-        <div className="flex gap-3 p-4 border-t border-gray-200">
+        <div className="flex-none flex gap-3 p-3 sm:p-4 border-t border-gray-200 bg-white">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex-1 px-4 py-3 sm:py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 active:bg-gray-100 transition-colors text-base sm:text-sm font-medium"
           >
             取消
           </button>
           <button
             onClick={handleConfirm}
             disabled={!address}
-            className="flex-1 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-lg hover:bg-[#FFB347] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            className="flex-1 px-4 py-3 sm:py-2 bg-[#FFC857] text-[#5D4037] rounded-lg hover:bg-[#FFB347] active:bg-[#FFB347] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-base sm:text-sm font-medium"
           >
             确认选择
           </button>
