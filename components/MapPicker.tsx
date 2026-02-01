@@ -42,17 +42,8 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
   }, []);
 
   const initializeMap = () => {
-    // 获取当前位置
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        initMap(latitude, longitude);
-      },
-      () => {
-        // 定位失败，使用默认位置（广西南宁）
-        initMap(22.8170, 108.3665);
-      }
-    );
+    // 直接使用默认位置初始化地图
+    initMap(22.8170, 108.3665);
   };
 
   // 实时搜索
