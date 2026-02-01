@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Sparkles, Plus, Calendar } from 'lucide-react';
+import { Lock, Sparkles, Plus, Calendar, Clipboard } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAlbums } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
+import { getClipboardText } from '@/lib/android';
 
 interface BoundAlbum {
   id: string;
@@ -238,14 +239,35 @@ export default function AlbumLoginPage() {
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <input
-                    type="text"
-                    placeholder="输入神秘密钥..."
-                    value={accessKey}
-                    onChange={(e) => setAccessKey(e.target.value)}
-                    disabled={isLoading}
-                    className="w-full px-4 py-3 text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="输入神秘密钥..."
+                      value={accessKey}
+                      onChange={(e) => setAccessKey(e.target.value)}
+                      disabled={isLoading}
+                      className="w-full px-4 py-3 pr-12 text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50"
+                    />
+                    <motion.button
+                      type="button"
+                      whileTap={{ scale: 0.9 }}
+                      onClick={async () => {
+                        try {
+                          const text = await getClipboardText();
+                          if (text) {
+                            setAccessKey(text.trim().toUpperCase());
+                          }
+                        } catch (error) {
+                          console.error('读取剪贴板失败:', error);
+                        }
+                      }}
+                      disabled={isLoading}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#FFC857]/20 hover:bg-[#FFC857]/30 flex items-center justify-center transition-colors disabled:opacity-50"
+                      title="粘贴"
+                    >
+                      <Clipboard className="w-4 h-4 text-[#5D4037]" />
+                    </motion.button>
+                  </div>
                   {error && (
                     <motion.p
                       initial={{ opacity: 0, y: -10 }}

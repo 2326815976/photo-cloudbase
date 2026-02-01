@@ -6,6 +6,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import { createClient } from '@/lib/supabase/client';
+import { downloadPhoto } from '@/lib/android';
 
 interface Folder {
   id: string;
@@ -64,6 +65,11 @@ export default function AlbumDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [previewMode, setPreviewMode] = useState<'preview' | 'original'>('preview'); // 预览模式
+  const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
+  const [scale, setScale] = useState(1); // 缩放比例
+  const [position, setPosition] = useState({ x: 0, y: 0 }); // 图片位置
+  const [isDragging, setIsDragging] = useState(false); // 是否正在拖拽
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // 拖拽起始位置
 
   // 加载相册数据
   useEffect(() => {
@@ -180,17 +186,8 @@ export default function AlbumDetailPage() {
 
     for (const photo of selectedPhotosList) {
       try {
-        // 下载原图
-        const response = await fetch(photo.original_url);
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `photo_${photo.id}.jpg`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+        // 使用Android原生下载（自动降级到Web下载）
+        downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
 
         // 添加延迟避免浏览器阻止多个下载
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -594,36 +591,25 @@ export default function AlbumDetailPage() {
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setPreviewMode(previewMode === 'preview' ? 'original' : 'preview');
+                        setFullscreenPhoto(selectedPhoto);
+                        setScale(1);
+                        setPosition({ x: 0, y: 0 });
                       }}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                        previewMode === 'original'
-                          ? 'bg-[#FFC857] text-[#5D4037]'
-                          : 'bg-white text-[#5D4037] border border-[#5D4037]/20'
-                      }`}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#FFC857] text-[#5D4037] transition-colors"
                     >
-                      {previewMode === 'preview' ? '查看原图' : '高质量预览'}
+                      查看原图
                     </motion.button>
 
                     <motion.button
                       whileTap={{ scale: 0.95 }}
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.stopPropagation();
                         const photo = photos.find(p => p.id === selectedPhoto);
                         if (!photo) return;
 
                         try {
-                          const response = await fetch(photo.original_url);
-                          const blob = await response.blob();
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `photo_${photo.id}.jpg`;
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                          window.URL.revokeObjectURL(url);
-
+                          // 使用Android原生下载（自动降级到Web下载）
+                          downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
                           setToast({ message: '原图下载已开始', type: 'success' });
                           setTimeout(() => setToast(null), 3000);
                         } catch (error) {
@@ -742,6 +728,107 @@ export default function AlbumDetailPage() {
                 </motion.button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 全屏原图查看器 */}
+      <AnimatePresence>
+        {fullscreenPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black z-[100] flex items-center justify-center"
+            onWheel={(e) => {
+              e.preventDefault();
+              const delta = e.deltaY > 0 ? -0.1 : 0.1;
+              setScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
+            }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'IMG') {
+                setIsDragging(true);
+                setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+              }
+            }}
+            onMouseMove={(e) => {
+              if (isDragging) {
+                setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+              }
+            }}
+            onMouseUp={() => setIsDragging(false)}
+            onMouseLeave={() => setIsDragging(false)}
+            onTouchStart={(e) => {
+              if (e.touches.length === 1) {
+                setIsDragging(true);
+                setDragStart({
+                  x: e.touches[0].clientX - position.x,
+                  y: e.touches[0].clientY - position.y
+                });
+              }
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length === 1 && isDragging) {
+                setPosition({
+                  x: e.touches[0].clientX - dragStart.x,
+                  y: e.touches[0].clientY - dragStart.y
+                });
+              }
+            }}
+            onTouchEnd={() => setIsDragging(false)}
+          >
+            {/* 关闭按钮 */}
+            <button
+              onClick={() => {
+                setFullscreenPhoto(null);
+                setScale(1);
+                setPosition({ x: 0, y: 0 });
+              }}
+              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
+            >
+              <X className="w-6 h-6 text-white" />
+            </button>
+
+            {/* 缩放控制 */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+              <button
+                onClick={() => setScale(prev => Math.max(0.5, prev - 0.2))}
+                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white font-bold transition-colors"
+              >
+                −
+              </button>
+              <span className="text-white text-sm font-medium min-w-[60px] text-center">
+                {Math.round(scale * 100)}%
+              </span>
+              <button
+                onClick={() => setScale(prev => Math.min(5, prev + 0.2))}
+                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white font-bold transition-colors"
+              >
+                +
+              </button>
+              <button
+                onClick={() => {
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                }}
+                className="ml-2 px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-medium transition-colors"
+              >
+                重置
+              </button>
+            </div>
+
+            {/* 图片 */}
+            <img
+              src={photos.find(p => p.id === fullscreenPhoto)?.original_url}
+              alt="原图"
+              className="max-w-none select-none"
+              style={{
+                transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                cursor: isDragging ? 'grabbing' : 'grab',
+                transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+              }}
+              draggable={false}
+            />
           </motion.div>
         )}
       </AnimatePresence>

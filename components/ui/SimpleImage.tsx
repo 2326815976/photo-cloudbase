@@ -33,7 +33,9 @@ export default function SimpleImage({
 
   // 智能初始化：检查图片是否已在缓存中
   const [isLoading, setIsLoading] = useState(() => {
-    // 尝试从缓存中获取图片
+    // 仅在浏览器环境中检查缓存
+    if (typeof window === 'undefined') return true;
+
     const img = new Image();
     img.src = src;
     return !(img.complete && img.naturalHeight !== 0);
@@ -210,6 +212,7 @@ export default function SimpleImage({
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
+          fetchPriority={priority ? 'high' : 'low'}
           className={`w-full h-auto transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
