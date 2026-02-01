@@ -71,6 +71,13 @@ export default function AlbumDetailPage() {
   const [isDragging, setIsDragging] = useState(false); // 是否正在拖拽
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // 拖拽起始位置
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
+  const [lastTouchDistance, setLastTouchDistance] = useState(0); // 双指距离
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null); // 长按计时器
+  const [longPressProgress, setLongPressProgress] = useState(0); // 长按进度 0-100
+  const [longPressInterval, setLongPressInterval] = useState<NodeJS.Timeout | null>(null); // 长按进度更新定时器
+  const [lastTap, setLastTap] = useState(0); // 上次点击时间（用于双击检测）
+  const [swipeStartY, setSwipeStartY] = useState(0); // 滑动起始Y坐标
 
   // 加载相册数据
   useEffect(() => {
@@ -485,10 +492,11 @@ export default function AlbumDetailPage() {
                     decoding="async"
                     className="w-full h-auto object-cover"
                     onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
+                    onError={() => setFailedImages(prev => new Set([...prev, photo.id]))}
                   />
 
                   {/* 拾光中加载动画 */}
-                  {!loadedImages.has(photo.id) && (
+                  {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
                     <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
                       <div className="flex flex-col items-center gap-2">
                         <motion.div
@@ -499,6 +507,31 @@ export default function AlbumDetailPage() {
                         <p className="text-xs text-[#5D4037]/60" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
                           拾光中...
                         </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 加载失败提示 */}
+                  {failedImages.has(photo.id) && (
+                    <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
+                      <div className="flex flex-col items-center gap-2 text-center px-4">
+                        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                          <X className="w-6 h-6 text-red-500" />
+                        </div>
+                        <p className="text-xs text-[#5D4037]/60">加载失败</p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFailedImages(prev => {
+                              const newSet = new Set(prev);
+                              newSet.delete(photo.id);
+                              return newSet;
+                            });
+                          }}
+                          className="text-xs text-[#FFC857] underline"
+                        >
+                          重试
+                        </button>
                       </div>
                     </div>
                   )}
@@ -757,7 +790,7 @@ export default function AlbumDetailPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black z-[100] flex items-center justify-center"
+            className="fixed inset-0 bg-black z-[100] flex items-center justify-center overflow-hidden"
             onWheel={(e) => {
               e.preventDefault();
               const delta = e.deltaY > 0 ? -0.1 : 0.1;
@@ -778,6 +811,131 @@ export default function AlbumDetailPage() {
             onMouseLeave={() => setIsDragging(false)}
             onTouchStart={(e) => {
               if (e.touches.length === 1) {
+                const now = Date.now();
+                const timeSinceLastTap = now - lastTap;
+
+                // 双击检测（300ms内）
+                if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
+                  // 双击放大/缩小
+                  if (scale > 1) {
+                    setScale(1);
+                    setPosition({ x: 0, y: 0 });
+                  } else {
+                    setScale(2);
+                  }
+                  setLastTap(0);
+                  return;
+                }
+                setLastTap(now);
+
+                // 记录滑动起始位置
+                setSwipeStartY(e.touches[0].clientY);
+
+                // 单指：开始长按计时和进度更新
+                setLongPressProgress(0);
+                const progressInterval = setInterval(() => {
+                  setLongPressProgress(prev => Math.min(prev + 12.5, 100));
+                }, 100);
+                setLongPressInterval(progressInterval);
+
+                const timer = setTimeout(() => {
+                  clearInterval(progressInterval);
+                  setLongPressProgress(0);
+                  const photo = photos.find(p => p.id === fullscreenPhoto);
+                  if (photo) {
+                    downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
+                    setToast({ message: '原图下载已开始', type: 'success' });
+                    setTimeout(() => setToast(null), 3000);
+                  }
+                }, 800);
+                setLongPressTimer(timer);
+
+                // 单指拖拽
+                setIsDragging(true);
+                setDragStart({
+                  x: e.touches[0].clientX - position.x,
+                  y: e.touches[0].clientY - position.y
+                });
+              } else if (e.touches.length === 2) {
+                // 双指：取消长按，开始缩放
+                if (longPressTimer) {
+                  clearTimeout(longPressTimer);
+                  setLongPressTimer(null);
+                }
+                if (longPressInterval) {
+                  clearInterval(longPressInterval);
+                  setLongPressInterval(null);
+                }
+                setLongPressProgress(0);
+                setIsDragging(false);
+                const distance = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                setLastTouchDistance(distance);
+              }
+            }}
+            onTouchMove={(e) => {
+              // 取消长按
+              if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                setLongPressTimer(null);
+              }
+              if (longPressInterval) {
+                clearInterval(longPressInterval);
+                setLongPressInterval(null);
+              }
+              setLongPressProgress(0);
+
+              if (e.touches.length === 1 && isDragging) {
+                const currentY = e.touches[0].clientY;
+                const deltaY = currentY - swipeStartY;
+
+                // 向下滑动超过100px且缩放为1时关闭
+                if (deltaY > 100 && scale === 1) {
+                  setFullscreenPhoto(null);
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                  return;
+                }
+
+                // 单指拖拽
+                setPosition({
+                  x: e.touches[0].clientX - dragStart.x,
+                  y: e.touches[0].clientY - dragStart.y
+                });
+              } else if (e.touches.length === 2) {
+                // 双指缩放
+                e.preventDefault();
+                const distance = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                if (lastTouchDistance > 0) {
+                  const delta = (distance - lastTouchDistance) * 0.01;
+                  setScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
+                }
+                setLastTouchDistance(distance);
+              }
+            }}
+            onTouchEnd={(e) => {
+              // 清除长按计时器和进度
+              if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                setLongPressTimer(null);
+              }
+              if (longPressInterval) {
+                clearInterval(longPressInterval);
+                setLongPressInterval(null);
+              }
+              setLongPressProgress(0);
+
+              if (e.touches.length === 0) {
+                setIsDragging(false);
+                setLastTouchDistance(0);
+              } else if (e.touches.length === 1) {
+                // 从双指变为单指，重新开始拖拽
+                setLastTouchDistance(0);
                 setIsDragging(true);
                 setDragStart({
                   x: e.touches[0].clientX - position.x,
@@ -785,15 +943,6 @@ export default function AlbumDetailPage() {
                 });
               }
             }}
-            onTouchMove={(e) => {
-              if (e.touches.length === 1 && isDragging) {
-                setPosition({
-                  x: e.touches[0].clientX - dragStart.x,
-                  y: e.touches[0].clientY - dragStart.y
-                });
-              }
-            }}
-            onTouchEnd={() => setIsDragging(false)}
           >
             {/* 关闭按钮 */}
             <button
@@ -807,39 +956,23 @@ export default function AlbumDetailPage() {
               <X className="w-6 h-6 text-white" />
             </button>
 
-            {/* 缩放控制 */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-              <button
-                onClick={() => setScale(prev => Math.max(0.5, prev - 0.2))}
-                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white font-bold transition-colors"
-              >
-                −
-              </button>
-              <span className="text-white text-sm font-medium min-w-[60px] text-center">
+            {/* 缩放提示 */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+              <p className="text-white text-xs">双指缩放 · 长按下载</p>
+            </div>
+
+            {/* 缩放比例显示 */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+              <span className="text-white text-sm font-medium">
                 {Math.round(scale * 100)}%
               </span>
-              <button
-                onClick={() => setScale(prev => Math.min(5, prev + 0.2))}
-                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white font-bold transition-colors"
-              >
-                +
-              </button>
-              <button
-                onClick={() => {
-                  setScale(1);
-                  setPosition({ x: 0, y: 0 });
-                }}
-                className="ml-2 px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-medium transition-colors"
-              >
-                重置
-              </button>
             </div>
 
             {/* 图片 */}
             <img
               src={photos.find(p => p.id === fullscreenPhoto)?.original_url}
               alt="原图"
-              className="max-w-none select-none"
+              className="max-w-full max-h-full object-contain select-none"
               style={{
                 transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
                 cursor: isDragging ? 'grabbing' : 'grab',
@@ -847,6 +980,38 @@ export default function AlbumDetailPage() {
               }}
               draggable={false}
             />
+
+            {/* 长按下载进度环 */}
+            {longPressProgress > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="relative w-20 h-20">
+                  <svg className="w-full h-full transform -rotate-90">
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="36"
+                      stroke="rgba(255, 255, 255, 0.2)"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="36"
+                      stroke="#FFC857"
+                      strokeWidth="4"
+                      fill="none"
+                      strokeDasharray={`${2 * Math.PI * 36}`}
+                      strokeDashoffset={`${2 * Math.PI * 36 * (1 - longPressProgress / 100)}`}
+                      style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Download className="w-8 h-8 text-white" />
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
