@@ -287,6 +287,8 @@ export default function BookingPage() {
           (window as any).AMap.plugin('AMap.Geocoder', () => {
             const geocoder = new (window as any).AMap.Geocoder();
             geocoder.getAddress([longitude, latitude], (status: string, result: any) => {
+              console.log('AMap geocoding status:', status);
+              console.log('AMap geocoding result:', result);
               setIsLocating(false);
               if (status === 'complete' && result.info === 'OK') {
                 const address = result.regeocode.formattedAddress;
@@ -295,6 +297,7 @@ export default function BookingPage() {
                   location: address
                 });
               } else {
+                console.log('解析失败 - status:', status, 'result.info:', result?.info);
                 setError('地址解析失败，请手动输入');
               }
             });
