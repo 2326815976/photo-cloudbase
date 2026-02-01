@@ -221,10 +221,10 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 地图容器 */}
-        <div className="flex-1 relative min-h-0">
-          <div ref={mapRef} className="w-full h-full" />
+        <div className="flex-1 relative min-h-[300px]">
+          <div ref={mapRef} className="absolute inset-0 w-full h-full" />
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <div className="text-[#5D4037]">加载地图中...</div>
             </div>
           )}
