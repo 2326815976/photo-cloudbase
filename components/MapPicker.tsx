@@ -78,7 +78,7 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
     const mapInstance = new AMap.Map(mapRef.current, {
       zoom: 15,
       center: [lng, lat],
-      viewMode: '3D',
+      viewMode: '2D',
     });
 
     // 创建可拖动的标记
