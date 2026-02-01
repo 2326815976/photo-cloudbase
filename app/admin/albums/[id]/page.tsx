@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { generateImageVersions } from '@/lib/utils/image-versions';
+import { generateBlurHash } from '@/lib/utils/blurhash';
 
 interface Album {
   id: string;
@@ -206,30 +208,64 @@ export default function AlbumDetailPage() {
       setUploadProgress({ current: i + 1, total: batchImages.length });
 
       try {
+        // 1. 生成多版本图片（thumbnail + preview + original）
+        const versions = await generateImageVersions(file);
+        const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
+        const previewVersion = versions.find(v => v.type === 'preview')!;
+        const originalVersion = versions.find(v => v.type === 'original')!;
+
+        // 2. 生成 BlurHash（基于 thumbnail）
+        const blurhash = await generateBlurHash(thumbnailVersion.file);
+
+        const timestamp = Date.now();
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${i}.${fileExt}`;
+        let thumbnail_url = '';
+        let preview_url = '';
+        let original_url = '';
 
-        const { error: uploadError } = await supabase.storage.from('albums').upload(fileName, file);
+        // 3. 上传三个版本到 albums 存储桶
+        for (const version of versions) {
+          const fileName = `${timestamp}_${i}_${version.type}.${fileExt}`;
 
-        if (uploadError) {
-          failCount++;
-          continue;
+          const { error: uploadError } = await supabase.storage
+            .from('albums')
+            .upload(fileName, version.file);
+
+          if (uploadError) {
+            console.error(`上传 ${version.type} 失败:`, uploadError);
+            failCount++;
+            break;
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('albums')
+            .getPublicUrl(fileName);
+
+          if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+          else if (version.type === 'preview') preview_url = publicUrl;
+          else if (version.type === 'original') original_url = publicUrl;
         }
 
-        const dimensions = await getImageDimensions(file);
+        // 4. 插入数据库
+        if (thumbnail_url && preview_url && original_url) {
+          const { error: insertError } = await supabase.from('album_photos').insert({
+            album_id: albumId,
+            folder_id: selectedFolder,
+            thumbnail_url,
+            preview_url,
+            original_url,
+            width: thumbnailVersion.width,
+            height: thumbnailVersion.height,
+            blurhash,
+          });
 
-        const { error: insertError } = await supabase.from('album_photos').insert({
-          album_id: albumId,
-          folder_id: selectedFolder,
-          url: fileName,
-          width: dimensions.width,
-          height: dimensions.height,
-        });
-
-        if (insertError) {
-          failCount++;
+          if (insertError) {
+            failCount++;
+          } else {
+            successCount++;
+          }
         } else {
-          successCount++;
+          failCount++;
         }
       } catch (error) {
         failCount++;

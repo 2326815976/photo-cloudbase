@@ -3,7 +3,9 @@ import GalleryClient from './GalleryClient';
 
 interface Photo {
   id: string;
-  storage_path: string;
+  thumbnail_url: string;
+  preview_url: string;
+  storage_path?: string;
   width: number;
   height: number;
   blurhash?: string;

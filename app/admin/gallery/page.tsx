@@ -4,10 +4,14 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Image, Trash2, Upload, Heart, Eye, CheckCircle, XCircle, AlertCircle, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { generateBlurHash } from '@/lib/utils/blurhash';
+import { generateImageVersions } from '@/lib/utils/image-versions';
 
 interface Photo {
   id: string;
-  url: string;
+  url?: string;
+  thumbnail_url?: string;
+  preview_url?: string;
   width: number;
   height: number;
   is_public: boolean;
@@ -49,14 +53,7 @@ export default function AdminGalleryPage() {
       .range((page - 1) * pageSize, page * pageSize - 1);
 
     if (!error && data) {
-      // 兼容处理：如果url不是完整URL则转换
-      const photosWithUrls = data.map((photo: Photo) => ({
-        ...photo,
-        url: photo.url.startsWith('http')
-          ? photo.url
-          : supabase.storage.from('gallery').getPublicUrl(photo.url).data.publicUrl
-      }));
-      setPhotos(photosWithUrls);
+      setPhotos(data);
     }
     setLoading(false);
   };
@@ -74,21 +71,35 @@ export default function AdminGalleryPage() {
     setActionLoading(true);
     const supabase = createClient();
 
-    // 从URL中提取文件路径
-    let filePath = deletingPhoto.url;
-    if (filePath.startsWith('http')) {
-      const url = new URL(filePath);
-      const pathParts = url.pathname.split('/storage/v1/object/public/gallery/');
-      filePath = pathParts[1] || filePath;
-    }
+    // 提取文件路径的辅助函数
+    const extractPath = (url: string | undefined) => {
+      if (!url) return null;
+      if (url.startsWith('http')) {
+        const urlObj = new URL(url);
+        const pathParts = urlObj.pathname.split('/storage/v1/object/public/gallery/');
+        return pathParts[1] || url;
+      }
+      return url;
+    };
+
+    // 收集需要删除的文件路径
+    const filesToDelete = [
+      extractPath(deletingPhoto.thumbnail_url),
+      extractPath(deletingPhoto.preview_url),
+      extractPath(deletingPhoto.url)
+    ].filter(Boolean) as string[];
 
     // 尝试删除Storage文件（失败也继续）
-    const { error: storageError } = await supabase.storage
-      .from('gallery')
-      .remove([filePath]);
+    let storageError = null;
+    if (filesToDelete.length > 0) {
+      const { error } = await supabase.storage
+        .from('gallery')
+        .remove(filesToDelete);
+      storageError = error;
 
-    if (storageError) {
-      console.error('删除Storage文件失败:', storageError);
+      if (storageError) {
+        console.error('删除Storage文件失败:', storageError);
+      }
     }
 
     // 删除数据库记录
@@ -212,41 +223,55 @@ export default function AdminGalleryPage() {
         const file = uploadImages[i];
         setUploadProgress({ current: i + 1, total: uploadImages.length });
 
+        // 1. 生成多版本图片（thumbnail + preview，照片墙不需要 original）
+        const versions = await generateImageVersions(file);
+        const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
+        const previewVersion = versions.find(v => v.type === 'preview')!;
+
+        // 2. 生成 BlurHash（基于 thumbnail）
+        const blurhash = await generateBlurHash(thumbnailVersion.file);
+
+        const timestamp = Date.now();
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${i}.${fileExt}`;
-        const filePath = `${fileName}`;
+        let thumbnail_url = '';
+        let preview_url = '';
 
-        // 上传到gallery存储桶
-        const { error: uploadError } = await supabase.storage
-          .from('gallery')
-          .upload(filePath, file);
+        // 3. 上传 thumbnail 和 preview 到 gallery 存储桶
+        for (const version of [thumbnailVersion, previewVersion]) {
+          const fileName = `${timestamp}_${i}_${version.type}.${fileExt}`;
 
-        if (uploadError) {
-          console.error(`上传第 ${i + 1} 张图片失败:`, uploadError);
-          continue;
+          const { error: uploadError } = await supabase.storage
+            .from('gallery')
+            .upload(fileName, version.file);
+
+          if (uploadError) {
+            console.error(`上传 ${version.type} 失败:`, uploadError);
+            continue;
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('gallery')
+            .getPublicUrl(fileName);
+
+          if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+          else if (version.type === 'preview') preview_url = publicUrl;
         }
 
-        // 获取公开URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('gallery')
-          .getPublicUrl(filePath);
-
-        // 获取图片尺寸
-        const dimensions = await getImageDimensions(file);
-
-        // 插入数据库（照片墙照片不需要 album_id，使用 null）
+        // 4. 插入数据库
         const { error: insertError } = await supabase
           .from('album_photos')
           .insert({
             album_id: null,
-            url: publicUrl,
-            width: dimensions.width,
-            height: dimensions.height,
+            thumbnail_url,
+            preview_url,
+            width: thumbnailVersion.width,
+            height: thumbnailVersion.height,
+            blurhash,
             is_public: true
           });
 
         if (insertError) {
-          console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
+          console.error(`保存第 ${i + 1} 张图片失败:`, insertError);
         }
       }
 
@@ -363,7 +388,7 @@ export default function AdminGalleryPage() {
                     </div>
                   )}
                   <img
-                    src={photo.url}
+                    src={photo.thumbnail_url || photo.preview_url || photo.url}
                     alt="照片"
                     className="w-full h-full object-cover cursor-pointer"
                     onClick={(e) => {
@@ -646,7 +671,7 @@ export default function AdminGalleryPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              src={previewPhoto.url}
+              src={previewPhoto.preview_url || previewPhoto.url}
               alt="预览"
               className="max-w-[90vw] max-h-[90vh] object-contain"
               onClick={(e) => e.stopPropagation()}

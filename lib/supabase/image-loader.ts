@@ -32,10 +32,10 @@ export function getSupabaseImageUrl(
     return path;
   }
 
-  // 默认转换选项：WebP 格式，质量 80
+  // 优化转换选项：WebP 格式，质量 85（平衡性能和质量）
   const transform = {
     width: options.width || 800,
-    quality: options.quality || 80,
+    quality: options.quality || 85, // 质量 85 保证视觉效果
     format: (options.format || 'webp') as 'webp',
     ...(options.height && { height: options.height })
   };
@@ -72,18 +72,45 @@ export function supabaseImageLoader({ src, width, quality }: {
 
   return getSupabaseImageUrl(path, bucket, {
     width,
-    quality: quality || 80,
+    quality: quality || 85, // 质量 85 保证视觉效果
     format: 'webp'
   });
 }
 
 /**
+ * 获取原图 URL（不经过任何转换）
+ * 用于下载功能，保证用户获得完整质量的原始文件
+ * @param path - 图片在 Storage 中的路径
+ * @param bucket - 存储桶名称
+ * @returns 原图 URL
+ */
+export function getOriginalImageUrl(
+  path: string,
+  bucket: string = 'albums'
+): string {
+  const supabase = createClient();
+
+  if (!supabase) {
+    console.warn('Supabase client not available, returning original path');
+    return path;
+  }
+
+  // 不使用 transform 参数，直接获取原图
+  const { data } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(path);
+
+  return data.publicUrl;
+}
+
+/**
  * 预设尺寸配置
  * 根据使用场景选择合适的图片尺寸
+ * 优化策略：平衡性能和质量，适配现代移动设备
  */
 export const IMAGE_SIZES = {
   thumbnail: 300,    // 缩略图（列表、卡片）
-  medium: 600,       // 中等尺寸（预览）
-  large: 1200,       // 大图（详情页）
-  full: 1920         // 全尺寸（下载、打印）
+  medium: 600,       // 中等尺寸（照片墙、预览）- 适合移动端高清屏
+  large: 1200,       // 大图（详情页、全屏预览）
+  full: 1920         // 全尺寸（下载、打印）- 不经过转换
 } as const;

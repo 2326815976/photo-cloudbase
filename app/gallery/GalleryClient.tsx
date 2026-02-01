@@ -9,7 +9,8 @@ import SimpleImage from '@/components/ui/SimpleImage';
 
 interface Photo {
   id: string;
-  storage_path: string;
+  thumbnail_url: string;  // 速览图 URL
+  preview_url: string;    // 高质量预览 URL
   width: number;
   height: number;
   blurhash?: string;
@@ -33,6 +34,19 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
   const [total, setTotal] = useState(initialTotal);
   const pageSize = 20;
 
+  // 预加载下一页图片
+  useEffect(() => {
+    if (photos.length > 0) {
+      // 预加载当前页面的 preview 图片
+      photos.forEach((photo, index) => {
+        if (index < 10) { // 只预加载前10张的 preview
+          const img = new Image();
+          img.src = photo.preview_url;
+        }
+      });
+    }
+  }, [photos]);
+
   useEffect(() => {
     if (page !== initialPage) {
       loadPhotos();
@@ -55,6 +69,8 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
     setLoading(false);
   };
 
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+
   const handleLike = async (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
@@ -62,7 +78,7 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
-      alert('请先登录后再点赞');
+      setShowLoginPrompt(true);
       return;
     }
 
@@ -86,6 +102,10 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
 
   const handlePreview = async (photo: Photo) => {
     setPreviewPhoto(photo);
+
+    // 预加载高质量预览图
+    const img = new Image();
+    img.src = photo.preview_url;
 
     // 增加浏览量
     const supabase = createClient();
@@ -154,7 +174,7 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
                       onClick={() => handlePreview(photo)}
                     >
                       <SimpleImage
-                        src={photo.storage_path}
+                        src={photo.thumbnail_url}
                         alt="照片"
                         className="w-full h-auto rounded-t-xl"
                       />
@@ -226,51 +246,115 @@ export default function GalleryClient({ initialPhotos, initialTotal, initialPage
         )}
       </div>
 
-      {/* 图片预览弹窗 */}
+      {/* 便利贴风格预览弹窗 */}
       <AnimatePresence>
         {previewPhoto && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setPreviewPhoto(null)}
-            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
-          >
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               onClick={() => setPreviewPhoto(null)}
-              className="absolute top-6 right-6 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors"
-            >
-              <X className="w-6 h-6 text-white" />
-            </motion.button>
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            />
 
-            {/* 图片信息 */}
-            <div className="absolute bottom-6 left-6 right-6 bg-white/10 backdrop-blur-sm rounded-2xl p-4">
-              <div className="flex items-center justify-center gap-6 text-white">
-                <div className="flex items-center gap-2">
-                  <Eye className="w-5 h-5" />
-                  <span className="text-sm">{previewPhoto.view_count} 次浏览</span>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, rotate: -2 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.9, rotate: 2 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="bg-[#FFFBF0] rounded-2xl shadow-[0_12px_40px_rgba(93,64,55,0.25)] border-2 border-[#5D4037]/10 max-w-4xl max-h-[90vh] overflow-hidden pointer-events-auto relative"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* 便利贴胶带效果 */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
+
+                {/* 关闭按钮 */}
+                <button
+                  onClick={() => setPreviewPhoto(null)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+
+                {/* 图片容器 */}
+                <div className="p-4 pb-3">
+                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                    <img
+                      src={previewPhoto.preview_url}
+                      alt="预览"
+                      className="w-full h-auto max-h-[70vh] object-contain"
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Heart className={previewPhoto.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : ''} />
-                  <span className="text-sm">{previewPhoto.like_count} 次点赞</span>
+
+                {/* 信息区域 */}
+                <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
+                  <div className="flex items-center justify-center gap-6 text-[#5D4037]">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4" />
+                      <span className="text-sm font-medium">{previewPhoto.view_count} 次浏览</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Heart className={`w-4 h-4 ${previewPhoto.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : ''}`} />
+                      <span className="text-sm font-medium">{previewPhoto.like_count} 次点赞</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
-            <motion.img
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              src={previewPhoto.storage_path}
-              alt="预览"
-              className="max-w-full max-h-full object-contain"
-              decoding="async"
-              onClick={(e) => e.stopPropagation()}
+      {/* 未登录点赞提示弹窗 */}
+      <AnimatePresence>
+        {showLoginPrompt && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLoginPrompt(false)}
+              className="fixed inset-0 bg-black/30 z-40"
             />
-          </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm px-4"
+            >
+              <div className="bg-[#FFFBF0] rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.2)] border-2 border-[#5D4037]/10 overflow-hidden">
+                {/* 标题区域 */}
+                <div className="p-4 border-b-2 border-dashed border-[#5D4037]/15 bg-[#FFC857]/20">
+                  <h3 className="text-lg font-bold text-[#5D4037] text-center" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                    ✨ 温馨提示 ✨
+                  </h3>
+                </div>
+
+                {/* 内容区域 */}
+                <div className="p-6 text-center">
+                  <p className="text-[#5D4037] text-base mb-6">
+                    登录后才能为喜欢的照片点赞哦~
+                  </p>
+
+                  <button
+                    onClick={() => setShowLoginPrompt(false)}
+                    className="w-full py-3 rounded-full bg-[#FFC857] text-[#5D4037] border-2 border-[#5D4037]/20 font-bold hover:shadow-md transition-shadow"
+                  >
+                    知道了
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
