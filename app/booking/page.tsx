@@ -496,9 +496,9 @@ export default function BookingPage() {
                         <button
                           type="button"
                           onClick={() => setShowMapPicker(true)}
-                          className="px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded-lg text-sm font-medium hover:bg-[#FFB347] transition-colors whitespace-nowrap"
+                          className="flex-shrink-0 px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded-lg text-sm font-medium hover:bg-[#FFB347] transition-colors"
                         >
-                          🗺️ 地图选址
+                          🗺️ 选址
                         </button>
                       </div>
                     </div>
