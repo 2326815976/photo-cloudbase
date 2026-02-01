@@ -283,9 +283,9 @@ export default function BookingPage() {
         const { latitude, longitude } = position.coords;
 
         // 使用高德地图逆地理编码
-        if (window.AMap) {
-          window.AMap.plugin('AMap.Geocoder', () => {
-            const geocoder = new window.AMap.Geocoder();
+        if ((window as any).AMap) {
+          (window as any).AMap.plugin('AMap.Geocoder', () => {
+            const geocoder = new (window as any).AMap.Geocoder();
             geocoder.getAddress([longitude, latitude], (status: string, result: any) => {
               setIsLocating(false);
               if (status === 'complete' && result.info === 'OK') {
