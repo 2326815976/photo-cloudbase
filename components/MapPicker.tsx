@@ -247,8 +247,8 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 地图容器 */}
-        <div className="flex-1 relative" style={{ minHeight: '400px' }}>
-          <div ref={mapRef} className="w-full h-full" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+        <div className="relative">
+          <div ref={mapRef} className="w-full h-[400px]" />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <div className="text-[#5D4037]">加载地图中...</div>
