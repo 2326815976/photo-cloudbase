@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import SimpleImage from '@/components/ui/SimpleImage';
 
 const journalColors = [
   'bg-[#FFE5E5] text-[#8B4545] border-[#D4A5A5]',
@@ -255,13 +256,11 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   onClick={() => setShowPreview(true)}
                   style={{ contain: 'layout style paint' }}
                 >
-                  <img
+                  <SimpleImage
                     src={currentPose.image_url}
                     alt="拍照姿势"
-                    className="w-full h-full object-contain"
-                    loading="eager"
-                    decoding="async"
-                    style={{ transform: 'translateZ(0)' }}
+                    priority={true}
+                    className="w-full h-full"
                   />
                 </div>
                 <div className="mt-3 flex-none">
@@ -344,6 +343,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               exit={{ scale: 0.9, opacity: 0 }}
               src={currentPose.image_url}
               alt="预览"
+              loading="eager"
               decoding="async"
               className="max-w-full max-h-full object-contain"
               onClick={(e) => e.stopPropagation()}
