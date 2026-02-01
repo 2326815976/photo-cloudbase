@@ -66,7 +66,7 @@ export default function BookingPage() {
       .order('id');
 
     if (!error && data) {
-      setBookingTypes(data.map(type => ({
+      setBookingTypes(data.map((type: any) => ({
         id: type.id,
         name: type.name,
         emoji: emojiMap[type.name] || '📸'
