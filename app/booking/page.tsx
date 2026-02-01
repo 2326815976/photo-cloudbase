@@ -2,113 +2,256 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
+import { Calendar, MapPin, Phone, MessageSquare, Camera, Clock } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
+import { createClient } from '@/lib/supabase/client';
 
-// 约拍类型
-const bookingTypes = [
-  { id: 1, name: '互勉', emoji: '🤝' },
-  { id: 2, name: '常规约拍', emoji: '📸' },
-  { id: 3, name: '婚礼跟拍', emoji: '💒' },
-  { id: 4, name: '活动记录', emoji: '🎉' },
-];
+interface BookingType {
+  id: number;
+  name: string;
+  emoji: string;
+}
 
-// 模拟活跃订单数据
-const mockActiveBooking: {
-  id: string;
-  date: string;
-  type: string;
-  location: string;
-  phone: string;
-  status: string;
-} | null = null; // 设置为 null 表示无活跃订单，设置为对象表示有活跃订单
-// const mockActiveBooking = {
-//   id: 'booking-123',
-//   date: '2026-02-15',
-//   type: '常规约拍',
-//   location: '江边公园',
-//   phone: '138****8888',
-//   status: 'pending',
-// };
+const emojiMap: Record<string, string> = {
+  '互勉': '🤝',
+  '常规约拍': '📸',
+  '婚礼跟拍': '💒',
+  '活动记录': '🎉',
+};
 
 export default function BookingPage() {
+  const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
   const [formData, setFormData] = useState({
     date: '',
-    type: '',
+    typeId: 0,
+    typeName: '',
     location: '',
     phone: '',
     wechat: '',
     notes: '',
+    timeStart: '09:00',
+    timeEnd: '17:00',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [activeBooking, setActiveBooking] = useState(mockActiveBooking);
+  const [activeBooking, setActiveBooking] = useState<any>(null);
   const [isCanceling, setIsCanceling] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isLocating, setIsLocating] = useState(false);
 
-  // 模拟服务端状态检查
   useEffect(() => {
-    // TODO: 实际项目中，这里应该调用 Supabase 查询
-    // const checkActiveBooking = async () => {
-    //   const { data } = await supabase
-    //     .from('bookings')
-    //     .select('*')
-    //     .eq('user_id', user.id)
-    //     .in('status', ['pending', 'confirmed'])
-    //     .single();
-    //   setActiveBooking(data);
-    // };
-    // checkActiveBooking();
+    loadBookingTypes();
+    checkActiveBooking();
+
+    // 加载高德地图脚本
+    const script = document.createElement('script');
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
+    script.async = true;
+    document.head.appendChild(script);
+
+    return () => {
+      if (document.head.contains(script)) {
+        document.head.removeChild(script);
+      }
+    };
   }, []);
+
+  const loadBookingTypes = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('booking_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('id');
+
+    if (!error && data) {
+      setBookingTypes(data.map(type => ({
+        id: type.id,
+        name: type.name,
+        emoji: emojiMap[type.name] || '📸'
+      })));
+    }
+  };
+
+  const checkActiveBooking = async () => {
+    setLoading(true);
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          booking_types(name)
+        `)
+        .eq('user_id', user.id)
+        .in('status', ['pending', 'confirmed'])
+        .single();
+
+      if (!error && data) {
+        setActiveBooking({
+          id: data.id,
+          date: data.booking_date,
+          type: data.booking_types?.name || '',
+          location: data.location,
+          phone: data.phone,
+          status: data.status,
+        });
+      }
+    }
+    setLoading(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setIsSubmitting(true);
 
-    // 模拟提交延迟
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setShowSuccess(true);
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-      // 3秒后模拟创建订单并刷新页面状态
+    if (!user) {
+      setError('请先登录');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 表单验证
+    if (!formData.typeId || formData.typeId === 0) {
+      setError('请选择约拍类型');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!formData.date) {
+      setError('请选择约拍日期');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 验证日期不能是过去的日期
+    const selectedDate = new Date(formData.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      setError('不能选择过去的日期');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 验证至少提前一天预约
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (selectedDate < tomorrow) {
+      setError('请至少提前一天预约');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 验证时间段
+    if (formData.timeStart && formData.timeEnd) {
+      if (formData.timeStart >= formData.timeEnd) {
+        setError('结束时间必须晚于开始时间');
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
+    // 检查日期是否可用
+    const { data: isAvailable, error: availError } = await supabase
+      .rpc('check_date_availability', { target_date: formData.date });
+
+    if (availError) {
+      setError('检查日期可用性失败');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!isAvailable) {
+      setError('该日期已被预约或已被锁定，请选择其他日期');
+      setIsSubmitting(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert({
+        user_id: user.id,
+        type_id: formData.typeId,
+        booking_date: formData.date,
+        time_slot_start: formData.timeStart,
+        time_slot_end: formData.timeEnd,
+        location: formData.location,
+        phone: formData.phone,
+        wechat: formData.wechat,
+        notes: formData.notes,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    setIsSubmitting(false);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        // 模拟创建订单
-        setActiveBooking({
-          id: 'booking-' + Date.now(),
-          date: formData.date,
-          type: formData.type,
-          location: formData.location,
-          phone: formData.phone,
-          status: 'pending',
-        });
-        // TODO: 实际项目中使用 router.refresh()
-        // router.refresh();
+        checkActiveBooking();
       }, 3000);
-    }, 1000);
+    }
   };
 
   const handleCancel = async () => {
-    setIsCanceling(true);
+    if (!activeBooking) return;
 
-    // 模拟取消延迟
-    setTimeout(() => {
-      setIsCanceling(false);
+    // 检查是否是当天预约
+    const bookingDate = new Date(activeBooking.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    bookingDate.setHours(0, 0, 0, 0);
+
+    if (bookingDate <= today) {
+      setError('预约日期当天已无法自行取消，请联系摄影师');
+      return;
+    }
+
+    setIsCanceling(true);
+    const supabase = createClient();
+
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', activeBooking.id);
+
+    setIsCanceling(false);
+
+    if (!error) {
       setActiveBooking(null);
       setFormData({
         date: '',
-        type: '',
+        typeId: 0,
+        typeName: '',
         location: '',
         phone: '',
         wechat: '',
         notes: '',
+        timeStart: '09:00',
+        timeEnd: '17:00',
       });
-      // TODO: 实际项目中调用 Supabase 更新状态
-      // await supabase
-      //   .from('bookings')
-      //   .update({ status: 'cancelled' })
-      //   .eq('id', activeBooking.id);
-      // router.refresh();
-    }, 1000);
+    } else {
+      // 友好的错误提示
+      if (error.message.includes('预约日期当天已无法自行取消')) {
+        setError('预约日期当天已无法自行取消，请联系摄影师');
+      } else {
+        setError(error.message);
+      }
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -118,12 +261,118 @@ export default function BookingPage() {
     });
   };
 
-  const handleTypeSelect = (typeName: string) => {
+  const handleTypeSelect = (typeId: number, typeName: string) => {
     setFormData({
       ...formData,
-      type: typeName,
+      typeId,
+      typeName,
     });
   };
+
+  const handleGetLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setError('您的设备不支持定位功能');
+      return;
+    }
+
+    setIsLocating(true);
+    setError('');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+
+        // 使用高德地图逆地理编码
+        if (window.AMap) {
+          window.AMap.plugin('AMap.Geocoder', () => {
+            const geocoder = new window.AMap.Geocoder();
+            geocoder.getAddress([longitude, latitude], (status: string, result: any) => {
+              setIsLocating(false);
+              if (status === 'complete' && result.info === 'OK') {
+                const address = result.regeocode.formattedAddress;
+                setFormData({
+                  ...formData,
+                  location: address
+                });
+              } else {
+                setError('地址解析失败，请手动输入');
+              }
+            });
+          });
+        } else {
+          setIsLocating(false);
+          // 如果高德地图未加载，直接显示坐标
+          setFormData({
+            ...formData,
+            location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+          });
+        }
+      },
+      (error) => {
+        setIsLocating(false);
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            setError('定位权限被拒绝，请在设置中允许定位');
+            break;
+          case error.POSITION_UNAVAILABLE:
+            setError('定位信息不可用');
+            break;
+          case error.TIMEOUT:
+            setError('定位请求超时');
+            break;
+          default:
+            setError('定位失败，请手动输入地点');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col items-center gap-6"
+        >
+          <div className="relative">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+            />
+            <motion.div
+              animate={{ rotate: -360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Camera className="w-8 h-8 text-[#FFC857]" />
+            </div>
+          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-center"
+          >
+            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+              加载中...
+            </p>
+            <p className="text-sm text-[#5D4037]/60">
+              正在准备约拍信息
+            </p>
+          </motion.div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -210,18 +459,18 @@ export default function BookingPage() {
                           <motion.button
                             key={type.id}
                             type="button"
-                            onClick={() => handleTypeSelect(type.name)}
+                            onClick={() => handleTypeSelect(type.id, type.name)}
                             whileTap={{ scale: 0.95 }}
                             className={`
                               flex items-center justify-center gap-2 p-3 rounded-2xl text-center transition-all
-                              ${formData.type === type.name
+                              ${formData.typeId === type.id
                                 ? 'bg-[#FFC857] shadow-[2px_2px_0px_#5D4037] border-2 border-[#5D4037]'
                                 : 'bg-transparent border-2 border-dashed border-[#5D4037]/30 hover:border-[#5D4037]/50'
                               }
                             `}
                           >
                             <span className="text-xl">{type.emoji}</span>
-                            <span className={`text-sm font-medium ${formData.type === type.name ? 'text-[#5D4037]' : 'text-[#5D4037]/60'}`}>
+                            <span className={`text-sm font-medium ${formData.typeId === type.id ? 'text-[#5D4037]' : 'text-[#5D4037]/60'}`}>
                               {type.name}
                             </span>
                           </motion.button>
@@ -245,21 +494,63 @@ export default function BookingPage() {
                       />
                     </div>
 
+                    {/* 时间段选择 - 下划线风格 */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
+                          <Clock className="w-4 h-4" />
+                          <span>开始时间</span>
+                        </label>
+                        <input
+                          type="time"
+                          name="timeStart"
+                          value={formData.timeStart}
+                          onChange={handleChange}
+                          required
+                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
+                          <Clock className="w-4 h-4" />
+                          <span>结束时间</span>
+                        </label>
+                        <input
+                          type="time"
+                          name="timeEnd"
+                          value={formData.timeEnd}
+                          onChange={handleChange}
+                          required
+                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
+                        />
+                      </div>
+                    </div>
+
                     {/* 约拍地点 - 下划线风格 */}
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                         <MapPin className="w-4 h-4" />
                         <span>约拍地点</span>
                       </label>
-                      <input
-                        type="text"
-                        name="location"
-                        placeholder="例如：江边公园"
-                        value={formData.location}
-                        onChange={handleChange}
-                        required
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          name="location"
+                          placeholder="例如：江边公园"
+                          value={formData.location}
+                          onChange={handleChange}
+                          required
+                          className="flex-1 px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleGetLocation}
+                          disabled={isLocating}
+                          className="px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded-lg text-sm font-medium hover:bg-[#FFB347] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {isLocating ? '定位中...' : '📍 定位'}
+                        </button>
+                      </div>
                     </div>
 
                     {/* 联系方式 - 下划线风格 */}
@@ -309,6 +600,17 @@ export default function BookingPage() {
                         className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all resize-none"
                       />
                     </div>
+
+                    {/* 错误提示 */}
+                    {error && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-3 bg-red-50 border border-red-200 rounded-xl"
+                      >
+                        <p className="text-sm text-red-600 text-center">{error}</p>
+                      </motion.div>
+                    )}
 
                     {/* 提交按钮 - 果冻按钮 */}
                     <motion.button

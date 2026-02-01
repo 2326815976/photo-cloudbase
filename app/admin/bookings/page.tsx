@@ -133,6 +133,23 @@ export default function BookingsPage() {
     }
   };
 
+  const handleFinish = async (id: string) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'finished' })
+      .eq('id', id);
+
+    if (!error) {
+      loadBookings();
+      setShowToast({ message: '预约已完成', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `完成失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
@@ -471,13 +488,22 @@ export default function BookingsPage() {
                     )}
 
                     {booking.status === 'confirmed' && (
-                      <button
-                        onClick={() => handleCancel(booking.id)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                        取消预约
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleFinish(booking.id)}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors"
+                        >
+                          <Check className="w-4 h-4" />
+                          完成预约
+                        </button>
+                        <button
+                          onClick={() => handleCancel(booking.id)}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          取消预约
+                        </button>
+                      </div>
                     )}
                   </motion.div>
                 ))}
