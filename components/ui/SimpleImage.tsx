@@ -1,13 +1,15 @@
 /**
- * 简化版图片组件 - 无需Supabase图片转换
+ * 简化版图片组件 - 原生img标签
  *
- * 使用浏览器原生懒加载 + 优化的占位符
- * 适用于Supabase图片转换API不可用的情况
+ * 特性：
+ * - 浏览器原生懒加载
+ * - 治愈系加载动画
+ * - 零Vercel额度消耗
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -27,30 +29,6 @@ export default function SimpleImage({
 }: SimpleImageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const [loadingTime, setLoadingTime] = useState(0);
-
-  // 加载超时检测（30秒）
-  useEffect(() => {
-    if (!isLoading) return;
-
-    const startTime = Date.now();
-    const timer = setInterval(() => {
-      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-
-    const timeout = setTimeout(() => {
-      if (isLoading) {
-        console.warn('图片加载超时:', src);
-        setHasError(true);
-        setIsLoading(false);
-      }
-    }, 30000);
-
-    return () => {
-      clearInterval(timer);
-      clearTimeout(timeout);
-    };
-  }, [isLoading, src]);
 
   return (
     <div className={`relative overflow-hidden ${className}`} onClick={onClick}>
@@ -80,15 +58,6 @@ export default function SimpleImage({
             >
               ☁️
             </motion.div>
-            {loadingTime > 3 && (
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="text-[10px] text-[#5D4037]/40"
-              >
-                加载中 {loadingTime}s...
-              </motion.p>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -104,7 +73,7 @@ export default function SimpleImage({
         </div>
       )}
 
-      {/* 实际图片 */}
+      {/* 原生img标签 - 零额度消耗 */}
       {!hasError && (
         <img
           src={src}
@@ -114,16 +83,12 @@ export default function SimpleImage({
           className={`w-full h-auto transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
-          onLoad={() => {
-            console.log('图片加载成功:', src);
-            setIsLoading(false);
-          }}
-          onError={(e) => {
-            console.error('图片加载失败:', src, e);
+          style={{ objectFit: 'cover' }}
+          onLoad={() => setIsLoading(false)}
+          onError={() => {
             setIsLoading(false);
             setHasError(true);
           }}
-          style={{ objectFit: 'cover' }}
         />
       )}
     </div>
