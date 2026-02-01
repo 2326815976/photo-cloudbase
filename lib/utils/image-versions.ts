@@ -22,11 +22,11 @@ export async function generateImageVersions(
 ): Promise<ImageVersion[]> {
   const versions: ImageVersion[] = [];
 
-  // 1. 生成速览图 (thumbnail) - 300px, 质量75, ~50-100KB
+  // 1. 生成速览图 (thumbnail) - 400px, 质量80, ~80-120KB
   const thumbnailFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 300,
-    maxSizeMB: 0.1,  // 强制限制文件大小不超过 100KB
-    initialQuality: 0.75,
+    maxWidthOrHeight: 400,
+    maxSizeMB: 0.12,  // 强制限制文件大小不超过 120KB
+    initialQuality: 0.8,
     useWebWorker: true
   });
 

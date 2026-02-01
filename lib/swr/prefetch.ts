@@ -38,13 +38,15 @@ export async function prefetchAlbums() {
 
 /**
  * 预加载摆姿列表
+ * @param limit - 限制预加载数量，默认10张
  */
-export async function prefetchPoses() {
+export async function prefetchPoses(limit: number = 10) {
   const supabase = createClient();
   const { data } = await supabase
     .from('poses')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
   if (data) {
     mutate(['poses'], data, false);
@@ -68,12 +70,14 @@ export async function prefetchTags() {
 
 /**
  * 根据当前路由预加载相关数据
+ * 优先级策略：摆姿 > 照片墙 > 其他
  */
-export function prefetchByRoute(pathname: string) {
-  // 首页：预加载照片墙和摆姿
+export async function prefetchByRoute(pathname: string) {
+  // 首页：优先加载摆姿，再加载照片墙
   if (pathname === '/') {
-    prefetchGallery();
-    prefetchPoses();
+    await prefetchPoses(); // 优先加载摆姿（10张）
+    prefetchGallery(); // 摆姿加载完成后再加载照片墙
+    return;
   }
 
   // 照片墙页面：预加载相册列表

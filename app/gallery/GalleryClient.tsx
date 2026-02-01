@@ -44,9 +44,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   // 预加载下一页图片
   useEffect(() => {
     if (photos.length > 0) {
-      // 预加载当前页面的 preview 图片
+      // 预加载当前页面的 preview 图片（增加到20张）
       photos.forEach((photo: Photo, index: number) => {
-        if (index < 10) { // 只预加载前10张的 preview
+        if (index < 20) { // 预加载前20张的 preview
           const img = new Image();
           img.src = photo.preview_url;
         }
