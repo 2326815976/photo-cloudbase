@@ -29,10 +29,16 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // 等待AMap脚本加载完成
+    // 等待AMap脚本加载完成和容器渲染
     const checkAMapLoaded = () => {
       if ((window as any).AMap) {
-        initializeMap();
+        // 确保容器有尺寸后再初始化
+        const container = mapRef.current;
+        if (container && container.offsetHeight > 0) {
+          setTimeout(() => initializeMap(), 100);
+        } else {
+          setTimeout(checkAMapLoaded, 100);
+        }
       } else {
         setTimeout(checkAMapLoaded, 100);
       }
@@ -180,15 +186,15 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-4"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
       <motion.div
-        initial={{ y: '100%', opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: '100%', opacity: 0 }}
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="relative w-full sm:max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-[85vh] flex flex-col"
+        className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -241,8 +247,8 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 地图容器 */}
-        <div className="flex-1 relative min-h-[300px]">
-          <div ref={mapRef} className="absolute inset-0 w-full h-full" />
+        <div className="flex-1 relative" style={{ minHeight: '400px' }}>
+          <div ref={mapRef} className="w-full h-full" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <div className="text-[#5D4037]">加载地图中...</div>
