@@ -45,7 +45,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   useEffect(() => {
     if (photos.length > 0) {
       // 预加载当前页面的 preview 图片
-      photos.forEach((photo: Photo, index) => {
+      photos.forEach((photo: Photo, index: number) => {
         if (index < 10) { // 只预加载前10张的 preview
           const img = new Image();
           img.src = photo.preview_url;
@@ -73,7 +73,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     if (!error && data) {
       // 使用 SWR mutate 乐观更新缓存
-      refreshGallery((currentData) => {
+      refreshGallery((currentData: { photos: Photo[]; total: number } | undefined) => {
         if (!currentData) return currentData;
 
         return {
@@ -111,7 +111,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     // 使用 SWR mutate 更新本地浏览量
     if (data?.counted) {
-      refreshGallery((currentData) => {
+      refreshGallery((currentData: { photos: Photo[]; total: number } | undefined) => {
         if (!currentData) return currentData;
 
         return {
@@ -163,7 +163,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
           <>
             {/* 双列瀑布流布局 */}
             <div className="columns-2 gap-2">
-              {photos.map((photo, index) => (
+              {photos.map((photo: Photo, index: number) => (
                 <motion.div
                   key={photo.id}
                   initial={{ opacity: 0, y: 20 }}

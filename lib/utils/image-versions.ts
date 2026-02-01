@@ -26,7 +26,7 @@ export async function generateImageVersions(
   const thumbnailFile = await imageCompression(originalFile, {
     maxWidthOrHeight: 300,
     maxSizeMB: 0.1,  // 强制限制文件大小不超过 100KB
-    quality: 0.75,
+    initialQuality: 0.75,
     useWebWorker: true
   });
 
@@ -42,7 +42,7 @@ export async function generateImageVersions(
   const previewFile = await imageCompression(originalFile, {
     maxWidthOrHeight: 1200,
     maxSizeMB: 0.5,  // 强制限制文件大小不超过 500KB
-    quality: 0.85,
+    initialQuality: 0.85,
     useWebWorker: true
   });
 
@@ -102,7 +102,7 @@ export async function generatePoseImage(
   const compressedFile = await imageCompression(file, {
     maxSizeMB,
     maxWidthOrHeight: 1200,
-    quality: 0.85,
+    initialQuality: 0.85,
     useWebWorker: true
   });
 
