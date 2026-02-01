@@ -337,7 +337,7 @@ export default function AlbumDetailPage() {
     }
   };
 
-  const handleDeletePhoto = async (photoId: string, photoUrl: string) => {
+  const handleDeletePhoto = async (photoId: string, photoUrl: string | null) => {
     const photo = photos.find(p => p.id === photoId);
     if (photo) {
       setDeletingPhoto(photo);
