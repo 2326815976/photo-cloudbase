@@ -213,7 +213,7 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
         </div>
 
         {/* 搜索框 */}
-        <div className="flex-none p-3 sm:p-4 border-b border-gray-200 max-h-[30vh] overflow-y-auto">
+        <div className="flex-none p-3 sm:p-4 border-b border-gray-200">
           <div className="relative">
             <input
               type="text"
@@ -229,23 +229,23 @@ export default function MapPicker({ onSelect, onClose }: MapPickerProps) {
               </div>
             )}
           </div>
-
-          {/* 搜索结果列表 */}
-          {showResults && searchResults.length > 0 && (
-            <div className="mt-2 max-h-32 sm:max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
-              {searchResults.map((result, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleSelectResult(result)}
-                  className="w-full text-left px-3 py-2.5 sm:py-2 hover:bg-gray-50 active:bg-gray-100 border-b border-gray-100 last:border-b-0 transition-colors"
-                >
-                  <div className="font-medium text-[#5D4037] text-sm">{result.name}</div>
-                  <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{result.address}</div>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
+
+        {/* 搜索结果列表 - 浮动在地图上方 */}
+        {showResults && searchResults.length > 0 && (
+          <div className="absolute left-3 right-3 sm:left-4 sm:right-4 top-[88px] sm:top-[92px] z-20 max-h-[200px] overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+            {searchResults.map((result, index) => (
+              <button
+                key={index}
+                onClick={() => handleSelectResult(result)}
+                className="w-full text-left px-3 py-2.5 sm:py-2 hover:bg-gray-50 active:bg-gray-100 border-b border-gray-100 last:border-b-0 transition-colors"
+              >
+                <div className="font-medium text-[#5D4037] text-sm">{result.name}</div>
+                <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{result.address}</div>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* 地图容器 */}
         <div className="relative flex-shrink-0">
