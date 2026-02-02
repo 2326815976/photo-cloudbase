@@ -123,27 +123,13 @@ export default function AlbumDetailPage() {
       return;
     }
 
-    // 并行生成所有签名URL，优先使用 thumbnail_url
+    // 并行生成所有URL，优先使用 thumbnail_url
     const urlPromises = validPhotos.map(photo => {
       const storageUrl = photo.thumbnail_url || photo.preview_url || photo.url;
 
-      // 如果已经是完整的公开URL，直接使用
-      if (storageUrl?.startsWith('https://')) {
-        console.log(`📸 照片 ${photo.id} 使用公开URL:`, storageUrl);
-        return Promise.resolve({ id: photo.id, url: storageUrl });
-      }
-
-      // 否则生成签名URL
-      console.log(`📸 为照片 ${photo.id} 生成签名URL，存储路径:`, storageUrl);
-      return supabase.storage.from('albums').createSignedUrl(storageUrl!, 3600)
-        .then(({ data }: { data: { signedUrl: string } | null }) => {
-          console.log(`✅ 照片 ${photo.id} 签名URL:`, data?.signedUrl ? '成功' : '失败');
-          return { id: photo.id, url: data?.signedUrl };
-        })
-        .catch((error: any) => {
-          console.error(`❌ 照片 ${photo.id} 签名URL生成失败:`, error);
-          return { id: photo.id, url: undefined };
-        });
+      // COS 返回的是完整的公开URL，直接使用
+      console.log(`📸 照片 ${photo.id} 使用公开URL:`, storageUrl);
+      return Promise.resolve({ id: photo.id, url: storageUrl });
     });
 
     const results = await Promise.all(urlPromises);

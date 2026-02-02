@@ -150,14 +150,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
   };
 
-  const getSignedUrl = async (path: string) => {
-    const supabase = createClient();
-    const { data } = await supabase.storage
-      .from('albums')
-      .createSignedUrl(path, 3600);
-    return data?.signedUrl || path;
-  };
-
   return (
     <div className="flex flex-col h-full w-full">
       {/* 手账风页头 */}
