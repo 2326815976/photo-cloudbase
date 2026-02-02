@@ -55,11 +55,21 @@ export default function ReleasesPage() {
 
     // 从URL中提取COS存储路径并删除文件
     if (deletingRelease.download_url) {
-      const { extractKeyFromURL, deleteFromCOS } = await import('@/lib/storage/cos-client');
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
       const key = extractKeyFromURL(deletingRelease.download_url);
       if (key) {
         try {
-          await deleteFromCOS(key);
+          const response = await fetch('/api/delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ key }),
+          });
+
+          if (!response.ok) {
+            throw new Error('删除COS文件失败');
+          }
         } catch (error) {
           console.error('删除COS文件失败:', error);
         }

@@ -107,8 +107,8 @@ export default function PosesPage() {
           const file = batchImages[i];
           setUploadProgress({ current: i + 1, total: batchImages.length });
 
-          // 压缩图片到100KB以内（WebP格式）
-          const compressedFile = await generatePoseImage(file, 100);
+          // 压缩图片（超过1MB才压缩，压缩到500KB以内，WebP格式）
+          const compressedFile = await generatePoseImage(file, 500);
 
           // 上传图片到腾讯云COS（poses文件夹）
           const fileName = `${Date.now()}_${i}.webp`;
@@ -306,9 +306,18 @@ export default function PosesPage() {
 
       // 批量删除COS中的文件
       if (storagePaths.length > 0) {
-        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
         try {
-          await batchDeleteFromCOS(storagePaths);
+          const response = await fetch('/api/batch-delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ keys: storagePaths }),
+          });
+
+          if (!response.ok) {
+            throw new Error('批量删除COS文件失败');
+          }
         } catch (error) {
           console.error('批量删除COS文件失败:', error);
         }

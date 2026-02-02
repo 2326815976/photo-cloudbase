@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Image, Trash2, Upload, Heart, Eye, CheckCircle, XCircle, AlertCircle, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateBlurHash } from '@/lib/utils/blurhash';
-import { generateImageVersions } from '@/lib/utils/image-versions';
+import { generateGalleryImageVersions } from '@/lib/utils/image-versions';
 
 interface Photo {
   id: string;
@@ -83,9 +83,18 @@ export default function AdminGalleryPage() {
 
     // 删除COS中的所有版本文件
     if (filesToDelete.length > 0) {
-      const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
       try {
-        await batchDeleteFromCOS(filesToDelete);
+        const response = await fetch('/api/batch-delete', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ keys: filesToDelete }),
+        });
+
+        if (!response.ok) {
+          throw new Error('删除COS文件失败');
+        }
       } catch (error) {
         console.error('删除COS文件失败:', error);
       }
@@ -139,9 +148,18 @@ export default function AdminGalleryPage() {
 
       // 批量删除COS文件
       if (filePaths.length > 0) {
-        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
         try {
-          await batchDeleteFromCOS(filePaths);
+          const response = await fetch('/api/batch-delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ keys: filePaths }),
+          });
+
+          if (!response.ok) {
+            throw new Error('批量删除COS文件失败');
+          }
         } catch (error) {
           console.error('批量删除COS文件失败:', error);
         }
@@ -210,56 +228,50 @@ export default function AdminGalleryPage() {
         const file = uploadImages[i];
         setUploadProgress({ current: i + 1, total: uploadImages.length });
 
-        // 1. 生成多版本图片（thumbnail + preview，照片墙不需要 original）
-        const versions = await generateImageVersions(file);
-        const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
+        // 1. 生成预览图（照片墙不需要缩略图和原图）
+        const versions = await generateGalleryImageVersions(file);
         const previewVersion = versions.find(v => v.type === 'preview')!;
 
-        // 2. 生成 BlurHash（基于 thumbnail）
-        const blurhash = await generateBlurHash(thumbnailVersion.file);
+        // 2. 生成 BlurHash（基于预览图）
+        const blurhash = await generateBlurHash(previewVersion.file);
 
         const timestamp = Date.now();
-        let thumbnail_url = '';
         let preview_url = '';
 
-        // 3. 上传 thumbnail 和 preview 到腾讯云COS（gallery文件夹）
-        for (const version of [thumbnailVersion, previewVersion]) {
-          const fileName = `${timestamp}_${i}_${version.type}.webp`;
+        // 3. 上传预览图到腾讯云COS（gallery文件夹）
+        const fileName = `${timestamp}_${i}_preview.webp`;
 
-          try {
-            const formData = new FormData();
-            formData.append('file', version.file);
-            formData.append('folder', 'gallery');
-            formData.append('key', fileName);
+        try {
+          const formData = new FormData();
+          formData.append('file', previewVersion.file);
+          formData.append('folder', 'gallery');
+          formData.append('key', fileName);
 
-            const uploadResponse = await fetch('/api/upload', {
-              method: 'POST',
-              body: formData,
-            });
+          const uploadResponse = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
 
-            if (!uploadResponse.ok) {
-              throw new Error('上传失败');
-            }
-
-            const { url: publicUrl } = await uploadResponse.json();
-
-            if (version.type === 'thumbnail') thumbnail_url = publicUrl;
-            else if (version.type === 'preview') preview_url = publicUrl;
-          } catch (uploadError) {
-            console.error(`上传 ${version.type} 失败:`, uploadError);
-            continue;
+          if (!uploadResponse.ok) {
+            throw new Error('上传失败');
           }
+
+          const { url: publicUrl } = await uploadResponse.json();
+          preview_url = publicUrl;
+        } catch (uploadError) {
+          console.error(`上传预览图失败:`, uploadError);
+          continue;
         }
 
-        // 4. 插入数据库
+        // 4. 插入数据库（照片墙只需要预览图，thumbnail_url 和 url 使用相同的预览图）
         const { error: insertError } = await supabase
           .from('album_photos')
           .insert({
             album_id: null,
-            thumbnail_url,
-            preview_url,
-            width: thumbnailVersion.width,
-            height: thumbnailVersion.height,
+            thumbnail_url: preview_url,  // 列表显示使用预览图
+            preview_url: preview_url,     // 点击查看使用预览图
+            width: previewVersion.width,
+            height: previewVersion.height,
             blurhash,
             is_public: true
           });

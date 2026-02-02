@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { generateImageVersions } from '@/lib/utils/image-versions';
+import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
 
 interface Album {
@@ -240,8 +240,8 @@ export default function AlbumDetailPage() {
       setUploadProgress({ current: i + 1, total: batchImages.length });
 
       try {
-        // 1. 生成多版本图片（thumbnail + preview + original）
-        const versions = await generateImageVersions(file);
+        // 1. 生成多版本图片（thumbnail + preview + original，智能压缩）
+        const versions = await generateAlbumImageVersions(file);
         const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
         const previewVersion = versions.find(v => v.type === 'preview')!;
         const originalVersion = versions.find(v => v.type === 'original')!;
@@ -408,9 +408,18 @@ export default function AlbumDetailPage() {
 
       // 3. 删除COS中的文件
       if (filesToDelete.length > 0) {
-        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
         try {
-          await batchDeleteFromCOS(filesToDelete);
+          const response = await fetch('/api/batch-delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ keys: filesToDelete }),
+          });
+
+          if (!response.ok) {
+            throw new Error('删除COS文件失败');
+          }
         } catch (error) {
           console.error('删除COS文件失败:', error);
         }

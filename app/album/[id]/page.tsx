@@ -233,9 +233,18 @@ export default function AlbumDetailPage() {
 
       // 删除COS中的所有版本文件
       if (filesToDelete.length > 0) {
-        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
         try {
-          await batchDeleteFromCOS(filesToDelete);
+          const response = await fetch('/api/batch-delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ keys: filesToDelete }),
+          });
+
+          if (!response.ok) {
+            throw new Error('删除COS文件失败');
+          }
         } catch (error) {
           console.error('删除COS文件失败:', error);
         }
