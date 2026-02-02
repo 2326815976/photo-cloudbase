@@ -5,14 +5,18 @@
 
 import COS from 'cos-js-sdk-v5';
 
-interface UploadCredentials {
+interface STSResponse {
   credentials: {
     tmpSecretId: string;
     tmpSecretKey: string;
     sessionToken: string;
-    startTime: number;
-    expiredTime: number;
   };
+  startTime: number;
+  expiredTime: number;
+}
+
+interface UploadCredentials {
+  stsData: STSResponse;
   bucket: string;
   region: string;
   cdnDomain: string;
@@ -56,17 +60,17 @@ export async function uploadToCosDirect(
   }
 
   // 获取临时凭证
-  const { credentials, bucket, region, cdnDomain } = await getCredentials(folder);
+  const { stsData, bucket, region, cdnDomain } = await getCredentials(folder);
 
   // 创建 COS 客户端
   const cos = new COS({
     getAuthorization: (_options, callback) => {
       callback({
-        TmpSecretId: credentials.tmpSecretId,
-        TmpSecretKey: credentials.tmpSecretKey,
-        SecurityToken: credentials.sessionToken,
-        StartTime: credentials.startTime,
-        ExpiredTime: credentials.expiredTime,
+        TmpSecretId: stsData.credentials.tmpSecretId,
+        TmpSecretKey: stsData.credentials.tmpSecretKey,
+        SecurityToken: stsData.credentials.sessionToken,
+        StartTime: stsData.startTime,
+        ExpiredTime: stsData.expiredTime,
       });
     },
   });

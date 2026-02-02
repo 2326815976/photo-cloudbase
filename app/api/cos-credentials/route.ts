@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      credentials,
+      stsData: credentials,
       bucket,
       region,
       cdnDomain: process.env.COS_CDN_DOMAIN
