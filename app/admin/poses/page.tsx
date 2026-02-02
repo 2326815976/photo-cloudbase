@@ -244,9 +244,18 @@ export default function PosesPage() {
     try {
       // 删除COS中的文件
       if (deletingPose.storage_path) {
-        const { deleteFromCOS } = await import('@/lib/storage/cos-client');
         try {
-          await deleteFromCOS(deletingPose.storage_path);
+          const response = await fetch('/api/delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ key: deletingPose.storage_path }),
+          });
+
+          if (!response.ok) {
+            throw new Error('删除COS文件失败');
+          }
         } catch (error) {
           console.error('删除COS文件失败:', error);
         }
