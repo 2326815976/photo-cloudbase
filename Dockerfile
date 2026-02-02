@@ -8,8 +8,8 @@ WORKDIR /app
 # 复制依赖文件
 COPY package.json package-lock.json ./
 
-# 安装生产依赖
-RUN npm ci --only=production
+# 安装所有依赖（包括 devDependencies，构建时需要）
+RUN npm ci
 
 # ========== 阶段2: 构建应用 ==========
 FROM node:20-alpine AS builder
