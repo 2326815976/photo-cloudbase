@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadToCOS } from '@/lib/storage/cos-client';
 
+// 配置API路由以支持大文件上传（最大50MB）
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+  },
+};
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
