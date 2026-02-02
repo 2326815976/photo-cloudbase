@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import STS from 'qcloud-cos-sts';
+import * as STS from 'qcloud-cos-sts';
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,10 +59,16 @@ export async function POST(request: NextRequest) {
         policy: {
           version: '2.0',
           statement: [{
-            action: ['name/cos:PutObject', 'name/cos:PostObject'],
+            action: [
+              'name/cos:PutObject',
+              'name/cos:PostObject',
+              'name/cos:InitiateMultipartUpload',
+              'name/cos:UploadPart',
+              'name/cos:CompleteMultipartUpload'
+            ],
             effect: 'allow',
             resource: [
-              `qcs::cos:${region}:uid/*:${bucket}/${folder}/*`
+              `qcs::cos:${region}:uid/1386452208:${bucket}/${folder}/*`
             ]
           }]
         }
