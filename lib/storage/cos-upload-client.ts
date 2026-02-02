@@ -10,6 +10,8 @@ interface UploadCredentials {
     tmpSecretId: string;
     tmpSecretKey: string;
     sessionToken: string;
+    startTime: number;
+    expiredTime: number;
   };
   bucket: string;
   region: string;
@@ -63,6 +65,8 @@ export async function uploadToCosDirect(
         TmpSecretId: credentials.tmpSecretId,
         TmpSecretKey: credentials.tmpSecretKey,
         SecurityToken: credentials.sessionToken,
+        StartTime: credentials.startTime,
+        ExpiredTime: credentials.expiredTime,
       });
     },
   });
