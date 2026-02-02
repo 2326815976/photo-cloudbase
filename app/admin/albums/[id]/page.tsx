@@ -343,16 +343,54 @@ export default function AlbumDetailPage() {
 
     setActionLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from('album_photos').delete().eq('id', deletingPhoto.id);
 
-    setActionLoading(false);
-    setDeletingPhoto(null);
+    try {
+      // 从URL中提取COS存储路径
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
 
-    if (!error) {
-      loadAlbumData();
-      setShowToast({ message: '照片已删除', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
+      // 收集需要删除的文件路径（缩略图、预览图、原图）
+      const filesToDelete = [
+        deletingPhoto.thumbnail_url ? extractKeyFromURL(deletingPhoto.thumbnail_url) : null,
+        deletingPhoto.preview_url ? extractKeyFromURL(deletingPhoto.preview_url) : null,
+        deletingPhoto.original_url ? extractKeyFromURL(deletingPhoto.original_url) : null
+      ].filter(Boolean) as string[];
+
+      // 删除COS中的所有版本文件
+      if (filesToDelete.length > 0) {
+        try {
+          const response = await fetch('/api/batch-delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ keys: filesToDelete }),
+          });
+
+          if (!response.ok) {
+            console.error('删除COS文件失败');
+          }
+        } catch (error) {
+          console.error('删除COS文件时出错:', error);
+        }
+      }
+
+      // 删除数据库记录
+      const { error } = await supabase.from('album_photos').delete().eq('id', deletingPhoto.id);
+
+      setActionLoading(false);
+      setDeletingPhoto(null);
+
+      if (!error) {
+        loadAlbumData();
+        setShowToast({ message: '照片已删除', type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
+      } else {
+        setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+      }
+    } catch (error: any) {
+      setActionLoading(false);
+      setDeletingPhoto(null);
       setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }

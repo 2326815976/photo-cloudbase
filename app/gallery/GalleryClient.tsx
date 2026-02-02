@@ -201,16 +201,26 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                         alt="照片"
                         className="w-full h-auto rounded-t-xl"
                       />
+
+                      {/* 浏览量气泡 - 左上角 */}
+                      <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm">
+                        <Eye className="w-3 h-3 text-white" />
+                        <span className="text-[10px] text-white font-medium">{photo.view_count}</span>
+                      </div>
                     </div>
 
                     {/* 信息区域 */}
                     <div className="p-2">
                       {/* 互动数据 */}
                       <div className="flex items-center justify-between">
-                        {/* 左侧：浏览量 */}
-                        <div className="flex items-center gap-1 text-[#8D6E63]/60">
-                          <Eye className="w-3 h-3" />
-                          <span className="text-[10px]">{photo.view_count}</span>
+                        {/* 左侧：上传时间 */}
+                        <div className="flex items-center gap-1 text-[#8D6E63]/50">
+                          <span className="text-[10px]">
+                            {new Date(photo.created_at).toLocaleDateString('zh-CN', {
+                              month: '2-digit',
+                              day: '2-digit'
+                            })}
+                          </span>
                         </div>
 
                         {/* 右侧：点赞 */}

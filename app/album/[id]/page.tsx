@@ -42,6 +42,8 @@ interface AlbumData {
     cover_url: string | null;
     enable_tipping: boolean;
     recipient_name?: string;
+    expires_at?: string;
+    is_expired?: boolean;
   };
   folders: Folder[];
   photos: Photo[];
