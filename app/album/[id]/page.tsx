@@ -105,7 +105,6 @@ export default function AlbumDetailPage() {
       input_key: accessKey
     });
 
-    console.log('相册数据加载结果:', { data, error, accessKey });
 
     if (error || !data) {
       console.error('相册数据加载失败:', error);

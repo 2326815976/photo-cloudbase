@@ -1,17 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Mail, Lock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const shouldReduceMotion = useReducedMotion();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    // 记录来源路径
+    const from = searchParams.get('from');
+    if (from) {
+      localStorage.setItem('login_redirect', from);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,10 +68,21 @@ export default function LoginPage() {
         .eq('id', data.user.id)
         .single();
 
-      // 根据角色跳转
+      // 检查是否有保存的重定向路径
+      const savedRedirect = localStorage.getItem('login_redirect');
+
+      // 根据角色和保存的路径跳转
       if (profile?.role === 'admin') {
-        router.push('/admin');
+        // 管理员：优先跳转到保存的路径（如果是管理端路径），否则跳转到管理端首页
+        if (savedRedirect?.startsWith('/admin')) {
+          localStorage.removeItem('login_redirect');
+          router.push(savedRedirect);
+        } else {
+          router.push('/admin');
+        }
       } else {
+        // 普通用户：清除管理端重定向记录，跳转到个人中心
+        localStorage.removeItem('login_redirect');
         router.push('/profile');
       }
       router.refresh();
@@ -217,5 +237,17 @@ export default function LoginPage() {
         </motion.div>
       </motion.form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#FFFBF0] flex items-center justify-center">
+        <div className="text-[#5D4037]">加载中...</div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

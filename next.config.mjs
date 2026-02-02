@@ -7,6 +7,13 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
 
+  // 配置API路由的请求体大小限制（支持大文件上传）
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
+
   // Webpack 配置：处理服务器端专用模块
   webpack: (config, { isServer }) => {
     if (!isServer) {
@@ -29,16 +36,11 @@ const nextConfig = {
   },
 
   images: {
-    // 添加腾讯云COS域名支持
+    // 腾讯云COS域名配置
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'oyezfcipxbgdkizvndil.supabase.co',
-        pathname: '/storage/v1/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'photo-1386452208.cos.ap-guangzhou.myqcloud.com',
+        hostname: 'slogan-1386452208.cos.ap-guangzhou.myqcloud.com',
         pathname: '/**',
       },
     ],

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, MapPin, Phone, MessageSquare, Camera, Clock } from 'lucide-react';
+import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import MapPicker from '@/components/MapPicker';
 import { createClient } from '@/lib/supabase/client';
@@ -11,6 +11,12 @@ interface BookingType {
   id: number;
   name: string;
   emoji: string;
+}
+
+interface AllowedCity {
+  id: number;
+  city_name: string;
+  province: string;
 }
 
 const emojiMap: Record<string, string> = {
@@ -22,16 +28,16 @@ const emojiMap: Record<string, string> = {
 
 export default function BookingPage() {
   const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
+  const [allowedCities, setAllowedCities] = useState<AllowedCity[]>([]);
   const [formData, setFormData] = useState({
-    date: '',
     typeId: 0,
-    typeName: '',
     location: '',
+    latitude: 0,
+    longitude: 0,
+    cityName: '',
     phone: '',
     wechat: '',
     notes: '',
-    timeStart: '09:00',
-    timeEnd: '17:00',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -43,6 +49,7 @@ export default function BookingPage() {
 
   useEffect(() => {
     loadBookingTypes();
+    loadAllowedCities();
     checkActiveBooking();
 
     // 设置高德地图安全密钥
@@ -77,6 +84,18 @@ export default function BookingPage() {
         name: type.name,
         emoji: emojiMap[type.name] || '📸'
       })));
+    }
+  };
+
+  const loadAllowedCities = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('allowed_cities')
+      .select('*')
+      .eq('is_active', true);
+
+    if (!error && data) {
+      setAllowedCities(data);
     }
   };
 
@@ -131,54 +150,41 @@ export default function BookingPage() {
       return;
     }
 
-    if (!formData.date) {
-      setError('请选择约拍日期');
+    if (!formData.location || !formData.latitude || !formData.longitude) {
+      setError('请选择约拍地点');
       setIsSubmitting(false);
       return;
     }
 
-    // 验证日期不能是过去的日期
-    const selectedDate = new Date(formData.date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (selectedDate < today) {
-      setError('不能选择过去的日期');
+    if (!formData.phone) {
+      setError('请填写手机号');
       setIsSubmitting(false);
       return;
     }
 
-    // 验证至少提前一天预约
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    if (selectedDate < tomorrow) {
-      setError('请至少提前一天预约');
+    if (!formData.wechat) {
+      setError('请填写微信号');
       setIsSubmitting(false);
       return;
     }
 
-    // 验证时间段
-    if (formData.timeStart && formData.timeEnd) {
-      if (formData.timeStart >= formData.timeEnd) {
-        setError('结束时间必须晚于开始时间');
-        setIsSubmitting(false);
-        return;
-      }
-    }
-
-    // 检查日期是否可用
-    const { data: isAvailable, error: availError } = await supabase
-      .rpc('check_date_availability', { target_date: formData.date });
-
-    if (availError) {
-      setError('检查日期可用性失败');
+    // 验证城市
+    if (!formData.cityName) {
+      setError('无法识别城市，请重新选择地点');
       setIsSubmitting(false);
       return;
     }
 
-    if (!isAvailable) {
-      setError('该日期已被预约或已被锁定，请选择其他日期');
+    // 城市验证：去除"市"后缀进行精确匹配
+    const normalizeCity = (name: string) => name.replace(/市$/, '').trim();
+    const isCityAllowed = allowedCities.some(city =>
+      normalizeCity(formData.cityName) === normalizeCity(city.city_name) ||
+      formData.cityName === city.city_name ||
+      city.city_name === formData.cityName
+    );
+
+    if (!isCityAllowed) {
+      setError(`抱歉，当前仅支持以下城市的预约：${allowedCities.map(c => c.city_name).join('、')}`);
       setIsSubmitting(false);
       return;
     }
@@ -188,10 +194,11 @@ export default function BookingPage() {
       .insert({
         user_id: user.id,
         type_id: formData.typeId,
-        booking_date: formData.date,
-        time_slot_start: formData.timeStart,
-        time_slot_end: formData.timeEnd,
+        booking_date: new Date().toISOString().split('T')[0], // 默认当前日期，实际时间通过微信沟通
         location: formData.location,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+        city_name: formData.cityName,
         phone: formData.phone,
         wechat: formData.wechat,
         notes: formData.notes,
@@ -216,17 +223,6 @@ export default function BookingPage() {
   const handleCancel = async () => {
     if (!activeBooking) return;
 
-    // 检查是否是当天预约
-    const bookingDate = new Date(activeBooking.date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    bookingDate.setHours(0, 0, 0, 0);
-
-    if (bookingDate <= today) {
-      setError('预约日期当天已无法自行取消，请联系摄影师');
-      return;
-    }
-
     setIsCanceling(true);
     const supabase = createClient();
 
@@ -240,23 +236,17 @@ export default function BookingPage() {
     if (!error) {
       setActiveBooking(null);
       setFormData({
-        date: '',
         typeId: 0,
-        typeName: '',
         location: '',
+        latitude: 0,
+        longitude: 0,
+        cityName: '',
         phone: '',
         wechat: '',
         notes: '',
-        timeStart: '09:00',
-        timeEnd: '17:00',
       });
     } else {
-      // 友好的错误提示
-      if (error.message.includes('预约日期当天已无法自行取消')) {
-        setError('预约日期当天已无法自行取消，请联系摄影师');
-      } else {
-        setError(error.message);
-      }
+      setError(error.message);
     }
   };
 
@@ -267,19 +257,35 @@ export default function BookingPage() {
     });
   };
 
-  const handleTypeSelect = (typeId: number, typeName: string) => {
+  const handleTypeSelect = (typeId: number) => {
     setFormData({
       ...formData,
       typeId,
-      typeName,
     });
   };
 
-  const handleMapSelect = (location: string, lat: number, lng: number) => {
-    setFormData({
-      ...formData,
-      location,
-    });
+  const handleMapSelect = async (location: string, lat: number, lng: number) => {
+    // 使用高德地图逆地理编码获取城市信息
+    const AMap = (window as any).AMap;
+    if (AMap) {
+      AMap.plugin('AMap.Geocoder', () => {
+        const geocoder = new AMap.Geocoder();
+        geocoder.getAddress([lng, lat], (status: string, result: any) => {
+          if (status === 'complete' && result.info === 'OK') {
+            const addressComponent = result.regeocode.addressComponent;
+            const cityName = addressComponent.city || addressComponent.province;
+
+            setFormData({
+              ...formData,
+              location,
+              latitude: lat,
+              longitude: lng,
+              cityName,
+            });
+          }
+        });
+      });
+    }
     setShowMapPicker(false);
   };
 
@@ -375,7 +381,7 @@ export default function BookingPage() {
                   收到你的邀请啦！
                 </h2>
                 <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-                  我们会尽快与您联系确认详情 ✨
+                  我们会尽快通过微信与您联系确认约拍时间 ✨
                 </p>
               </div>
             ) : (
@@ -400,107 +406,67 @@ export default function BookingPage() {
                   </div>
 
                   <form onSubmit={handleSubmit} className="space-y-8">
-                    {/* 约拍类型 - 紧凑型网格 */}
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium mb-3 text-[#5D4037]">
-                        <span>约拍类型</span>
-                      </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        {bookingTypes.map((type) => (
-                          <motion.button
-                            key={type.id}
-                            type="button"
-                            onClick={() => handleTypeSelect(type.id, type.name)}
-                            whileTap={{ scale: 0.95 }}
-                            className={`
-                              flex items-center justify-center gap-2 p-3 rounded-2xl text-center transition-all
-                              ${formData.typeId === type.id
-                                ? 'bg-[#FFC857] shadow-[2px_2px_0px_#5D4037] border-2 border-[#5D4037]'
-                                : 'bg-transparent border-2 border-dashed border-[#5D4037]/30 hover:border-[#5D4037]/50'
-                              }
-                            `}
-                          >
-                            <span className="text-xl">{type.emoji}</span>
-                            <span className={`text-sm font-medium ${formData.typeId === type.id ? 'text-[#5D4037]' : 'text-[#5D4037]/60'}`}>
-                              {type.name}
-                            </span>
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* 日期选择 - 下划线风格 */}
+                    {/* 约拍类型 - 手账风下拉框 */}
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
-                        <Calendar className="w-4 h-4" />
-                        <span>约拍日期</span>
+                        <Camera className="w-4 h-4" />
+                        <span>约拍类型</span>
                       </label>
-                      <input
-                        type="date"
-                        name="date"
-                        value={formData.date}
-                        onChange={handleChange}
-                        required
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] focus:shadow-[0_3px_12px_rgba(255,200,87,0.25)] transition-all"
-                      />
-                    </div>
-
-                    {/* 时间段选择 - 下划线风格 */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
-                          <Clock className="w-4 h-4" />
-                          <span>开始时间</span>
-                        </label>
-                        <input
-                          type="time"
-                          name="timeStart"
-                          value={formData.timeStart}
-                          onChange={handleChange}
+                      <div className="relative">
+                        <select
+                          value={formData.typeId}
+                          onChange={(e) => handleTypeSelect(Number(e.target.value))}
                           required
-                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
-                          <Clock className="w-4 h-4" />
-                          <span>结束时间</span>
-                        </label>
-                        <input
-                          type="time"
-                          name="timeEnd"
-                          value={formData.timeEnd}
-                          onChange={handleChange}
-                          required
-                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
-                        />
+                          className="w-full px-4 py-3 pr-10 bg-white border-2 border-[#5D4037]/20 rounded-2xl text-[#5D4037] font-medium appearance-none cursor-pointer focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] transition-all"
+                          style={{
+                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235D4037' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                            backgroundRepeat: 'no-repeat',
+                            backgroundPosition: 'right 12px center',
+                            backgroundSize: '20px'
+                          }}
+                        >
+                          <option value={0} disabled>请选择约拍类型...</option>
+                          {bookingTypes.map((type) => (
+                            <option key={type.id} value={type.id}>
+                              {type.emoji} {type.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 
-                    {/* 约拍地点 - 下划线风格 */}
+                    {/* 约拍地点 - 可点击卡片 */}
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                         <MapPin className="w-4 h-4" />
                         <span>约拍地点</span>
+                        {allowedCities.length > 0 && (
+                          <span className="text-xs text-[#5D4037]/50">
+                            (限{allowedCities.map(c => c.city_name).join('、')})
+                          </span>
+                        )}
                       </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          name="location"
-                          placeholder="例如：江边公园"
-                          value={formData.location}
-                          onChange={handleChange}
-                          required
-                          className="flex-1 px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowMapPicker(true)}
-                          className="flex-shrink-0 px-3 py-1 bg-[#FFC857] text-[#5D4037] rounded-lg text-sm font-medium hover:bg-[#FFB347] transition-colors"
-                        >
-                          🗺️ 选址
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowMapPicker(true)}
+                        className="w-full px-4 py-3 bg-white border-2 border-[#5D4037]/20 rounded-2xl text-left transition-all hover:border-[#FFC857] hover:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            {formData.location ? (
+                              <div>
+                                <p className="text-[#5D4037] font-medium">{formData.location}</p>
+                                {formData.cityName && (
+                                  <p className="text-xs text-[#5D4037]/60 mt-0.5">📍 {formData.cityName}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-[#5D4037]/40">点击在地图上选择约拍地点...</p>
+                            )}
+                          </div>
+                          <MapPin className="w-5 h-5 text-[#FFC857] group-hover:scale-110 transition-transform" />
+                        </div>
+                      </button>
                     </div>
 
                     {/* 联系方式 - 下划线风格 */}
@@ -508,7 +474,7 @@ export default function BookingPage() {
                       <div>
                         <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                           <Phone className="w-4 h-4" />
-                          <span>手机号</span>
+                          <span>手机号 *</span>
                         </label>
                         <input
                           type="tel"
@@ -523,7 +489,7 @@ export default function BookingPage() {
                       <div>
                         <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                           <MessageSquare className="w-4 h-4" />
-                          <span>微信号</span>
+                          <span>微信号 *</span>
                         </label>
                         <input
                           type="text"
@@ -531,6 +497,7 @@ export default function BookingPage() {
                           placeholder="微信号"
                           value={formData.wechat}
                           onChange={handleChange}
+                          required
                           className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
                         />
                       </div>
@@ -539,7 +506,7 @@ export default function BookingPage() {
                     {/* 备注 - 下划线风格 */}
                     <div>
                       <label className="text-sm font-medium mb-2 text-[#5D4037] block">
-                        备注说明
+                        备注说明（选填）
                       </label>
                       <textarea
                         name="notes"
@@ -584,7 +551,7 @@ export default function BookingPage() {
                         💡 每个用户同时只能有一个进行中的预约
                       </p>
                       <p className="text-xs text-[#5D4037]/50 text-center mt-1">
-                        请至少提前一天预约，约拍当天不可预约
+                        📅 约拍时间将通过微信与摄影师沟通确定
                       </p>
                     </div>
                   </form>

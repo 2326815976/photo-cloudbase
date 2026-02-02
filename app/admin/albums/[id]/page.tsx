@@ -99,36 +99,20 @@ export default function AlbumDetailPage() {
   const loadPhotoUrls = async (photosToLoad: Photo[]) => {
     const supabase = createClient();
 
-    console.log('📸 开始加载照片URL，照片数量:', photosToLoad.length);
-    if (photosToLoad.length > 0) {
-      console.log('📸 第一张照片数据:', photosToLoad[0]);
-    }
-
     // 过滤掉所有URL字段都为空的照片，优先使用新字段
     const validPhotos = photosToLoad.filter((photo): photo is Photo & { thumbnail_url: string } => {
       const url = photo.thumbnail_url || photo.preview_url || photo.url;
-      console.log(`📸 照片 ${photo.id} URL检查:`, {
-        thumbnail_url: photo.thumbnail_url,
-        preview_url: photo.preview_url,
-        url: photo.url,
-        finalUrl: url
-      });
       return url !== null && url !== undefined;
     });
 
-    console.log('📸 有效照片数量:', validPhotos.length);
-
     if (validPhotos.length === 0) {
-      console.warn('⚠️ 没有找到有效的照片URL，所有URL字段都为空');
       return;
     }
 
     // 并行生成所有URL，优先使用 thumbnail_url
     const urlPromises = validPhotos.map(photo => {
       const storageUrl = photo.thumbnail_url || photo.preview_url || photo.url;
-
       // COS 返回的是完整的公开URL，直接使用
-      console.log(`📸 照片 ${photo.id} 使用公开URL:`, storageUrl);
       return Promise.resolve({ id: photo.id, url: storageUrl });
     });
 
@@ -142,7 +126,6 @@ export default function AlbumDetailPage() {
           newUrls[result.id] = result.url;
         }
       });
-      console.log('📸 最终photoUrls数量:', Object.keys(newUrls).length);
       return newUrls;
     });
   };
@@ -646,13 +629,11 @@ export default function AlbumDetailPage() {
                   )}
                   {(() => {
                     const url = photoUrls[photo.id];
-                    console.log(`🖼️ 渲染照片 ${photo.id}，URL:`, url);
                     return url ? (
                       <img
                         src={url}
                         alt=""
                         className="w-full h-full object-cover"
-                        onLoad={() => console.log(`✅ 照片 ${photo.id} 加载成功`)}
                         onError={(e) => console.error(`❌ 照片 ${photo.id} 加载失败:`, e)}
                       />
                     ) : (

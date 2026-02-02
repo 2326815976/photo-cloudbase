@@ -29,13 +29,11 @@ export async function POST() {
     const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (error) {
-      console.error('删除用户失败:', error);
       return NextResponse.json({ error: '删除失败，请稍后重试' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error('删除账户异常:', err);
     return NextResponse.json({ error: '系统错误' }, { status: 500 });
   }
 }

@@ -2,16 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Calendar, Clock, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Calendar, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle, Camera, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Booking {
   id: string;
   user_id: string;
+  type_id: number;
   booking_date: string;
-  time_slot_start: string;
-  time_slot_end: string;
   location: string;
+  latitude: number;
+  longitude: number;
+  city_name: string;
   phone: string;
   wechat: string;
   notes: string;
@@ -33,8 +35,25 @@ interface Blackout {
   created_at: string;
 }
 
+interface BookingType {
+  id: number;
+  name: string;
+  description: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface AllowedCity {
+  id: number;
+  city_name: string;
+  province: string;
+  city_code: string;
+  is_active: boolean;
+  created_at: string;
+}
+
 export default function BookingsPage() {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'schedule'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'types' | 'cities' | 'schedule'>('bookings');
 
   // 预约管理状态
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -55,9 +74,25 @@ export default function BookingsPage() {
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // 约拍类型管理状态
+  const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
+  const [typesLoading, setTypesLoading] = useState(true);
+  const [showTypeModal, setShowTypeModal] = useState(false);
+  const [editingType, setEditingType] = useState<BookingType | null>(null);
+  const [typeFormData, setTypeFormData] = useState({ name: '', description: '' });
+
+  // 城市管理状态
+  const [cities, setCities] = useState<AllowedCity[]>([]);
+  const [citiesLoading, setCitiesLoading] = useState(true);
+  const [showCityModal, setShowCityModal] = useState(false);
+  const [editingCity, setEditingCity] = useState<AllowedCity | null>(null);
+  const [cityFormData, setCityFormData] = useState({ city_name: '', province: '', city_code: '' });
+
   useEffect(() => {
     loadBookings();
     loadBlackouts();
+    loadBookingTypes();
+    loadCities();
   }, [filter]);
 
   // 预约管理函数
@@ -324,6 +359,178 @@ export default function BookingsPage() {
     setIsSelectionMode(false);
   };
 
+  // 约拍类型管理函数
+  const loadBookingTypes = async () => {
+    setTypesLoading(true);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('booking_types')
+      .select('*')
+      .order('id');
+    if (!error && data) {
+      setBookingTypes(data);
+    }
+    setTypesLoading(false);
+  };
+
+  const handleAddType = () => {
+    setEditingType(null);
+    setTypeFormData({ name: '', description: '' });
+    setShowTypeModal(true);
+  };
+
+  const handleEditType = (type: BookingType) => {
+    setEditingType(type);
+    setTypeFormData({ name: type.name, description: type.description || '' });
+    setShowTypeModal(true);
+  };
+
+  const handleSaveType = async () => {
+    if (!typeFormData.name.trim()) {
+      setShowToast({ message: '请输入类型名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setSubmitting(true);
+    const supabase = createClient();
+
+    if (editingType) {
+      const { error } = await supabase
+        .from('booking_types')
+        .update({ name: typeFormData.name, description: typeFormData.description })
+        .eq('id', editingType.id);
+
+      if (!error) {
+        setShowTypeModal(false);
+        loadBookingTypes();
+        setShowToast({ message: '类型已更新', type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
+      } else {
+        setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+      }
+    } else {
+      const { error } = await supabase
+        .from('booking_types')
+        .insert({ name: typeFormData.name, description: typeFormData.description });
+
+      if (!error) {
+        setShowTypeModal(false);
+        loadBookingTypes();
+        setShowToast({ message: '类型已添加', type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
+      } else {
+        setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+      }
+    }
+    setSubmitting(false);
+  };
+
+  const handleToggleTypeStatus = async (type: BookingType) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('booking_types')
+      .update({ is_active: !type.is_active })
+      .eq('id', type.id);
+
+    if (!error) {
+      loadBookingTypes();
+      setShowToast({ message: type.is_active ? '类型已禁用' : '类型已启用', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  // 城市管理函数
+  const loadCities = async () => {
+    setCitiesLoading(true);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('allowed_cities')
+      .select('*')
+      .order('id');
+    if (!error && data) {
+      setCities(data);
+    }
+    setCitiesLoading(false);
+  };
+
+  const handleAddCity = () => {
+    setEditingCity(null);
+    setCityFormData({ city_name: '', province: '', city_code: '' });
+    setShowCityModal(true);
+  };
+
+  const handleEditCity = (city: AllowedCity) => {
+    setEditingCity(city);
+    setCityFormData({ city_name: city.city_name, province: city.province || '', city_code: city.city_code || '' });
+    setShowCityModal(true);
+  };
+
+  const handleSaveCity = async () => {
+    if (!cityFormData.city_name.trim()) {
+      setShowToast({ message: '请输入城市名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setSubmitting(true);
+    const supabase = createClient();
+
+    if (editingCity) {
+      const { error } = await supabase
+        .from('allowed_cities')
+        .update({ city_name: cityFormData.city_name, province: cityFormData.province, city_code: cityFormData.city_code })
+        .eq('id', editingCity.id);
+
+      if (!error) {
+        setShowCityModal(false);
+        loadCities();
+        setShowToast({ message: '城市已更新', type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
+      } else {
+        setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+      }
+    } else {
+      const { error } = await supabase
+        .from('allowed_cities')
+        .insert({ city_name: cityFormData.city_name, province: cityFormData.province, city_code: cityFormData.city_code });
+
+      if (!error) {
+        setShowCityModal(false);
+        loadCities();
+        setShowToast({ message: '城市已添加', type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
+      } else {
+        setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+      }
+    }
+    setSubmitting(false);
+  };
+
+  const handleToggleCityStatus = async (city: AllowedCity) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('allowed_cities')
+      .update({ is_active: !city.is_active })
+      .eq('id', city.id);
+
+    if (!error) {
+      loadCities();
+      setShowToast({ message: city.is_active ? '城市已禁用' : '城市已启用', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
   const today = new Date().toISOString().split('T')[0];
 
   return (
@@ -348,6 +555,38 @@ export default function BookingsPage() {
         >
           预约列表
           {activeTab === 'bookings' && (
+            <motion.div
+              layoutId="activeTab"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('types')}
+          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
+            activeTab === 'types'
+              ? 'text-[#5D4037]'
+              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
+          }`}
+        >
+          约拍类型
+          {activeTab === 'types' && (
+            <motion.div
+              layoutId="activeTab"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('cities')}
+          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
+            activeTab === 'cities'
+              ? 'text-[#5D4037]'
+              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
+          }`}
+        >
+          城市管理
+          {activeTab === 'cities' && (
             <motion.div
               layoutId="activeTab"
               className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
@@ -441,16 +680,16 @@ export default function BookingsPage() {
                         <span>{booking.booking_date}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <Clock className="w-4 h-4 text-[#FFC857]" />
-                        <span>{booking.time_slot_start} - {booking.time_slot_end}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
                         <MapPin className="w-4 h-4 text-[#FFC857]" />
-                        <span>{booking.location}</span>
+                        <span className="line-clamp-1">{booking.location}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
                         <Phone className="w-4 h-4 text-[#FFC857]" />
                         <span>{booking.phone}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
+                        <MessageSquare className="w-4 h-4 text-[#FFC857]" />
+                        <span>{booking.wechat}</span>
                       </div>
                     </div>
 
@@ -642,6 +881,274 @@ export default function BookingsPage() {
           )}
         </div>
       )}
+
+      {/* 约拍类型管理内容 */}
+      {activeTab === 'types' && (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              onClick={handleAddType}
+              className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+            >
+              <Plus className="w-5 h-5" />
+              添加类型
+            </button>
+          </div>
+
+          {typesLoading ? (
+            <div className="text-center py-12">
+              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-sm text-[#5D4037]/60">加载中...</p>
+            </div>
+          ) : bookingTypes.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+              <Camera className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+              <p className="text-[#5D4037]/60">暂无约拍类型</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {bookingTypes.map((type) => (
+                <div key={type.id} className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="font-bold text-[#5D4037] text-lg">{type.name}</h3>
+                      {type.description && (
+                        <p className="text-sm text-[#5D4037]/60 mt-1">{type.description}</p>
+                      )}
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${type.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                      {type.is_active ? '启用' : '禁用'}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditType(type)}
+                      className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors text-sm"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleToggleTypeStatus(type)}
+                      className={`flex-1 px-4 py-2 rounded-full transition-colors text-sm ${type.is_active ? 'bg-gray-500 text-white hover:bg-gray-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
+                    >
+                      {type.is_active ? '禁用' : '启用'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 城市管理内容 */}
+      {activeTab === 'cities' && (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              onClick={handleAddCity}
+              className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+            >
+              <Plus className="w-5 h-5" />
+              添加城市
+            </button>
+          </div>
+
+          {citiesLoading ? (
+            <div className="text-center py-12">
+              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-sm text-[#5D4037]/60">加载中...</p>
+            </div>
+          ) : cities.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+              <MapPin className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+              <p className="text-[#5D4037]/60">暂无允许的城市</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {cities.map((city) => (
+                <div key={city.id} className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="font-bold text-[#5D4037] text-lg">{city.city_name}</h3>
+                      {city.province && (
+                        <p className="text-sm text-[#5D4037]/60 mt-1">{city.province}</p>
+                      )}
+                      {city.city_code && (
+                        <p className="text-xs text-[#5D4037]/40 mt-1">代码: {city.city_code}</p>
+                      )}
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${city.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                      {city.is_active ? '启用' : '禁用'}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditCity(city)}
+                      className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors text-sm"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleToggleCityStatus(city)}
+                      className={`flex-1 px-4 py-2 rounded-full transition-colors text-sm ${city.is_active ? 'bg-gray-500 text-white hover:bg-gray-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
+                    >
+                      {city.is_active ? '禁用' : '启用'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 约拍类型弹窗 */}
+      <AnimatePresence>
+        {showTypeModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setShowTypeModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#5D4037]">{editingType ? '编辑类型' : '添加类型'}</h2>
+                <button
+                  onClick={() => setShowTypeModal(false)}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    类型名称 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={typeFormData.name}
+                    onChange={(e) => setTypeFormData({ ...typeFormData, name: e.target.value })}
+                    placeholder="例如：常规约拍"
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    描述（可选）
+                  </label>
+                  <textarea
+                    value={typeFormData.description}
+                    onChange={(e) => setTypeFormData({ ...typeFormData, description: e.target.value })}
+                    placeholder="简单描述这个类型..."
+                    rows={3}
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none resize-none"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSaveType}
+                  disabled={submitting}
+                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {submitting ? '保存中...' : '确认保存'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 城市弹窗 */}
+      <AnimatePresence>
+        {showCityModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setShowCityModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#5D4037]">{editingCity ? '编辑城市' : '添加城市'}</h2>
+                <button
+                  onClick={() => setShowCityModal(false)}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    城市名称 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={cityFormData.city_name}
+                    onChange={(e) => setCityFormData({ ...cityFormData, city_name: e.target.value })}
+                    placeholder="例如：南宁市"
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    省份（可选）
+                  </label>
+                  <input
+                    type="text"
+                    value={cityFormData.province}
+                    onChange={(e) => setCityFormData({ ...cityFormData, province: e.target.value })}
+                    placeholder="例如：广西壮族自治区"
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    城市代码（可选）
+                  </label>
+                  <input
+                    type="text"
+                    value={cityFormData.city_code}
+                    onChange={(e) => setCityFormData({ ...cityFormData, city_code: e.target.value })}
+                    placeholder="高德地图城市代码"
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSaveCity}
+                  disabled={submitting}
+                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {submitting ? '保存中...' : '确认保存'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 添加档期锁定弹窗 */}
       <AnimatePresence>

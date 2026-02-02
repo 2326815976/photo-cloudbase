@@ -3,7 +3,30 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function GET() {
   try {
+    // 权限验证
     const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: '未授权：请先登录' },
+        { status: 401 }
+      );
+    }
+
+    // 检查管理员权限
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profile?.role !== 'admin') {
+      return NextResponse.json(
+        { error: '未授权：需要管理员权限' },
+        { status: 403 }
+      );
+    }
 
     // 查询摆姿数据
     const { data: poses, error: posesError, count } = await supabase

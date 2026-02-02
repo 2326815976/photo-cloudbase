@@ -1,9 +1,16 @@
 -- ================================================================================================
--- 用户-相册绑定表 (User Album Bindings)
--- 用途：记录已登录用户与专属空间的绑定关系，实现免密钥访问
+-- 📂 项目：拾光谣 - 相册访问控制系统
+-- 📝 版本：v2.0 - Album Access Control (合并 005 + 008)
+-- 🎯 目标：用户相册绑定 + RLS策略优化
+-- 📅 日期：2026-02-02
+-- ================================================================================================
+
+-- ================================================================================================
+-- 1. 用户-相册绑定表
 -- ================================================================================================
 
 -- 表：用户相册绑定
+-- 用途：记录已登录用户与专属空间的绑定关系，实现免密钥访问
 create table if not exists public.user_album_bindings (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
@@ -17,7 +24,10 @@ create table if not exists public.user_album_bindings (
 -- 索引优化：加速按用户查询绑定的相册
 create index if not exists idx_bindings_user on public.user_album_bindings(user_id);
 
--- RLS 策略
+-- ================================================================================================
+-- 2. RLS 策略 - 用户绑定表
+-- ================================================================================================
+
 alter table public.user_album_bindings enable row level security;
 
 -- 用户只能查看和管理自己的绑定
@@ -29,8 +39,42 @@ create policy "Admin view all bindings" on user_album_bindings
   for select using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
 
 -- ================================================================================================
--- RPC 函数：绑定用户与相册
+-- 3. RLS 策略 - 相册表优化
 -- ================================================================================================
+
+-- 启用 RLS（如果尚未启用）
+alter table public.albums enable row level security;
+
+-- 删除可能存在的旧策略
+drop policy if exists "Allow public read access with access_key" on public.albums;
+drop policy if exists "Allow authenticated users to read albums" on public.albums;
+drop policy if exists "Allow admin full access" on public.albums;
+drop policy if exists "Admin manage albums" on public.albums;
+
+-- 创建新策略：允许任何人通过 access_key 查询相册
+create policy "Allow public read access with access_key"
+on public.albums
+for select
+to public
+using (true);
+
+-- 确保管理员可以完全管理相册
+create policy "Allow admin full access"
+on public.albums
+for all
+to authenticated
+using (
+  exists (
+    select 1 from public.profiles
+    where profiles.id = auth.uid()
+    and profiles.role = 'admin'
+  )
+);
+
+-- ================================================================================================
+-- 4. RPC 函数：绑定用户与相册
+-- ================================================================================================
+
 create or replace function public.bind_user_to_album(p_access_key text)
 returns jsonb language plpgsql security definer as $$
 declare
@@ -72,8 +116,9 @@ end;
 $$;
 
 -- ================================================================================================
--- RPC 函数：获取用户绑定的所有相册
+-- 5. RPC 函数：获取用户绑定的所有相册
 -- ================================================================================================
+
 create or replace function public.get_user_bound_albums()
 returns jsonb language plpgsql security definer as $$
 declare
@@ -111,3 +156,15 @@ begin
   return result;
 end;
 $$;
+
+-- ================================================================================================
+-- 完成
+-- ================================================================================================
+
+DO $$
+BEGIN
+  RAISE NOTICE '✅ 相册访问控制系统创建完成！';
+  RAISE NOTICE '📊 已创建表：user_album_bindings';
+  RAISE NOTICE '🔒 已优化 RLS 策略：albums 表';
+  RAISE NOTICE '🔄 已创建 RPC 函数：bind_user_to_album, get_user_bound_albums';
+END $$;
