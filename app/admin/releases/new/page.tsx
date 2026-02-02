@@ -1,0 +1,211 @@
+'use client';
+
+import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { ArrowLeft, Upload, CheckCircle, XCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+export default function NewReleasePage() {
+  const [version, setVersion] = useState('');
+  const [platform, setPlatform] = useState('Android');
+  const [updateLog, setUpdateLog] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!version || !file) {
+      setShowToast({ message: '请填写版本号并选择文件', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      // 上传文件到COS
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('folder', 'releases');
+      formData.append('key', `${Date.now()}_${file.name}`);
+
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('文件上传失败');
+      }
+
+      const { url } = await uploadResponse.json();
+
+      // 保存到数据库
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('app_releases')
+        .insert({
+          version,
+          platform,
+          download_url: url,
+          update_log: updateLog,
+        });
+
+      if (error) throw error;
+
+      setShowToast({ message: '版本发布成功', type: 'success' });
+      setTimeout(() => {
+        window.location.href = '/admin/releases';
+      }, 1500);
+    } catch (error) {
+      console.error('发布失败:', error);
+      setShowToast({ message: '发布失败，请重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 pt-6">
+      {/* 页面标题 */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => window.location.href = '/admin/releases'}
+          className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+        >
+          <ArrowLeft className="w-6 h-6 text-[#5D4037]" />
+        </button>
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            发布新版本 🚀
+          </h1>
+          <p className="text-sm text-[#5D4037]/60">上传应用安装包</p>
+        </div>
+      </div>
+
+      {/* 表单 */}
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10 space-y-6">
+        {/* 版本号 */}
+        <div>
+          <label className="block text-sm font-medium text-[#5D4037] mb-2">
+            版本号 *
+          </label>
+          <input
+            type="text"
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            placeholder="例如: 1.0.0"
+            className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:border-[#FFC857] focus:outline-none transition-colors"
+            required
+          />
+        </div>
+
+        {/* 平台 */}
+        <div>
+          <label className="block text-sm font-medium text-[#5D4037] mb-2">
+            平台 *
+          </label>
+          <select
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value)}
+            className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:border-[#FFC857] focus:outline-none transition-colors"
+            required
+          >
+            <option value="Android">Android</option>
+            <option value="iOS">iOS</option>
+            <option value="HarmonyOS">HarmonyOS</option>
+            <option value="Windows">Windows</option>
+          </select>
+        </div>
+
+        {/* 更新日志 */}
+        <div>
+          <label className="block text-sm font-medium text-[#5D4037] mb-2">
+            更新日志
+          </label>
+          <textarea
+            value={updateLog}
+            onChange={(e) => setUpdateLog(e.target.value)}
+            placeholder="描述本次更新的内容..."
+            rows={6}
+            className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:border-[#FFC857] focus:outline-none transition-colors resize-none"
+          />
+        </div>
+
+        {/* 文件上传 */}
+        <div>
+          <label className="block text-sm font-medium text-[#5D4037] mb-2">
+            安装包文件 *
+          </label>
+          <div className="relative">
+            <input
+              type="file"
+              onChange={handleFileChange}
+              accept=".apk,.ipa,.exe,.dmg"
+              className="hidden"
+              id="file-upload"
+              required
+            />
+            <label
+              htmlFor="file-upload"
+              className="flex items-center justify-center gap-3 w-full px-6 py-4 border-2 border-dashed border-[#5D4037]/20 rounded-xl hover:border-[#FFC857] transition-colors cursor-pointer"
+            >
+              <Upload className="w-5 h-5 text-[#5D4037]/60" />
+              <span className="text-[#5D4037]/60">
+                {file ? file.name : '点击选择文件'}
+              </span>
+            </label>
+          </div>
+          {file && (
+            <p className="text-xs text-[#5D4037]/60 mt-2">
+              文件大小: {(file.size / 1024 / 1024).toFixed(2)} MB
+            </p>
+          )}
+        </div>
+
+        {/* 提交按钮 */}
+        <button
+          type="submit"
+          disabled={uploading}
+          className="w-full px-6 py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {uploading ? '发布中...' : '发布版本'}
+        </button>
+      </form>
+
+      {/* Toast通知 */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 z-50"
+          >
+            <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
+              showToast.type === 'success'
+                ? 'bg-green-500/95 text-white'
+                : 'bg-red-500/95 text-white'
+            }`}>
+              {showToast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : (
+                <XCircle className="w-5 h-5 flex-shrink-0" />
+              )}
+              <span className="font-medium">{showToast.message}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

@@ -114,8 +114,21 @@ export default function PosesPage() {
           const fileName = `${Date.now()}_${i}.webp`;
 
           try {
-            const { uploadToCOS } = await import('@/lib/storage/cos-client');
-            const publicUrl = await uploadToCOS(compressedFile, fileName, 'poses');
+            const formData = new FormData();
+            formData.append('file', compressedFile);
+            formData.append('folder', 'poses');
+            formData.append('key', fileName);
+
+            const uploadResponse = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!uploadResponse.ok) {
+              throw new Error('上传失败');
+            }
+
+            const { url: publicUrl } = await uploadResponse.json();
 
             // 插入数据库
             const { error: insertError } = await supabase
@@ -144,8 +157,21 @@ export default function PosesPage() {
 
         const fileName = `${Date.now()}.webp`;
 
-        const { uploadToCOS } = await import('@/lib/storage/cos-client');
-        const publicUrl = await uploadToCOS(compressedFile, fileName, 'poses');
+        const formData = new FormData();
+        formData.append('file', compressedFile);
+        formData.append('folder', 'poses');
+        formData.append('key', fileName);
+
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error('上传失败');
+        }
+
+        const { url: publicUrl } = await uploadResponse.json();
 
         const { error: insertError } = await supabase
           .from('poses')

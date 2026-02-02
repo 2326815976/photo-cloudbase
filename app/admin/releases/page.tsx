@@ -52,6 +52,21 @@ export default function ReleasesPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+
+    // 从URL中提取COS存储路径并删除文件
+    if (deletingRelease.download_url) {
+      const { extractKeyFromURL, deleteFromCOS } = await import('@/lib/storage/cos-client');
+      const key = extractKeyFromURL(deletingRelease.download_url);
+      if (key) {
+        try {
+          await deleteFromCOS(key);
+        } catch (error) {
+          console.error('删除COS文件失败:', error);
+        }
+      }
+    }
+
+    // 删除数据库记录
     const { error } = await supabase
       .from('app_releases')
       .delete()

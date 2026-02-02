@@ -261,8 +261,21 @@ export default function AlbumDetailPage() {
           const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
           try {
-            const { uploadToCOS } = await import('@/lib/storage/cos-client');
-            const publicUrl = await uploadToCOS(version.file, fileName, 'albums');
+            const formData = new FormData();
+            formData.append('file', version.file);
+            formData.append('folder', 'albums');
+            formData.append('key', fileName);
+
+            const uploadResponse = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!uploadResponse.ok) {
+              throw new Error('上传失败');
+            }
+
+            const { url: publicUrl } = await uploadResponse.json();
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
             else if (version.type === 'preview') preview_url = publicUrl;
