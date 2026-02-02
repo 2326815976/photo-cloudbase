@@ -148,16 +148,16 @@ export default function ProfilePage() {
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* 手账风页头 */}
+      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>我的小天地</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📒 管理你的拾光小秘密 📒</p>
+        <div className="px-3 py-2.5 flex items-center gap-2">
+          <h1 className="flex-1 text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>我的小天地</h1>
+          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[45%]">
+            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">📒 管理你的拾光小秘密 📒</p>
           </div>
         </div>
       </motion.div>

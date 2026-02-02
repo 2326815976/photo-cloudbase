@@ -357,13 +357,13 @@ export default function AlbumDetailPage() {
         }
       `}</style>
 
-      {/* 手账风页头 */}
+      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2 relative">
+        <div className="px-3 py-2.5 flex items-center gap-2">
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={() => router.push('/')}
@@ -372,14 +372,14 @@ export default function AlbumDetailPage() {
             <ArrowLeft className="w-5 h-5 text-[#FFC857]" strokeWidth={2.5} />
           </motion.button>
 
-          <div className="flex-1 text-center">
-            <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <div className="flex-1 min-w-0 text-center">
+            <h1 className="text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
               {albumData.album.title || '专属回忆'}
             </h1>
           </div>
 
-          <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 趁魔法消失前，把美好定格 ✨</p>
+          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[40%]">
+            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">✨ 趁魔法消失前，把美好定格 ✨</p>
           </div>
         </div>
       </motion.div>
@@ -912,7 +912,7 @@ export default function AlbumDetailPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black z-[100] flex items-center justify-center overflow-hidden"
+            className="fullscreen-viewer fixed inset-0 bg-black z-[100] flex items-center justify-center overflow-hidden"
             onWheel={(e) => {
               e.preventDefault();
               const delta = e.deltaY > 0 ? -0.1 : 0.1;

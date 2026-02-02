@@ -160,16 +160,16 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* 手账风页头 */}
+      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📸 贩卖人间路过的温柔 📸</p>
+        <div className="px-3 py-2.5 flex items-center gap-2">
+          <h1 className="flex-1 text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
+          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[45%]">
+            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">📸 贩卖人间路过的温柔 📸</p>
           </div>
         </div>
       </motion.div>
@@ -177,9 +177,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       {/* 滚动区域 */}
       <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20 gallery-scroll-container">
         {isLoading ? (
-          <div className="text-center py-12">
-            <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-sm text-[#5D4037]/60">加载中...</p>
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="relative mb-6">
+              {/* 外圈旋转 */}
+              <div className="w-16 h-16 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857] animate-spin"></div>
+              {/* 内圈反向旋转 */}
+              <div className="absolute inset-2 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037] animate-spin-reverse"></div>
+            </div>
+            <p className="text-base font-medium text-[#5D4037] mb-1" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>拾光中...</p>
+            <p className="text-sm text-[#5D4037]/60">正在加载照片墙</p>
           </div>
         ) : photos.length === 0 ? (
           <div className="text-center py-12">
@@ -282,7 +288,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 className="flex justify-center items-center gap-2 mt-6 mb-4"
               >
                 <div className="w-6 h-6 border-3 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-sm text-[#5D4037]/60">加载更多...</p>
+                <p className="text-sm text-[#5D4037]/60" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>拾光中...</p>
               </motion.div>
             )}
 

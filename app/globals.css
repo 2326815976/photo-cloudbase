@@ -71,6 +71,20 @@
     outline-offset: 2px;
   }
 
+  /* 强制输入框文字颜色 - 修复Android暗色模式问题 */
+  input,
+  textarea,
+  select {
+    color: #5D4037 !important;
+    -webkit-text-fill-color: #5D4037 !important;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgba(93, 64, 55, 0.4) !important;
+    -webkit-text-fill-color: rgba(93, 64, 55, 0.4) !important;
+  }
+
   /* 隐藏所有滚动条 */
   * {
     scrollbar-width: none;
@@ -105,6 +119,8 @@ html {
   -webkit-text-size-adjust: 100%;
   -ms-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* 禁用双指缩放 */
+  touch-action: pan-y pan-x;
 }
 
 body {
@@ -113,6 +129,14 @@ body {
   overflow-x: hidden;
   /* 支持安全区域 */
   padding-bottom: env(safe-area-inset-bottom);
+  /* 禁用双指缩放 */
+  touch-action: pan-y pan-x;
+}
+
+/* 允许全屏查看器中的图片缩放 */
+.fullscreen-viewer,
+.fullscreen-viewer * {
+  touch-action: auto !important;
 }
 
 /* 通用禁用选择类 */
@@ -145,6 +169,20 @@ body {
   *:hover {
     transition: none !important;
   }
+}
+
+/* 反向旋转动画 */
+@keyframes spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 2s linear infinite;
 }
 
 /* 横屏优化 */
