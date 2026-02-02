@@ -7,6 +7,7 @@ import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, C
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
+import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 interface Album {
   id: string;
@@ -237,28 +238,14 @@ export default function AlbumDetailPage() {
         let preview_url = '';
         let original_url = '';
 
-        // 3. 上传三个版本到腾讯云COS（albums文件夹）
+        // 3. 客户端直传三个版本到腾讯云COS（albums文件夹）
         for (const version of versions) {
           // thumbnail 和 preview 使用 webp，original 保持原格式
           const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
           const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
           try {
-            const formData = new FormData();
-            formData.append('file', version.file);
-            formData.append('folder', 'albums');
-            formData.append('key', fileName);
-
-            const uploadResponse = await fetch('/api/upload', {
-              method: 'POST',
-              body: formData,
-            });
-
-            if (!uploadResponse.ok) {
-              throw new Error('上传失败');
-            }
-
-            const { url: publicUrl } = await uploadResponse.json();
+            const publicUrl = await uploadToCosDirect(version.file, fileName, 'albums');
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
             else if (version.type === 'preview') preview_url = publicUrl;

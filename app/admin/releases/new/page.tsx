@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Upload, CheckCircle, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 export default function NewReleasePage() {
   const [version, setVersion] = useState('');
@@ -31,22 +32,8 @@ export default function NewReleasePage() {
     setUploading(true);
 
     try {
-      // 上传文件到COS
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('folder', 'releases');
-      formData.append('key', `${Date.now()}_${file.name}`);
-
-      const uploadResponse = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('文件上传失败');
-      }
-
-      const { url } = await uploadResponse.json();
+      // 客户端直传文件到COS
+      const url = await uploadToCosDirect(file, `${Date.now()}_${file.name}`, 'releases');
 
       // 保存到数据库
       const supabase = createClient();

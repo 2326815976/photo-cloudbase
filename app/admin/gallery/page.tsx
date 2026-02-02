@@ -6,6 +6,7 @@ import { Image, Trash2, Upload, Heart, Eye, CheckCircle, XCircle, AlertCircle, P
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateBlurHash } from '@/lib/utils/blurhash';
 import { generateGalleryImageVersions } from '@/lib/utils/image-versions';
+import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 interface Photo {
   id: string;
@@ -238,26 +239,11 @@ export default function AdminGalleryPage() {
         const timestamp = Date.now();
         let preview_url = '';
 
-        // 3. 上传预览图到腾讯云COS（gallery文件夹）
+        // 3. 客户端直传预览图到腾讯云COS（gallery文件夹）
         const fileName = `${timestamp}_${i}_preview.webp`;
 
         try {
-          const formData = new FormData();
-          formData.append('file', previewVersion.file);
-          formData.append('folder', 'gallery');
-          formData.append('key', fileName);
-
-          const uploadResponse = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!uploadResponse.ok) {
-            throw new Error('上传失败');
-          }
-
-          const { url: publicUrl } = await uploadResponse.json();
-          preview_url = publicUrl;
+          preview_url = await uploadToCosDirect(previewVersion.file, fileName, 'gallery');
         } catch (uploadError) {
           console.error(`上传预览图失败:`, uploadError);
           continue;

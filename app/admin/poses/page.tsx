@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generatePoseImage } from '@/lib/utils/image-versions';
+import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 interface Pose {
   id: number;
@@ -110,25 +111,11 @@ export default function PosesPage() {
           // 压缩图片（对标照片墙列表：1080px, 500KB, 质量0.8）
           const compressedFile = await generatePoseImage(file);
 
-          // 上传图片到腾讯云COS（poses文件夹）
+          // 客户端直传图片到腾讯云COS（poses文件夹）
           const fileName = `${Date.now()}_${i}.webp`;
 
           try {
-            const formData = new FormData();
-            formData.append('file', compressedFile);
-            formData.append('folder', 'poses');
-            formData.append('key', fileName);
-
-            const uploadResponse = await fetch('/api/upload', {
-              method: 'POST',
-              body: formData,
-            });
-
-            if (!uploadResponse.ok) {
-              throw new Error('上传失败');
-            }
-
-            const { url: publicUrl } = await uploadResponse.json();
+            const publicUrl = await uploadToCosDirect(compressedFile, fileName, 'poses');
 
             // 插入数据库
             const { error: insertError } = await supabase
@@ -157,21 +144,7 @@ export default function PosesPage() {
 
         const fileName = `${Date.now()}.webp`;
 
-        const formData = new FormData();
-        formData.append('file', compressedFile);
-        formData.append('folder', 'poses');
-        formData.append('key', fileName);
-
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!uploadResponse.ok) {
-          throw new Error('上传失败');
-        }
-
-        const { url: publicUrl } = await uploadResponse.json();
+        const publicUrl = await uploadToCosDirect(compressedFile, fileName, 'poses');
 
         const { error: insertError } = await supabase
           .from('poses')
