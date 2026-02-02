@@ -400,9 +400,9 @@ export default function AlbumDetailPage() {
 
       for (const photo of photosToDelete) {
         const keys = [
-          extractKeyFromURL(photo.thumbnail_url),
-          extractKeyFromURL(photo.preview_url),
-          extractKeyFromURL(photo.original_url)
+          photo.thumbnail_url ? extractKeyFromURL(photo.thumbnail_url) : null,
+          photo.preview_url ? extractKeyFromURL(photo.preview_url) : null,
+          photo.original_url ? extractKeyFromURL(photo.original_url) : null
         ].filter(Boolean) as string[];
         filesToDelete.push(...keys);
       }
