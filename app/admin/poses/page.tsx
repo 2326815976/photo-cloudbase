@@ -110,35 +110,28 @@ export default function PosesPage() {
           // 压缩图片到100KB以内（WebP格式）
           const compressedFile = await generatePoseImage(file, 100);
 
-          // 上传图片到Storage（使用WebP扩展名）
+          // 上传图片到腾讯云COS（poses文件夹）
           const fileName = `${Date.now()}_${i}.webp`;
-          const filePath = fileName;
 
-          const { error: uploadError } = await supabase.storage
-            .from('poses')
-            .upload(filePath, compressedFile);
+          try {
+            const { uploadToCOS } = await import('@/lib/storage/cos-client');
+            const publicUrl = await uploadToCOS(compressedFile, fileName, 'poses');
 
-          if (uploadError) {
+            // 插入数据库
+            const { error: insertError } = await supabase
+              .from('poses')
+              .insert({
+                image_url: publicUrl,
+                storage_path: `poses/${fileName}`,
+                tags: poseFormData.tags,
+              });
+
+            if (insertError) {
+              console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
+            }
+          } catch (uploadError) {
             console.error(`上传第 ${i + 1} 张图片失败:`, uploadError);
             continue; // 继续上传其他图片
-          }
-
-          // 获取公开URL
-          const { data: { publicUrl } } = supabase.storage
-            .from('poses')
-            .getPublicUrl(filePath);
-
-          // 插入数据库
-          const { error: insertError } = await supabase
-            .from('poses')
-            .insert({
-              image_url: publicUrl,
-              storage_path: filePath,
-              tags: poseFormData.tags,
-            });
-
-          if (insertError) {
-            console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
           }
         }
 
@@ -150,23 +143,15 @@ export default function PosesPage() {
         const compressedFile = await generatePoseImage(poseFormData.image!, 100);
 
         const fileName = `${Date.now()}.webp`;
-        const filePath = fileName;
 
-        const { error: uploadError } = await supabase.storage
-          .from('poses')
-          .upload(filePath, compressedFile);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('poses')
-          .getPublicUrl(filePath);
+        const { uploadToCOS } = await import('@/lib/storage/cos-client');
+        const publicUrl = await uploadToCOS(compressedFile, fileName, 'poses');
 
         const { error: insertError } = await supabase
           .from('poses')
           .insert({
             image_url: publicUrl,
-            storage_path: filePath,
+            storage_path: `poses/${fileName}`,
             tags: poseFormData.tags,
           });
 
@@ -231,15 +216,13 @@ export default function PosesPage() {
     const supabase = createClient();
 
     try {
-      // 先删除Storage中的文件
+      // 删除COS中的文件
       if (deletingPose.storage_path) {
-        const { error: storageError } = await supabase.storage
-          .from('poses')
-          .remove([deletingPose.storage_path]);
-
-        if (storageError) {
-          console.error('删除存储文件失败:', storageError);
-          // 继续删除数据库记录，即使文件删除失败
+        const { deleteFromCOS } = await import('@/lib/storage/cos-client');
+        try {
+          await deleteFromCOS(deletingPose.storage_path);
+        } catch (error) {
+          console.error('删除COS文件失败:', error);
         }
       }
 
@@ -286,15 +269,13 @@ export default function PosesPage() {
       const posesToDelete = poses.filter(p => selectedPoseIds.includes(p.id));
       const storagePaths = posesToDelete.map(p => p.storage_path).filter(Boolean);
 
-      // 批量删除Storage中的文件
+      // 批量删除COS中的文件
       if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from('poses')
-          .remove(storagePaths);
-
-        if (storageError) {
-          console.error('批量删除存储文件失败:', storageError);
-          // 继续删除数据库记录
+        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
+        try {
+          await batchDeleteFromCOS(storagePaths);
+        } catch (error) {
+          console.error('批量删除COS文件失败:', error);
         }
       }
 

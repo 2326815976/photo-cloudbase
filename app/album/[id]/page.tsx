@@ -221,29 +221,24 @@ export default function AlbumDetailPage() {
       const photo = photos.find(p => p.id === photoId);
       if (!photo) continue;
 
-      // 从URL中提取文件路径的辅助函数
-      const extractPath = (url: string) => {
-        try {
-          const urlObj = new URL(url);
-          const pathParts = urlObj.pathname.split('/albums/');
-          return pathParts[1] || null;
-        } catch {
-          return null;
-        }
-      };
+      // 从URL中提取COS存储路径
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
 
       // 收集需要删除的文件路径
       const filesToDelete = [
-        extractPath(photo.thumbnail_url),
-        extractPath(photo.preview_url),
-        extractPath(photo.original_url)
+        extractKeyFromURL(photo.thumbnail_url),
+        extractKeyFromURL(photo.preview_url),
+        extractKeyFromURL(photo.original_url)
       ].filter(Boolean) as string[];
 
-      // 删除Storage中的所有版本文件
+      // 删除COS中的所有版本文件
       if (filesToDelete.length > 0) {
-        await supabase.storage
-          .from('albums')
-          .remove(filesToDelete);
+        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
+        try {
+          await batchDeleteFromCOS(filesToDelete);
+        } catch (error) {
+          console.error('删除COS文件失败:', error);
+        }
       }
 
       // 删除数据库记录
@@ -497,17 +492,104 @@ export default function AlbumDetailPage() {
 
                   {/* 拾光中加载动画 */}
                   {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
-                    <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
-                      <div className="flex flex-col items-center gap-2">
+                    <div
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                      style={{
+                        background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)'
+                      }}
+                    >
+                      {/* 主动画 - 拍立得相机 */}
+                      <motion.div
+                        animate={{
+                          rotate: [-2, 2, -2],
+                          scale: [1, 1.05, 1]
+                        }}
+                        transition={{
+                          duration: 2,
+                          repeat: Infinity,
+                          ease: 'easeInOut'
+                        }}
+                        className="relative"
+                      >
                         <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                          className="w-8 h-8 rounded-full border-2 border-[#FFC857]/30 border-t-[#FFC857]"
-                        />
-                        <p className="text-xs text-[#5D4037]/60" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-                          拾光中...
-                        </p>
-                      </div>
+                          className="text-4xl"
+                          animate={{
+                            filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)']
+                          }}
+                          transition={{
+                            duration: 1.5,
+                            repeat: Infinity,
+                            ease: 'easeInOut'
+                          }}
+                        >
+                          📷
+                        </motion.div>
+
+                        {/* 闪光效果 */}
+                        <motion.div
+                          className="absolute -top-1 -right-1 text-xl"
+                          animate={{
+                            opacity: [0, 1, 0],
+                            scale: [0.5, 1.2, 0.5]
+                          }}
+                          transition={{
+                            duration: 2,
+                            repeat: Infinity,
+                            ease: 'easeOut'
+                          }}
+                        >
+                          ✨
+                        </motion.div>
+                      </motion.div>
+
+                      {/* 加载文字 */}
+                      <motion.p
+                        className="text-xs text-[#5D4037]/60 font-medium"
+                        animate={{
+                          opacity: [0.6, 1, 0.6]
+                        }}
+                        transition={{
+                          duration: 1.5,
+                          repeat: Infinity,
+                          ease: 'easeInOut'
+                        }}
+                        style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
+                      >
+                        拾光中...
+                      </motion.p>
+
+                      {/* 装饰性元素 - 飘动的光点 */}
+                      <motion.div
+                        className="absolute top-1/4 left-1/4 text-sm opacity-30"
+                        animate={{
+                          y: [-10, 10, -10],
+                          x: [-5, 5, -5],
+                          rotate: [0, 360]
+                        }}
+                        transition={{
+                          duration: 4,
+                          repeat: Infinity,
+                          ease: 'easeInOut'
+                        }}
+                      >
+                        ✨
+                      </motion.div>
+                      <motion.div
+                        className="absolute bottom-1/4 right-1/4 text-sm opacity-30"
+                        animate={{
+                          y: [10, -10, 10],
+                          x: [5, -5, 5],
+                          rotate: [360, 0]
+                        }}
+                        transition={{
+                          duration: 3.5,
+                          repeat: Infinity,
+                          ease: 'easeInOut',
+                          delay: 0.5
+                        }}
+                      >
+                        💫
+                      </motion.div>
                     </div>
                   )}
 

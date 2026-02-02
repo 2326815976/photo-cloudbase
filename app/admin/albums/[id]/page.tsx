@@ -268,29 +268,24 @@ export default function AlbumDetailPage() {
         let preview_url = '';
         let original_url = '';
 
-        // 3. 上传三个版本到 albums 存储桶（WebP格式）
+        // 3. 上传三个版本到腾讯云COS（albums文件夹）
         for (const version of versions) {
           // thumbnail 和 preview 使用 webp，original 保持原格式
           const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
           const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
-          const { error: uploadError } = await supabase.storage
-            .from('albums')
-            .upload(fileName, version.file);
+          try {
+            const { uploadToCOS } = await import('@/lib/storage/cos-client');
+            const publicUrl = await uploadToCOS(version.file, fileName, 'albums');
 
-          if (uploadError) {
+            if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+            else if (version.type === 'preview') preview_url = publicUrl;
+            else if (version.type === 'original') original_url = publicUrl;
+          } catch (uploadError) {
             console.error(`上传 ${version.type} 失败:`, uploadError);
             failCount++;
             break;
           }
-
-          const { data: { publicUrl } } = supabase.storage
-            .from('albums')
-            .getPublicUrl(fileName);
-
-          if (version.type === 'thumbnail') thumbnail_url = publicUrl;
-          else if (version.type === 'preview') preview_url = publicUrl;
-          else if (version.type === 'original') original_url = publicUrl;
         }
 
         // 4. 插入数据库
@@ -396,6 +391,33 @@ export default function AlbumDetailPage() {
     const supabase = createClient();
 
     try {
+      // 1. 获取要删除的照片信息
+      const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
+
+      // 2. 收集所有需要删除的COS文件路径
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+      const filesToDelete: string[] = [];
+
+      for (const photo of photosToDelete) {
+        const keys = [
+          extractKeyFromURL(photo.thumbnail_url),
+          extractKeyFromURL(photo.preview_url),
+          extractKeyFromURL(photo.original_url)
+        ].filter(Boolean) as string[];
+        filesToDelete.push(...keys);
+      }
+
+      // 3. 删除COS中的文件
+      if (filesToDelete.length > 0) {
+        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
+        try {
+          await batchDeleteFromCOS(filesToDelete);
+        } catch (error) {
+          console.error('删除COS文件失败:', error);
+        }
+      }
+
+      // 4. 删除数据库记录
       const { error: dbError } = await supabase
         .from('album_photos')
         .delete()

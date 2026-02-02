@@ -71,34 +71,23 @@ export default function AdminGalleryPage() {
     setActionLoading(true);
     const supabase = createClient();
 
-    // 提取文件路径的辅助函数
-    const extractPath = (url: string | undefined) => {
-      if (!url) return null;
-      if (url.startsWith('http')) {
-        const urlObj = new URL(url);
-        const pathParts = urlObj.pathname.split('/storage/v1/object/public/gallery/');
-        return pathParts[1] || url;
-      }
-      return url;
-    };
+    // 从URL中提取COS存储路径
+    const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
 
     // 收集需要删除的文件路径
     const filesToDelete = [
-      extractPath(deletingPhoto.thumbnail_url),
-      extractPath(deletingPhoto.preview_url),
-      extractPath(deletingPhoto.url)
+      extractKeyFromURL(deletingPhoto.thumbnail_url),
+      extractKeyFromURL(deletingPhoto.preview_url),
+      extractKeyFromURL(deletingPhoto.url)
     ].filter(Boolean) as string[];
 
-    // 尝试删除Storage文件（失败也继续）
-    let storageError = null;
+    // 删除COS中的所有版本文件
     if (filesToDelete.length > 0) {
-      const { error } = await supabase.storage
-        .from('gallery')
-        .remove(filesToDelete);
-      storageError = error;
-
-      if (storageError) {
-        console.error('删除Storage文件失败:', storageError);
+      const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
+      try {
+        await batchDeleteFromCOS(filesToDelete);
+      } catch (error) {
+        console.error('删除COS文件失败:', error);
       }
     }
 
@@ -113,10 +102,7 @@ export default function AdminGalleryPage() {
 
     if (!dbError) {
       loadPhotos();
-      const message = storageError
-        ? '数据库记录已删除，但Storage文件删除失败'
-        : '照片已删除';
-      setShowToast({ message, type: storageError ? 'error' : 'success' });
+      setShowToast({ message: '照片已删除', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `删除失败：${dbError.message}`, type: 'error' });
@@ -141,31 +127,23 @@ export default function AdminGalleryPage() {
     try {
       const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
 
-      // 提取文件路径的辅助函数
-      const extractPath = (url: string | undefined) => {
-        if (!url) return null;
-        if (url.startsWith('http')) {
-          const urlObj = new URL(url);
-          const pathParts = urlObj.pathname.split('/storage/v1/object/public/gallery/');
-          return pathParts[1] || url;
-        }
-        return url;
-      };
+      // 从URL中提取COS存储路径
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
 
       // 收集所有需要删除的文件路径（包括所有版本）
       const filePaths = photosToDelete.flatMap(p => [
-        extractPath(p.thumbnail_url),
-        extractPath(p.preview_url),
-        extractPath(p.url)
+        extractKeyFromURL(p.thumbnail_url),
+        extractKeyFromURL(p.preview_url),
+        extractKeyFromURL(p.url)
       ]).filter(Boolean) as string[];
 
-      // 批量删除Storage文件
+      // 批量删除COS文件
       if (filePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from('gallery')
-          .remove(filePaths);
-        if (storageError) {
-          console.error('批量删除Storage文件失败:', storageError);
+        const { batchDeleteFromCOS } = await import('@/lib/storage/cos-client');
+        try {
+          await batchDeleteFromCOS(filePaths);
+        } catch (error) {
+          console.error('批量删除COS文件失败:', error);
         }
       }
 
@@ -244,25 +222,20 @@ export default function AdminGalleryPage() {
         let thumbnail_url = '';
         let preview_url = '';
 
-        // 3. 上传 thumbnail 和 preview 到 gallery 存储桶（使用WebP扩展名）
+        // 3. 上传 thumbnail 和 preview 到腾讯云COS（gallery文件夹）
         for (const version of [thumbnailVersion, previewVersion]) {
           const fileName = `${timestamp}_${i}_${version.type}.webp`;
 
-          const { error: uploadError } = await supabase.storage
-            .from('gallery')
-            .upload(fileName, version.file);
+          try {
+            const { uploadToCOS } = await import('@/lib/storage/cos-client');
+            const publicUrl = await uploadToCOS(version.file, fileName, 'gallery');
 
-          if (uploadError) {
+            if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+            else if (version.type === 'preview') preview_url = publicUrl;
+          } catch (uploadError) {
             console.error(`上传 ${version.type} 失败:`, uploadError);
             continue;
           }
-
-          const { data: { publicUrl } } = supabase.storage
-            .from('gallery')
-            .getPublicUrl(fileName);
-
-          if (version.type === 'thumbnail') thumbnail_url = publicUrl;
-          else if (version.type === 'preview') preview_url = publicUrl;
         }
 
         // 4. 插入数据库
