@@ -76,9 +76,9 @@ export default function AdminGalleryPage() {
 
     // 收集需要删除的文件路径
     const filesToDelete = [
-      extractKeyFromURL(deletingPhoto.thumbnail_url),
-      extractKeyFromURL(deletingPhoto.preview_url),
-      extractKeyFromURL(deletingPhoto.url)
+      deletingPhoto.thumbnail_url ? extractKeyFromURL(deletingPhoto.thumbnail_url) : null,
+      deletingPhoto.preview_url ? extractKeyFromURL(deletingPhoto.preview_url) : null,
+      deletingPhoto.url ? extractKeyFromURL(deletingPhoto.url) : null
     ].filter(Boolean) as string[];
 
     // 删除COS中的所有版本文件
@@ -132,9 +132,9 @@ export default function AdminGalleryPage() {
 
       // 收集所有需要删除的文件路径（包括所有版本）
       const filePaths = photosToDelete.flatMap(p => [
-        extractKeyFromURL(p.thumbnail_url),
-        extractKeyFromURL(p.preview_url),
-        extractKeyFromURL(p.url)
+        p.thumbnail_url ? extractKeyFromURL(p.thumbnail_url) : null,
+        p.preview_url ? extractKeyFromURL(p.preview_url) : null,
+        p.url ? extractKeyFromURL(p.url) : null
       ]).filter(Boolean) as string[];
 
       // 批量删除COS文件
