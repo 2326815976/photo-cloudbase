@@ -107,8 +107,8 @@ export default function PosesPage() {
           const file = batchImages[i];
           setUploadProgress({ current: i + 1, total: batchImages.length });
 
-          // 压缩图片（超过1MB才压缩，压缩到500KB以内，WebP格式）
-          const compressedFile = await generatePoseImage(file, 500);
+          // 压缩图片（对标照片墙列表：1080px, 500KB, 质量0.8）
+          const compressedFile = await generatePoseImage(file);
 
           // 上传图片到腾讯云COS（poses文件夹）
           const fileName = `${Date.now()}_${i}.webp`;
@@ -152,8 +152,8 @@ export default function PosesPage() {
         setTimeout(() => setShowToast(null), 3000);
       } else {
         // 单张上传模式
-        // 压缩图片到100KB以内（WebP格式）
-        const compressedFile = await generatePoseImage(poseFormData.image!, 100);
+        // 压缩图片（对标照片墙列表：1080px, 500KB, 质量0.8）
+        const compressedFile = await generatePoseImage(poseFormData.image!);
 
         const fileName = `${Date.now()}.webp`;
 
