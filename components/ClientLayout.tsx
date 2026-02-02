@@ -7,37 +7,39 @@ import BottomNav from './BottomNav';
 import { createClient } from '@/lib/supabase/client';
 import SWRProvider from './providers/SWRProvider';
 import { prefetchByRoute } from '@/lib/swr/prefetch';
+import VersionChecker from './VersionChecker';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith('/admin');
 
-  // 记录用户活跃日志
+  // 记录用户活跃日志（防抖处理）
   useEffect(() => {
-    const logActivity = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+    const timer = setTimeout(() => {
+      const logActivity = async () => {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
 
-      if (user) {
-        // 调用RPC函数记录用户活跃日志
-        await supabase.rpc('log_user_activity');
-      }
-    };
+        if (user) {
+          await supabase.rpc('log_user_activity');
+        }
+      };
 
-    logActivity();
-  }, [pathname]); // 每次路由变化时记录
+      logActivity();
+    }, 2000); // 2秒防抖，避免频繁切换时重复调用
 
-  // 智能预加载机制
-  useEffect(() => {
-    if (!isAdminRoute && pathname) {
-      // 延迟预加载，避免影响当前页面性能
-      const timer = setTimeout(() => {
-        prefetchByRoute(pathname);
-      }, 1000);
+    return () => clearTimeout(timer);
+  }, [pathname]);
 
-      return () => clearTimeout(timer);
-    }
-  }, [pathname, isAdminRoute]);
+  // 禁用预加载机制以提升性能
+  // useEffect(() => {
+  //   if (!isAdminRoute && pathname) {
+  //     const timer = setTimeout(() => {
+  //       prefetchByRoute(pathname);
+  //     }, 1000);
+  //     return () => clearTimeout(timer);
+  //   }
+  // }, [pathname, isAdminRoute]);
 
   if (isAdminRoute) {
     // 管理后台：使用桌面端全屏布局
@@ -58,6 +60,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <BottomNav />
           </main>
         </div>
+        <VersionChecker />
       </MotionConfig>
     </SWRProvider>
   );

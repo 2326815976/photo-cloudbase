@@ -48,9 +48,9 @@ export default function ProfilePage() {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
         <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
           className="flex flex-col items-center gap-6"
         >
           {/* 时光中动画 */}
@@ -112,8 +112,8 @@ export default function ProfilePage() {
         {/* 未登录态 */}
         <div className="flex-1 flex flex-col items-center justify-center px-6 pb-20">
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             transition={{ delay: 0.1 }}
             className="text-center"
           >

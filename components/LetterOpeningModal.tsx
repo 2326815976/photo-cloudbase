@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { X, Sparkles } from 'lucide-react';
+import { isAndroidApp } from '@/lib/platform';
 
 interface LetterOpeningModalProps {
   isOpen: boolean;
@@ -13,8 +14,14 @@ interface LetterOpeningModalProps {
 
 export default function LetterOpeningModal({ isOpen, onClose, letterContent, recipientName = '拾光者' }: LetterOpeningModalProps) {
   const [stage, setStage] = useState<'envelope' | 'opening' | 'letter' | 'closing'>('envelope');
+  // 检测用户是否启用了减少动画偏好设置(无障碍功能)
   const shouldReduceMotion = useReducedMotion();
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [isAndroid, setIsAndroid] = useState(false);
+
+  useEffect(() => {
+    setIsAndroid(isAndroidApp());
+  }, []);
 
   const addTimeout = (handler: () => void, delay: number) => {
     const timeoutId = setTimeout(handler, delay);
@@ -53,6 +60,94 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
 
   if (!isOpen) return null;
 
+  // Android: 使用简化的CSS动画,避免Framer Motion性能开销
+  if (isAndroid) {
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
+        {stage === 'envelope' && (
+          <div className="relative w-80 h-52 cursor-pointer group animate-in zoom-in-95 duration-300"
+            onClick={handleSealClick}
+          >
+            {/* 信封主体 */}
+            <div className="absolute inset-0 rounded-xl shadow-2xl group-active:shadow-[0_24px_60px_-12px_rgba(93,64,55,0.35)] transition-all duration-300 overflow-hidden"
+              style={{
+                background: 'radial-gradient(ellipse at center, #fdfbf7 0%, #f9f6f0 50%, #f5f0e8 100%)'
+              }}
+            >
+              <div className="absolute inset-2 border-2 border-dashed border-[#e6d5b8] rounded-lg pointer-events-none" />
+              <div className="absolute top-0 left-0 w-full h-32 z-10" style={{
+                background: 'linear-gradient(to bottom, #f7f1e3 0%, #f0e8d8 100%)',
+                clipPath: 'polygon(0 0, 100% 0, 50% 100%)',
+                boxShadow: '0 4px 12px rgba(93, 64, 55, 0.15)'
+              }} />
+              <div className="absolute top-4 right-4 w-12 h-14 bg-white border-4 border-dotted border-[#e0e0e0] shadow-sm flex items-center justify-center z-20 transform rotate-6">
+                <span className="text-2xl">📷</span>
+              </div>
+              <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-3 z-0">
+                <p className="text-xl text-[#5D4037] font-medium tracking-wide" style={{ fontFamily: "'Ma Shan Zheng', cursive" }}>
+                  To: {recipientName}
+                </p>
+              </div>
+            </div>
+            <div className="absolute top-[64px] left-1/2 -translate-x-1/2 w-14 h-14 z-20 active:scale-95 transition-transform">
+              <div className="w-full h-full rounded-full bg-gradient-to-br from-[#ef5350] to-[#b71c1c] shadow-lg flex items-center justify-center border border-[#b71c1c]/50"
+                style={{
+                  boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 6px 16px rgba(183, 28, 28, 0.5)'
+                }}
+              >
+                <Sparkles className="text-white/90 w-6 h-6" />
+              </div>
+            </div>
+            <p className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] text-[#8d6e63]/60 tracking-widest whitespace-nowrap"
+              style={{ fontFamily: "'Ma Shan Zheng', cursive" }}
+            >
+              轻触拆封开启回忆
+            </p>
+          </div>
+        )}
+
+        {stage === 'opening' && (
+          <div className="w-[320px] h-[200px] bg-[#fdf6e3] rounded-lg animate-in zoom-in-110 fade-out duration-800" />
+        )}
+
+        {(stage === 'letter' || stage === 'closing') && (
+          <div className={`relative w-[90%] max-w-[500px] max-h-[80vh] bg-[#fffef9] rounded-2xl shadow-2xl overflow-hidden ${
+            stage === 'closing' ? 'animate-out zoom-out-95 fade-out duration-600' : 'animate-in zoom-in-95 slide-in-from-bottom-8 duration-500'
+          }`}
+            style={{
+              backgroundImage: `repeating-linear-gradient(
+                transparent,
+                transparent 31px,
+                rgba(93, 64, 55, 0.1) 31px,
+                rgba(93, 64, 55, 0.1) 32px
+              )`,
+            }}
+          >
+            <button
+              onClick={handleClose}
+              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[#5D4037]/10 hover:bg-[#5D4037]/20 flex items-center justify-center transition-colors z-10 active:scale-90"
+            >
+              <X className="w-5 h-5 text-[#5D4037]" />
+            </button>
+            <div className="p-8 pt-16 overflow-y-auto max-h-[80vh]">
+              <div
+                className="text-[#5D4037] leading-loose whitespace-pre-wrap"
+                style={{
+                  fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive, sans-serif",
+                  fontSize: '1.125rem',
+                  lineHeight: '2rem'
+                }}
+              >
+                {letterContent}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Web/iOS: 使用Framer Motion动画
   return (
     <AnimatePresence mode="wait">
       {isOpen && (

@@ -1,8 +1,9 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ButtonHTMLAttributes, forwardRef } from 'react';
+import { ButtonHTMLAttributes, forwardRef, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { isAndroidApp } from '@/lib/platform';
 
 interface ButtonProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
@@ -14,6 +15,12 @@ interface ButtonProps extends Omit<
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', children, ...props }, ref) => {
+    const [isAndroid, setIsAndroid] = useState(false);
+
+    useEffect(() => {
+      setIsAndroid(isAndroidApp());
+    }, []);
+
     const baseStyles = 'font-medium rounded-2xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed';
 
     const variants = {
@@ -28,6 +35,26 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       lg: 'px-8 py-4 text-lg',
     };
 
+    // Android: 使用纯 CSS 动画
+    if (isAndroid) {
+      return (
+        <button
+          ref={ref}
+          className={cn(
+            baseStyles,
+            variants[variant],
+            sizes[size],
+            'active:scale-95',
+            className
+          )}
+          {...props}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    // Web/iOS: 使用 Framer Motion
     return (
       <motion.button
         ref={ref}

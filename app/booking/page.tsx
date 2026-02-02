@@ -175,16 +175,50 @@ export default function BookingPage() {
       return;
     }
 
-    // 城市验证：去除"市"后缀进行精确匹配
-    const normalizeCity = (name: string) => name.replace(/市$/, '').trim();
-    const isCityAllowed = allowedCities.some(city =>
-      normalizeCity(formData.cityName) === normalizeCity(city.city_name) ||
-      formData.cityName === city.city_name ||
-      city.city_name === formData.cityName
-    );
+    // 城市验证：标准化城市名称进行匹配
+    const normalizeCity = (name: string) => {
+      return name
+        .replace(/市$/, '')
+        .replace(/自治区$/, '')
+        .replace(/特别行政区$/, '')
+        .trim();
+    };
+
+    const userCity = normalizeCity(formData.cityName);
+    const isCityAllowed = allowedCities.some(city => {
+      const allowedCity = normalizeCity(city.city_name);
+      return userCity === allowedCity ||
+             formData.cityName === city.city_name ||
+             userCity.includes(allowedCity) ||
+             allowedCity.includes(userCity);
+    });
 
     if (!isCityAllowed) {
       setError(`抱歉，当前仅支持以下城市的预约：${allowedCities.map(c => c.city_name).join('、')}`);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 计算预约日期（至少提前一天，即明天）
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const bookingDate = tomorrow.toISOString().split('T')[0];
+
+    // 检查该日期是否已有预约（一天只能有一个用户申请）
+    const { data: existingBookings, error: checkError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('booking_date', bookingDate)
+      .in('status', ['pending', 'confirmed']);
+
+    if (checkError) {
+      setError('检查预约状态失败，请稍后重试');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (existingBookings && existingBookings.length > 0) {
+      setError('抱歉，该日期已有预约，请选择其他日期或稍后再试');
       setIsSubmitting(false);
       return;
     }
@@ -194,7 +228,7 @@ export default function BookingPage() {
       .insert({
         user_id: user.id,
         type_id: formData.typeId,
-        booking_date: new Date().toISOString().split('T')[0], // 默认当前日期，实际时间通过微信沟通
+        booking_date: bookingDate, // 至少提前一天预约（明天），实际时间通过微信沟通
         location: formData.location,
         latitude: formData.latitude,
         longitude: formData.longitude,
@@ -293,9 +327,9 @@ export default function BookingPage() {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
         <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
           className="flex flex-col items-center gap-6"
         >
           <div className="relative">
@@ -340,9 +374,7 @@ export default function BookingPage() {
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-            {activeBooking ? '我的预约' : '约拍邀请'}
-          </h1>
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
           <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
             <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
           </div>
@@ -417,7 +449,7 @@ export default function BookingPage() {
                           value={formData.typeId}
                           onChange={(e) => handleTypeSelect(Number(e.target.value))}
                           required
-                          className="w-full px-4 py-3 pr-10 bg-white border-2 border-[#5D4037]/20 rounded-2xl text-[#5D4037] font-medium appearance-none cursor-pointer focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] transition-all"
+                          className="w-full px-4 py-3 pr-10 bg-white border-2 border-[#5D4037]/20 rounded-2xl text-[#5D4037] font-medium appearance-none cursor-pointer focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] transition-all text-base"
                           style={{
                             backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235D4037' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                             backgroundRepeat: 'no-repeat',
@@ -483,7 +515,7 @@ export default function BookingPage() {
                           value={formData.phone}
                           onChange={handleChange}
                           required
-                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
+                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all text-base"
                         />
                       </div>
                       <div>
@@ -498,7 +530,7 @@ export default function BookingPage() {
                           value={formData.wechat}
                           onChange={handleChange}
                           required
-                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all"
+                          className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all text-base"
                         />
                       </div>
                     </div>
@@ -514,7 +546,7 @@ export default function BookingPage() {
                         value={formData.notes}
                         onChange={handleChange}
                         rows={4}
-                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all resize-none"
+                        className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all resize-none text-base"
                       />
                     </div>
 

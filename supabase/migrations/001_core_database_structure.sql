@@ -249,7 +249,7 @@ begin
   select jsonb_build_object(
     'album', (
         select jsonb_build_object(
-            'id', id, 'title', title, 'welcome_letter', welcome_letter, 'cover_url', cover_url, 'enable_tipping', enable_tipping,
+            'id', id, 'title', title, 'welcome_letter', welcome_letter, 'cover_url', cover_url, 'enable_tipping', enable_tipping, 'donation_qr_code_url', donation_qr_code_url,
             'admin_qr_path', (select payment_qr_code from profiles where role='admin' limit 1)
         ) from public.albums where id = target_album_id
     ),

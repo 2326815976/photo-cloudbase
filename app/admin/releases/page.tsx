@@ -11,6 +11,7 @@ interface Release {
   platform: string;
   download_url: string;
   update_log: string;
+  force_update: boolean;
   created_at: string;
 }
 
@@ -105,6 +106,8 @@ export default function ReleasesPage() {
       'iOS': 'bg-blue-100 text-blue-800',
       'HarmonyOS': 'bg-red-100 text-red-800',
       'Windows': 'bg-cyan-100 text-cyan-800',
+      'MacOS': 'bg-purple-100 text-purple-800',
+      'Linux': 'bg-orange-100 text-orange-800',
     };
     return colors[platform] || 'bg-gray-100 text-gray-800';
   };
@@ -162,6 +165,11 @@ export default function ReleasesPage() {
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPlatformColor(release.platform)}`}>
                           {release.platform}
                         </span>
+                        {release.force_update && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 flex items-center gap-1">
+                            🔒 强制更新
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-[#5D4037]/60">
                         发布于 {new Date(release.created_at).toLocaleDateString('zh-CN')}

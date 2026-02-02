@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
 import { getSessionId } from '@/lib/utils/session';
+import { vibrate } from '@/lib/android';
+import { isAndroidApp } from '@/lib/platform';
 
 import SimpleImage from '@/components/ui/SimpleImage';
 
@@ -37,7 +39,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const pageSize = 20;
 
-  // 使用 SWR 获取照片数据，自动缓存和重新验证
+  // 检测是否为 Android 环境，使用 CSS 动画替代 Framer Motion
+  const useNativeAnimation = isAndroidApp();
+
+  // 使用 SWR 获取照片数据,自动缓存和重新验证
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(page, pageSize);
 
   // 从 SWR 数据中提取照片和总数
@@ -97,6 +102,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const handleLike = async (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // 触觉反馈
+    vibrate(50);
 
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -224,23 +232,41 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                         </div>
 
                         {/* 右侧：点赞 */}
-                        <motion.button
-                          whileTap={{ scale: 0.85 }}
-                          onClick={(e) => handleLike(photo.id, e)}
-                          className="flex items-center gap-0.5"
-                        >
-                          <motion.div
-                            animate={photo.is_liked ? { scale: [1, 1.4, 1] } : {}}
-                            transition={{ duration: 0.4, ease: "easeOut" }}
+                        {useNativeAnimation ? (
+                          // Android 环境：使用 CSS 动画
+                          <button
+                            onClick={(e) => handleLike(photo.id, e)}
+                            className="flex items-center gap-0.5 active:scale-90 transition-transform"
                           >
                             <Heart
                               className={`w-3 h-3 transition-all duration-300 ${
-                                photo.is_liked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#8D6E63]/60'
+                                photo.is_liked
+                                  ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)] animate-pulse'
+                                  : 'text-[#8D6E63]/60'
                               }`}
                             />
-                          </motion.div>
-                          <span className="text-[10px] text-[#8D6E63]">{photo.like_count}</span>
-                        </motion.button>
+                            <span className="text-[10px] text-[#8D6E63]">{photo.like_count}</span>
+                          </button>
+                        ) : (
+                          // Web 环境：使用 Framer Motion
+                          <motion.button
+                            whileTap={{ scale: 0.85 }}
+                            onClick={(e) => handleLike(photo.id, e)}
+                            className="flex items-center gap-0.5"
+                          >
+                            <motion.div
+                              animate={photo.is_liked ? { scale: [1, 1.4, 1] } : {}}
+                              transition={{ duration: 0.4, ease: "easeOut" }}
+                            >
+                              <Heart
+                                className={`w-3 h-3 transition-all duration-300 ${
+                                  photo.is_liked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#8D6E63]/60'
+                                }`}
+                              />
+                            </motion.div>
+                            <span className="text-[10px] text-[#8D6E63]">{photo.like_count}</span>
+                          </motion.button>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -1,0 +1,57 @@
+{
+  "name": "拾光谣",
+  "short_name": "拾光谣",
+  "description": "记录此刻的不期而遇",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFBF0",
+  "theme_color": "#FFC857",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/Slogan_108x108.png",
+      "sizes": "108x108",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Slogan_512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["photo", "lifestyle"],
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "display_override": ["standalone", "minimal-ui"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "照片墙",
+      "short_name": "照片墙",
+      "description": "查看公开照片墙",
+      "url": "/gallery",
+      "icons": [
+        {
+          "src": "/Slogan_108x108.png",
+          "sizes": "108x108"
+        }
+      ]
+    },
+    {
+      "name": "返图空间",
+      "short_name": "返图",
+      "description": "查看专属返图",
+      "url": "/album",
+      "icons": [
+        {
+          "src": "/Slogan_108x108.png",
+          "sizes": "108x108"
+        }
+      ]
+    }
+  ]
+}

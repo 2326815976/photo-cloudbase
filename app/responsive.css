@@ -1,0 +1,103 @@
+/* 响应式布局优化 */
+
+/* 移动端优化 (< 768px) */
+@media (max-width: 767px) {
+  /* 确保移动端触摸目标至少44x44px */
+  button, a, input[type="button"], input[type="submit"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 优化移动端字体大小 */
+  input, textarea, select {
+    font-size: 16px !important; /* 防止iOS自动缩放 */
+  }
+
+  /* 移动端图片优化 */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* 平板布局 (768px - 1024px) */
+@media (min-width: 768px) {
+  /* 照片墙多列布局 */
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+
+  /* 导航栏优化 */
+  .nav-container {
+    max-width: 768px;
+    margin: 0 auto;
+  }
+
+  /* 卡片布局 */
+  .card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 大屏幕布局 (>1024px) */
+@media (min-width: 1024px) {
+  /* 照片墙三列布局 */
+  .gallery-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* 侧边栏布局 */
+  .layout-with-sidebar {
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    gap: 2rem;
+  }
+
+  /* 卡片布局 */
+  .card-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* 导航栏固定 */
+  .nav-container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+}
+
+/* 超大屏幕 (>1440px) */
+@media (min-width: 1440px) {
+  .gallery-grid {
+    grid-template-columns: repeat(4, 1fr);
+    max-width: 1400px;
+  }
+
+  .card-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 响应式工具类 */
+.responsive-container {
+  width: 100%;
+  max-width: 100%;
+  padding: 1rem;
+}
+
+@media (min-width: 768px) {
+  .responsive-container {
+    padding: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-container {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+}

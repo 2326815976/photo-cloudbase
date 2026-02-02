@@ -3,10 +3,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
+import DonationModal from '@/components/DonationModal';
 import { createClient } from '@/lib/supabase/client';
-import { downloadPhoto } from '@/lib/android';
+import { downloadPhoto, vibrate } from '@/lib/android';
 
 interface Folder {
   id: string;
@@ -41,6 +42,7 @@ interface AlbumData {
     welcome_letter: string;
     cover_url: string | null;
     enable_tipping: boolean;
+    donation_qr_code_url?: string | null;
     recipient_name?: string;
     expires_at?: string;
     is_expired?: boolean;
@@ -80,6 +82,7 @@ export default function AlbumDetailPage() {
   const [longPressInterval, setLongPressInterval] = useState<NodeJS.Timeout | null>(null); // 长按进度更新定时器
   const [lastTap, setLastTap] = useState(0); // 上次点击时间（用于双击检测）
   const [swipeStartY, setSwipeStartY] = useState(0); // 滑动起始Y坐标
+  const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
 
   // 加载相册数据
   useEffect(() => {
@@ -106,9 +109,17 @@ export default function AlbumDetailPage() {
     });
 
 
-    if (error || !data) {
+    if (error) {
       console.error('相册数据加载失败:', error);
-      setToast({ message: `加载失败：${error?.message || '相册不存在'}`, type: 'error' });
+      const errorMsg = error?.message || error?.details || JSON.stringify(error) || '未知错误';
+      setToast({ message: `加载失败：${errorMsg}`, type: 'error' });
+      setTimeout(() => router.push('/album'), 2000);
+      return;
+    }
+
+    if (!data) {
+      console.error('相册数据为空');
+      setToast({ message: '加载失败：相册不存在或已过期', type: 'error' });
       setTimeout(() => router.push('/album'), 2000);
       return;
     }
@@ -197,6 +208,7 @@ export default function AlbumDetailPage() {
       try {
         // 使用Android原生下载（自动降级到Web下载）
         downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
+        vibrate(30); // 触觉反馈
 
         // 添加延迟避免浏览器阻止多个下载
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -666,6 +678,24 @@ export default function AlbumDetailPage() {
             </motion.div>
           ))}
         </div>
+
+        {/* 赞赏入口 - 自然且不突兀 */}
+        {albumData.album.enable_tipping && albumData.album.donation_qr_code_url && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="mt-8 mb-4 flex justify-center"
+          >
+            <button
+              onClick={() => setShowDonationModal(true)}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-50 to-pink-50 text-[#5D4037] rounded-full shadow-sm hover:shadow-md active:scale-95 transition-all border border-orange-200/50"
+            >
+              <Heart className="w-4 h-4 text-orange-500" />
+              <span className="text-sm font-medium">留下一份心意</span>
+            </button>
+          </motion.div>
+        )}
       </div>
 
       {/* 拆信交互 */}
@@ -1107,6 +1137,15 @@ export default function AlbumDetailPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 赞赏弹窗 */}
+      {albumData.album.donation_qr_code_url && (
+        <DonationModal
+          isOpen={showDonationModal}
+          onClose={() => setShowDonationModal(false)}
+          qrCodeUrl={albumData.album.donation_qr_code_url}
+        />
+      )}
 
       {/* Toast 提示 */}
       <AnimatePresence>

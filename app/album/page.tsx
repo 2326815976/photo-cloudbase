@@ -304,13 +304,9 @@ export default function AlbumLoginPage() {
                       type="button"
                       whileTap={{ scale: 0.9 }}
                       onClick={async () => {
-                        try {
-                          const text = await getClipboardText();
-                          if (text) {
-                            setAccessKey(text.trim().toUpperCase());
-                          }
-                        } catch (error) {
-                          console.error('读取剪贴板失败:', error);
+                        const text = await getClipboardText();
+                        if (text) {
+                          setAccessKey(text.trim().toUpperCase());
                         }
                       }}
                       disabled={isLoading}

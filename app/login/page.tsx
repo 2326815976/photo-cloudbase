@@ -11,6 +11,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const shouldReduceMotion = useReducedMotion();
   const [formData, setFormData] = useState({ email: '', password: '' });
+  const [displayData, setDisplayData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -21,6 +22,14 @@ function LoginForm() {
       localStorage.setItem('login_redirect', from);
     }
   }, [searchParams]);
+
+  // 输入防抖处理
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFormData(displayData);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [displayData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,9 +171,9 @@ function LoginForm() {
             <input
               type="email"
               placeholder="邮箱地址"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40"
+              value={displayData.email}
+              onChange={(e) => setDisplayData({ ...displayData, email: e.target.value })}
+              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
               required
             />
           </div>
@@ -175,9 +184,9 @@ function LoginForm() {
             <input
               type="password"
               placeholder="密码"
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40"
+              value={displayData.password}
+              onChange={(e) => setDisplayData({ ...displayData, password: e.target.value })}
+              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
               required
             />
           </div>

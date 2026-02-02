@@ -114,3 +114,28 @@ export const IMAGE_SIZES = {
   large: 1200,       // 大图（详情页、全屏预览）
   full: 1920         // 全尺寸（下载、打印）- 不经过转换
 } as const;
+
+/**
+ * 根据网络速度动态调整图片质量
+ */
+export function getAdaptiveQuality(): number {
+  if (typeof navigator === 'undefined' || !('connection' in navigator)) {
+    return 85; // 默认质量
+  }
+
+  const connection = (navigator as any).connection;
+  const effectiveType = connection?.effectiveType;
+
+  // 根据网络类型调整质量
+  switch (effectiveType) {
+    case 'slow-2g':
+    case '2g':
+      return 60; // 低质量
+    case '3g':
+      return 75; // 中等质量
+    case '4g':
+    default:
+      return 85; // 高质量
+  }
+}
+

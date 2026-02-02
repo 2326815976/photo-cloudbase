@@ -3,7 +3,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* 可爱治愈风配色 */
+  /* 可爱治愈风配色 - 亮色模式 */
   --background: #FFFBF0; /* 暖白/奶油色 */
   --foreground: #5D4037; /* 深咖色 */
   --card: #FFFFFF;
@@ -18,6 +18,24 @@
   --border-light: #E5E7EB;
   --radius: 1rem;
   --radius-lg: 1.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 暗色模式配色 - 与 Android 保持一致 */
+    --background: #2C2416; /* 深棕色背景 */
+    --foreground: #FFFFFF; /* 白色文字 */
+    --card: #333333;
+    --card-foreground: #FFFFFF;
+    --primary: #FFD580; /* 稍亮的黄色 */
+    --primary-foreground: #333333;
+    --secondary: #A0C4FF; /* 马卡龙蓝保持不变 */
+    --secondary-foreground: #333333;
+    --accent: #FFADAD; /* 淡粉色保持不变 */
+    --accent-foreground: #333333;
+    --border: #666666;
+    --border-light: #444444;
+  }
 }
 
 @theme inline {
@@ -70,5 +88,77 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Android WebView 优化 - 禁用长按菜单 */
+/* 仅对照片墙的图片禁用长按，保留返图空间的长按保存功能 */
+.gallery-scroll-container img {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: auto;
+}
+
+/* WebView 缩放修复 - 防止页面自动放大 */
+html {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  /* 支持安全区域 */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 通用禁用选择类 */
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* 字体工具类 */
+.font-youyuan {
+  font-family: 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif;
+}
+
+.font-handwriting {
+  font-family: 'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive;
+}
+
+/* 移动端触摸优化 */
+@media (hover: none) and (pointer: coarse) {
+  /* 移动设备：增大可点击区域 */
+  button, a {
+    padding: 0.75rem 1rem;
+  }
+
+  /* 移除hover效果以提升性能 */
+  *:hover {
+    transition: none !important;
+  }
+}
+
+/* 横屏优化 */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* 横屏时减小垂直间距 */
+  .py-8 {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+}
+
+/* 高刷新率屏幕优化 */
+@media (prefers-reduced-motion: no-preference) {
+  * {
+    scroll-behavior: smooth;
   }
 }

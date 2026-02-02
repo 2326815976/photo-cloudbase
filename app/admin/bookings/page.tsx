@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Calendar, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle, Camera, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import MapPicker from '@/components/MapPicker';
 
 interface Booking {
   id: string;
@@ -87,12 +88,31 @@ export default function BookingsPage() {
   const [showCityModal, setShowCityModal] = useState(false);
   const [editingCity, setEditingCity] = useState<AllowedCity | null>(null);
   const [cityFormData, setCityFormData] = useState({ city_name: '', province: '', city_code: '' });
+  const [showCityMapPicker, setShowCityMapPicker] = useState(false);
+  const [cityLocation, setCityLocation] = useState({ latitude: 0, longitude: 0 });
 
   useEffect(() => {
     loadBookings();
     loadBlackouts();
     loadBookingTypes();
     loadCities();
+
+    // 设置高德地图安全密钥
+    (window as any)._AMapSecurityConfig = {
+      securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
+    };
+
+    // 加载高德地图脚本
+    const script = document.createElement('script');
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
+    script.async = true;
+    document.head.appendChild(script);
+
+    return () => {
+      if (document.head.contains(script)) {
+        document.head.removeChild(script);
+      }
+    };
   }, [filter]);
 
   // 预约管理函数
@@ -462,13 +482,41 @@ export default function BookingsPage() {
   const handleAddCity = () => {
     setEditingCity(null);
     setCityFormData({ city_name: '', province: '', city_code: '' });
+    setCityLocation({ latitude: 0, longitude: 0 });
     setShowCityModal(true);
   };
 
   const handleEditCity = (city: AllowedCity) => {
     setEditingCity(city);
     setCityFormData({ city_name: city.city_name, province: city.province || '', city_code: city.city_code || '' });
+    setCityLocation({ latitude: 0, longitude: 0 });
     setShowCityModal(true);
+  };
+
+  const handleCityMapSelect = async (location: string, lat: number, lng: number) => {
+    // 使用高德地图逆地理编码获取城市信息
+    const AMap = (window as any).AMap;
+    if (AMap) {
+      AMap.plugin('AMap.Geocoder', () => {
+        const geocoder = new AMap.Geocoder();
+        geocoder.getAddress([lng, lat], (status: string, result: any) => {
+          if (status === 'complete' && result.info === 'OK') {
+            const addressComponent = result.regeocode.addressComponent;
+            const cityName = addressComponent.city || addressComponent.province;
+            const province = addressComponent.province;
+            const cityCode = addressComponent.citycode || addressComponent.adcode;
+
+            setCityFormData({
+              city_name: cityName,
+              province: province,
+              city_code: cityCode,
+            });
+            setCityLocation({ latitude: lat, longitude: lng });
+          }
+        });
+      });
+    }
+    setShowCityMapPicker(false);
   };
 
   const handleSaveCity = async () => {
@@ -1102,13 +1150,31 @@ export default function BookingsPage() {
                   <label className="block text-sm font-medium text-[#5D4037] mb-2">
                     城市名称 <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={cityFormData.city_name}
-                    onChange={(e) => setCityFormData({ ...cityFormData, city_name: e.target.value })}
-                    placeholder="例如：南宁市"
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
-                  />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCityMapPicker(true)}
+                      className="w-full px-4 py-3 bg-white border-2 border-[#5D4037]/20 rounded-xl text-left transition-all hover:border-[#FFC857] hover:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          {cityFormData.city_name ? (
+                            <p className="text-[#5D4037] font-medium">{cityFormData.city_name}</p>
+                          ) : (
+                            <p className="text-[#5D4037]/40">点击在地图上选择城市...</p>
+                          )}
+                        </div>
+                        <MapPin className="w-5 h-5 text-[#FFC857] group-hover:scale-110 transition-transform" />
+                      </div>
+                    </button>
+                    <input
+                      type="text"
+                      value={cityFormData.city_name}
+                      onChange={(e) => setCityFormData({ ...cityFormData, city_name: e.target.value })}
+                      placeholder="或手动输入城市名称"
+                      className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -1412,6 +1478,16 @@ export default function BookingsPage() {
               <span className="font-medium">{showToast.message}</span>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 城市地图选择器 */}
+      <AnimatePresence>
+        {showCityMapPicker && (
+          <MapPicker
+            onSelect={handleCityMapSelect}
+            onClose={() => setShowCityMapPicker(false)}
+          />
         )}
       </AnimatePresence>
     </div>

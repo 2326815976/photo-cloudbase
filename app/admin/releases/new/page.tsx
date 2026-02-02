@@ -11,6 +11,7 @@ export default function NewReleasePage() {
   const [platform, setPlatform] = useState('Android');
   const [updateLog, setUpdateLog] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -44,6 +45,7 @@ export default function NewReleasePage() {
           platform,
           download_url: url,
           update_log: updateLog,
+          force_update: forceUpdate,
         });
 
       if (error) throw error;
@@ -111,6 +113,8 @@ export default function NewReleasePage() {
             <option value="iOS">iOS</option>
             <option value="HarmonyOS">HarmonyOS</option>
             <option value="Windows">Windows</option>
+            <option value="MacOS">MacOS</option>
+            <option value="Linux">Linux</option>
           </select>
         </div>
 
@@ -128,6 +132,31 @@ export default function NewReleasePage() {
           />
         </div>
 
+        {/* 强制更新开关 */}
+        <div className="flex items-center justify-between p-4 bg-[#FFC857]/10 rounded-xl border-2 border-[#FFC857]/30">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-[#5D4037] mb-1">
+              强制更新 🔒
+            </label>
+            <p className="text-xs text-[#5D4037]/60">
+              开启后，用户必须更新才能继续使用应用（弹窗不可关闭）
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setForceUpdate(!forceUpdate)}
+            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+              forceUpdate ? 'bg-[#FFC857]' : 'bg-[#5D4037]/20'
+            }`}
+          >
+            <span
+              className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform ${
+                forceUpdate ? 'translate-x-7' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+
         {/* 文件上传 */}
         <div>
           <label className="block text-sm font-medium text-[#5D4037] mb-2">
@@ -137,7 +166,7 @@ export default function NewReleasePage() {
             <input
               type="file"
               onChange={handleFileChange}
-              accept=".apk,.ipa,.exe,.dmg"
+              accept=".apk,.ipa,.exe,.dmg,.zip,.deb,.rpm,.AppImage,.tar.gz"
               className="hidden"
               id="file-upload"
               required

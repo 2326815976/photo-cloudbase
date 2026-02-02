@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle } from 'lucide-react';
+import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, Heart, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Album {
@@ -14,6 +14,7 @@ interface Album {
   welcome_letter: string;
   recipient_name: string;
   enable_tipping: boolean;
+  donation_qr_code_url: string | null;
   created_at: string;
   expires_at: string | null;
 }
@@ -30,6 +31,8 @@ export default function AlbumsPage() {
   const [editingRecipient, setEditingRecipient] = useState<Album | null>(null);
   const [newRecipientName, setNewRecipientName] = useState('');
   const [newWelcomeLetter, setNewWelcomeLetter] = useState('');
+  const [editingDonation, setEditingDonation] = useState<Album | null>(null);
+  const [uploadingQrCode, setUploadingQrCode] = useState(false);
   const [deletingAlbum, setDeletingAlbum] = useState<Album | null>(null);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -166,6 +169,59 @@ export default function AlbumsPage() {
     }
   };
 
+  const handleToggleDonation = async (album: Album) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('albums')
+      .update({ enable_tipping: !album.enable_tipping })
+      .eq('id', album.id);
+
+    if (!error) {
+      loadAlbums();
+      setShowToast({
+        message: album.enable_tipping ? '打赏功能已关闭' : '打赏功能已开启',
+        type: 'success'
+      });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const handleUploadQrCode = async (album: Album, file: File) => {
+    setUploadingQrCode(true);
+
+    try {
+      const { uploadToCosDirect } = await import('@/lib/storage/cos-upload-client');
+      const fileExt = file.name.split('.').pop();
+      const fileName = `donation_qr_${album.id}_${Date.now()}.${fileExt}`;
+
+      const cdnUrl = await uploadToCosDirect(file, fileName, 'albums');
+
+      const supabase = createClient();
+      const { error: updateError } = await supabase
+        .from('albums')
+        .update({ donation_qr_code_url: cdnUrl })
+        .eq('id', album.id);
+
+      setUploadingQrCode(false);
+
+      if (!updateError) {
+        loadAlbums();
+        setShowToast({ message: '赞赏码已上传', type: 'success' });
+        setTimeout(() => setShowToast(null), 3000);
+      } else {
+        setShowToast({ message: `更新失败：${updateError.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+      }
+    } catch (error: any) {
+      setUploadingQrCode(false);
+      setShowToast({ message: `上传失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
   const copyAccessLink = (accessKey: string) => {
     const link = `${window.location.origin}/album/${accessKey}`;
     navigator.clipboard.writeText(link);
@@ -297,6 +353,34 @@ export default function AlbumsPage() {
                       </button>
                     </div>
                   )}
+
+                  <div className="flex items-center gap-2 mb-3 p-2 bg-orange-50 rounded-lg">
+                    <Heart className={`w-4 h-4 ${album.enable_tipping ? 'text-orange-600 fill-orange-600' : 'text-orange-400'}`} />
+                    <span className="text-xs text-orange-600 flex-1">
+                      打赏功能: {album.enable_tipping ? '已开启' : '已关闭'}
+                    </span>
+                    <button
+                      onClick={() => handleToggleDonation(album)}
+                      className="text-orange-600 hover:text-orange-700 transition-colors"
+                      title={album.enable_tipping ? '关闭打赏' : '开启打赏'}
+                    >
+                      {album.enable_tipping ? <XCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+                    </button>
+                    {album.enable_tipping && (
+                      <label className="cursor-pointer text-orange-600 hover:text-orange-700 transition-colors">
+                        <Upload className="w-3 h-3" />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleUploadQrCode(album, file);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
