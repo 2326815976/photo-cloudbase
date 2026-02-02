@@ -13,20 +13,39 @@ export interface ImageVersion {
 }
 
 /**
- * 为照片墙生成图片版本（仅预览图，无缩略图）
+ * 为照片墙生成图片版本（小红书式两级加载）
  * @param originalFile - 原始图片文件
- * @returns 包含预览图的数组
+ * @returns 包含缩略图和预览图的数组
  */
 export async function generateGalleryImageVersions(
   originalFile: File
 ): Promise<ImageVersion[]> {
   const versions: ImageVersion[] = [];
 
-  // 生成高质量预览图 - 1920px, 质量92, WebP格式, ~1MB
+  // 1. 生成列表缩略图 - 1080px, 质量80, WebP格式, ~500KB
+  // 用于首页Feed流快速加载
+  const thumbnailFile = await imageCompression(originalFile, {
+    maxWidthOrHeight: 1080,
+    maxSizeMB: 0.5,
+    initialQuality: 0.8,
+    fileType: 'image/webp',
+    useWebWorker: true
+  });
+
+  const thumbnailDimensions = await getImageDimensions(thumbnailFile);
+  versions.push({
+    file: thumbnailFile,
+    type: 'thumbnail',
+    width: thumbnailDimensions.width,
+    height: thumbnailDimensions.height
+  });
+
+  // 2. 生成高清预览图 - 1440px, 质量90, WebP格式, ~1.5MB
+  // 用于点击查看大图
   const previewFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 1920,
-    maxSizeMB: 1,
-    initialQuality: 0.92,
+    maxWidthOrHeight: 1440,
+    maxSizeMB: 1.5,
+    initialQuality: 0.9,
     useWebWorker: true,
     fileType: 'image/webp'
   });
@@ -52,11 +71,12 @@ export async function generateAlbumImageVersions(
 ): Promise<ImageVersion[]> {
   const versions: ImageVersion[] = [];
 
-  // 1. 生成缩略图 - 400px, 质量90, WebP格式, ~200KB
+  // 1. 生成缩略图 - 600px, 质量85, WebP格式, ~600KB
+  // 提升列表展示质量，利用CDN加速优势
   const thumbnailFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 400,
-    maxSizeMB: 0.2,
-    initialQuality: 0.9,
+    maxWidthOrHeight: 600,
+    maxSizeMB: 0.6,
+    initialQuality: 0.85,
     fileType: 'image/webp',
     useWebWorker: true
   });
@@ -136,27 +156,24 @@ async function getImageDimensions(file: File): Promise<{ width: number; height: 
 }
 
 /**
- * 为首页摆姿生成单一优化版本
+ * 为首页摆姿生成单一优化版本（对标照片墙列表缩略图）
  * @param file - 原始图片文件
- * @param maxSizeKB - 最大文件大小（KB），默认 500KB
  * @returns 优化后的文件
  */
 export async function generatePoseImage(
-  file: File,
-  maxSizeKB: number = 500
+  file: File
 ): Promise<File> {
-  const maxSizeMB = maxSizeKB / 1024;
-
-  // 如果文件小于1MB，直接返回原文件
-  if (file.size <= 1024 * 1024) {
+  // 如果文件小于500KB，直接返回原文件
+  if (file.size <= 500 * 1024) {
     return file;
   }
 
-  // 压缩到指定大小（WebP格式）
+  // 使用与照片墙列表一致的配置：1080px, 500KB, 质量0.8
+  // 快速切换，流畅体验
   const compressedFile = await imageCompression(file, {
-    maxSizeMB,
-    maxWidthOrHeight: 1920,
-    initialQuality: 0.9,
+    maxSizeMB: 0.5,
+    maxWidthOrHeight: 1080,
+    initialQuality: 0.8,
     fileType: 'image/webp',
     useWebWorker: true
   });
