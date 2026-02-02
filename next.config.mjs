@@ -6,6 +6,28 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+
+  // Webpack 配置：处理服务器端专用模块
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // 在客户端构建时，排除 Node.js 内置模块
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        crypto: false,
+        stream: false,
+        http: false,
+        https: false,
+        zlib: false,
+        path: false,
+        os: false,
+      };
+    }
+    return config;
+  },
+
   images: {
     // 添加腾讯云COS域名支持
     remotePatterns: [
