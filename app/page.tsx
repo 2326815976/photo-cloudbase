@@ -32,12 +32,10 @@ export default async function HomePage() {
     initialPose = selectedPose;
 
     // 异步更新浏览次数，不阻塞渲染
-    supabase
+    void supabase
       .from('poses')
       .update({ view_count: selectedPose.view_count + 1 })
-      .eq('id', selectedPose.id)
-      .then(() => {})
-      .catch(() => {});
+      .eq('id', selectedPose.id);
   }
 
   return <PoseViewer initialTags={tagsResult.data || []} initialPose={initialPose} initialPoses={posesResult.data || []} />;
