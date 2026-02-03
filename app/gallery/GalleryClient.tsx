@@ -359,7 +359,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       // 检测是否在Android环境中
                       const isAndroid = typeof window !== 'undefined' &&
                         window.AndroidPhotoViewer &&
-                        typeof window.AndroidPhotoViewer.openPhotoViewer === 'function';
+                        typeof window.AndroidPhotoViewer?.openPhotoViewer === 'function';
 
                       if (isAndroid) {
                         // 使用Android原生图片查看器
@@ -367,7 +367,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                         const photoUrls = photos.map(p => p.preview_url);
 
                         try {
-                          window.AndroidPhotoViewer.openPhotoViewer(
+                          window.AndroidPhotoViewer!.openPhotoViewer(
                             JSON.stringify(photoUrls),
                             currentIndex
                           );
