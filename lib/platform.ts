@@ -13,6 +13,9 @@ declare global {
       setClipboardText: (text: string) => void;
       hasClipboardText: () => boolean;
     };
+    AndroidPhotoViewer?: {
+      openPhotoViewer: (photosJson: string, position: number) => void;
+    };
     AndroidVibrate?: {
       vibrate: (duration: number) => void;
     };
@@ -27,7 +30,7 @@ declare global {
  */
 export function isAndroidApp(): boolean {
   if (typeof window === 'undefined') return false;
-  return !!(window.AndroidPhotoDownload || window.AndroidClipboard);
+  return !!(window.AndroidPhotoDownload || window.AndroidClipboard || window.AndroidPhotoViewer);
 }
 
 /**
