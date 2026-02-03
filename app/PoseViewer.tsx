@@ -59,10 +59,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   // 客户端加载tags
   useEffect(() => {
     if (initialTags.length === 0) {
-      const supabase = createClient();
-      supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }).then((result) => {
-        if (result.data) setTags(result.data);
-      });
+      const loadTags = async () => {
+        const supabase = createClient();
+        const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
+        if (data) setTags(data);
+      };
+      loadTags();
     }
   }, [initialTags.length]);
 
