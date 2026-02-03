@@ -800,7 +800,7 @@ export default function AlbumDetailPage() {
                           const photoUrls = photos.map(p => p.original_url);
 
                           try {
-                            window.AndroidPhotoViewer.openPhotoViewer(
+                            window.AndroidPhotoViewer!.openPhotoViewer(
                               JSON.stringify(photoUrls),
                               currentIndex
                             );
