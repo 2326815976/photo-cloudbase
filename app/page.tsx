@@ -28,13 +28,14 @@ export default async function HomePage() {
   let initialPose: Pose | null = null;
   if (posesResult.data && posesResult.data.length > 0) {
     const randomIndex = Math.floor(Math.random() * posesResult.data.length);
-    initialPose = posesResult.data[randomIndex];
+    const selectedPose = posesResult.data[randomIndex];
+    initialPose = selectedPose;
 
     // 异步更新浏览次数，不阻塞渲染
     supabase
       .from('poses')
-      .update({ view_count: initialPose.view_count + 1 })
-      .eq('id', initialPose.id)
+      .update({ view_count: selectedPose.view_count + 1 })
+      .eq('id', selectedPose.id)
       .then(() => {})
       .catch(() => {});
   }
