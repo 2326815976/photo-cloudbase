@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Upload, CheckCircle, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 export default function NewReleasePage() {
   const [version, setVersion] = useState('');
@@ -33,17 +32,32 @@ export default function NewReleasePage() {
     setUploading(true);
 
     try {
-      // 客户端直传文件到COS
-      const url = await uploadToCosDirect(file, `${Date.now()}_${file.name}`, 'releases');
+      // 上传文件到Supabase Storage
+      const supabase = createClient();
+      const filename = `${Date.now()}_${file.name}`;
+      const filePath = `releases/${filename}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('releases')
+        .upload(filePath, file, {
+          cacheControl: '31536000', // 缓存1年
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // 获取公开访问URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('releases')
+        .getPublicUrl(filePath);
 
       // 保存到数据库
-      const supabase = createClient();
       const { error } = await supabase
         .from('app_releases')
         .insert({
           version,
           platform,
-          download_url: url,
+          download_url: publicUrl,
           update_log: updateLog,
           force_update: forceUpdate,
         });
