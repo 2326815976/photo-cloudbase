@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -31,25 +31,55 @@ interface Pose {
   created_at: string;
 }
 
-interface PoseViewerProps {
-  initialTags: PoseTag[];
-  initialPose: Pose | null;
-  initialPoses: Pose[];
-}
-
-export default function PoseViewer({ initialTags, initialPose, initialPoses }: PoseViewerProps) {
-  const [tags] = useState<PoseTag[]>(initialTags);
+export default function PoseViewer() {
+  const [tags, setTags] = useState<PoseTag[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [currentPose, setCurrentPose] = useState<Pose | null>(initialPose);
-  const [lastPoseId, setLastPoseId] = useState<number | null>(initialPose?.id || null);
+  const [currentPose, setCurrentPose] = useState<Pose | null>(null);
+  const [lastPoseId, setLastPoseId] = useState<number | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
-  const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
+  const [cachedPoses, setCachedPoses] = useState<Pose[]>([]);
   const [cacheKey, setCacheKey] = useState<string>('');
   const [nextPose, setNextPose] = useState<Pose | null>(null);
   const preloadedImagesRef = useRef<Set<string>>(new Set());
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
+
+  // 客户端初始化数据加载
+  useEffect(() => {
+    const initData = async () => {
+      const supabase = createClient();
+
+      // 并行加载标签和摆姿数据
+      const [tagsResult, posesResult] = await Promise.all([
+        supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }),
+        supabase.from('poses').select('*').limit(10)
+      ]);
+
+      if (tagsResult.data) setTags(tagsResult.data);
+
+      if (posesResult.data && posesResult.data.length > 0) {
+        setCachedPoses(posesResult.data);
+        const randomIndex = Math.floor(Math.random() * posesResult.data.length);
+        const selectedPose = posesResult.data[randomIndex];
+        setCurrentPose(selectedPose);
+        setLastPoseId(selectedPose.id);
+
+        // 异步更新浏览次数，不阻塞渲染
+        supabase
+          .from('poses')
+          .update({ view_count: selectedPose.view_count + 1 })
+          .eq('id', selectedPose.id)
+          .then(() => {})
+          .catch((err: any) => console.error('更新浏览次数失败:', err));
+      }
+
+      setIsLoading(false);
+    };
+
+    initData();
+  }, []);
 
   const preloadImage = useCallback((url: string) => {
     const preloadedImages = preloadedImagesRef.current;
@@ -80,12 +110,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
       if (prev.includes(tagName)) {
-        // 取消选择
         return prev.filter(t => t !== tagName);
       } else {
-        // 添加选择，但限制最多3个
         if (prev.length >= 3) {
-          return prev; // 已达到上限，不添加
+          return prev;
         }
         return [...prev, tagName];
       }
@@ -186,6 +214,28 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, nextPose, lastPoseId, selectNextPose, preloadImage]);
 
   const displayTags = useMemo(() => tags.slice(0, 8), [tags]);
+
+  // 骨架屏
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-[100dvh] w-full">
+        <div className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
+          <div className="px-4 py-3 flex items-center justify-between gap-2">
+            <div className="h-8 w-24 bg-[#5D4037]/10 rounded animate-pulse" />
+            <div className="h-6 w-48 bg-[#FFC857]/20 rounded-full animate-pulse" />
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col px-5 pt-3 pb-3">
+          <div className="flex gap-2 mb-4">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="h-8 w-16 bg-white/60 rounded-full animate-pulse" />
+            ))}
+          </div>
+          <div className="flex-1 bg-white rounded-2xl shadow-lg animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[100dvh] w-full">
@@ -348,10 +398,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                 className="bg-[#FFFBF0] rounded-2xl shadow-[0_12px_40px_rgba(93,64,55,0.25)] border-2 border-[#5D4037]/10 max-w-4xl max-h-[90vh] overflow-hidden pointer-events-auto relative"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* 便利贴胶带效果 */}
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
 
-                {/* 关闭按钮 */}
                 <button
                   onClick={() => setShowPreview(false)}
                   className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
@@ -359,7 +407,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   <X className="w-5 h-5 text-[#5D4037]" />
                 </button>
 
-                {/* 图片容器 */}
                 <div className="p-4 pb-3">
                   <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
                     <SimpleImage
@@ -371,7 +418,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   </div>
                 </div>
 
-                {/* 信息区域 */}
                 <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
                   <div className="flex items-center justify-center gap-6 text-[#5D4037]">
                     <div className="flex items-center gap-2">
