@@ -331,25 +331,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                 {/* 图片容器 */}
                 <div className="p-4 pb-3">
-                  <div
-                    className="relative bg-white rounded-lg overflow-hidden shadow-inner cursor-pointer group"
-                    onClick={() => {
-                      // 直接在新标签页打开原图
-                      window.open(previewPhoto.preview_url, '_blank');
-                    }}
-                  >
+                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
                     <SimpleImage
                       src={previewPhoto.preview_url}
                       alt="预览"
                       priority={true}
                       className="w-full h-auto max-h-[70vh]"
                     />
-                    {/* 点击提示 */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm rounded-full px-4 py-2">
-                        <p className="text-sm font-medium text-[#5D4037]">点击查看原图</p>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
