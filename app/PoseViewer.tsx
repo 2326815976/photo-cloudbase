@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -38,7 +38,7 @@ interface PoseViewerProps {
 }
 
 export default function PoseViewer({ initialTags, initialPose, initialPoses }: PoseViewerProps) {
-  const [tags] = useState<PoseTag[]>(initialTags);
+  const [tags, setTags] = useState<PoseTag[]>(initialTags);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [currentPose, setCurrentPose] = useState<Pose | null>(initialPose);
   const [lastPoseId, setLastPoseId] = useState<number | null>(initialPose?.id || null);
@@ -52,20 +52,19 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
 
   const preloadImage = useCallback((url: string) => {
-    const preloadedImages = preloadedImagesRef.current;
-    if (preloadedImages.has(url)) return;
-
-    if (preloadedImages.size >= MAX_PRELOADED_IMAGES) {
-      const oldest = preloadedImages.values().next().value as string | undefined;
-      if (oldest) {
-        preloadedImages.delete(oldest);
-      }
-    }
-
-    const img = new Image();
-    img.src = url;
-    preloadedImages.add(url);
+    // 禁用预加载，只加载当前显示的图片
+    return;
   }, []);
+
+  // 客户端加载tags
+  useEffect(() => {
+    if (initialTags.length === 0) {
+      const supabase = createClient();
+      supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }).then(({ data }) => {
+        if (data) setTags(data);
+      });
+    }
+  }, [initialTags.length]);
 
   const selectNextPose = useCallback((poses: Pose[], excludeIds: number[]) => {
     if (poses.length === 0) return null;

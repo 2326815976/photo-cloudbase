@@ -19,11 +19,8 @@ interface Pose {
 export default async function HomePage() {
   const supabase = await createClient();
 
-  // 并行获取标签和摆姿数据，移除阻塞的写操作
-  const [tagsResult, posesResult] = await Promise.all([
-    supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }),
-    supabase.from('poses').select('*').limit(10)
-  ]);
+  // 仅获取摆姿数据，tags改为客户端加载
+  const posesResult = await supabase.from('poses').select('*').limit(3);
 
   let initialPose: Pose | null = null;
   if (posesResult.data && posesResult.data.length > 0) {
@@ -38,5 +35,5 @@ export default async function HomePage() {
       .eq('id', selectedPose.id);
   }
 
-  return <PoseViewer initialTags={tagsResult.data || []} initialPose={initialPose} initialPoses={posesResult.data || []} />;
+  return <PoseViewer initialTags={[]} initialPose={initialPose} initialPoses={posesResult.data || []} />;
 }
