@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -31,55 +31,25 @@ interface Pose {
   created_at: string;
 }
 
-export default function PoseViewer() {
-  const [tags, setTags] = useState<PoseTag[]>([]);
+interface PoseViewerProps {
+  initialTags: PoseTag[];
+  initialPose: Pose | null;
+  initialPoses: Pose[];
+}
+
+export default function PoseViewer({ initialTags, initialPose, initialPoses }: PoseViewerProps) {
+  const [tags] = useState<PoseTag[]>(initialTags);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [currentPose, setCurrentPose] = useState<Pose | null>(null);
-  const [lastPoseId, setLastPoseId] = useState<number | null>(null);
+  const [currentPose, setCurrentPose] = useState<Pose | null>(initialPose);
+  const [lastPoseId, setLastPoseId] = useState<number | null>(initialPose?.id || null);
   const [isAnimating, setIsAnimating] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
-  const [cachedPoses, setCachedPoses] = useState<Pose[]>([]);
+  const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
   const [cacheKey, setCacheKey] = useState<string>('');
   const [nextPose, setNextPose] = useState<Pose | null>(null);
   const preloadedImagesRef = useRef<Set<string>>(new Set());
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
-
-  // 客户端初始化数据加载
-  useEffect(() => {
-    const initData = async () => {
-      const supabase = createClient();
-
-      // 并行加载标签和摆姿数据
-      const [tagsResult, posesResult] = await Promise.all([
-        supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }),
-        supabase.from('poses').select('*').limit(10)
-      ]);
-
-      if (tagsResult.data) setTags(tagsResult.data);
-
-      if (posesResult.data && posesResult.data.length > 0) {
-        setCachedPoses(posesResult.data);
-        const randomIndex = Math.floor(Math.random() * posesResult.data.length);
-        const selectedPose = posesResult.data[randomIndex];
-        setCurrentPose(selectedPose);
-        setLastPoseId(selectedPose.id);
-
-        // 异步更新浏览次数，不阻塞渲染
-        supabase
-          .from('poses')
-          .update({ view_count: selectedPose.view_count + 1 })
-          .eq('id', selectedPose.id)
-          .then(() => {})
-          .catch((err: any) => console.error('更新浏览次数失败:', err));
-      }
-
-      setIsLoading(false);
-    };
-
-    initData();
-  }, []);
 
   const preloadImage = useCallback((url: string) => {
     const preloadedImages = preloadedImagesRef.current;
@@ -214,28 +184,6 @@ export default function PoseViewer() {
   }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, nextPose, lastPoseId, selectNextPose, preloadImage]);
 
   const displayTags = useMemo(() => tags.slice(0, 8), [tags]);
-
-  // 骨架屏
-  if (isLoading) {
-    return (
-      <div className="flex flex-col h-[100dvh] w-full">
-        <div className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
-          <div className="px-4 py-3 flex items-center justify-between gap-2">
-            <div className="h-8 w-24 bg-[#5D4037]/10 rounded animate-pulse" />
-            <div className="h-6 w-48 bg-[#FFC857]/20 rounded-full animate-pulse" />
-          </div>
-        </div>
-        <div className="flex-1 flex flex-col px-5 pt-3 pb-3">
-          <div className="flex gap-2 mb-4">
-            {[1, 2, 3, 4, 5].map(i => (
-              <div key={i} className="h-8 w-16 bg-white/60 rounded-full animate-pulse" />
-            ))}
-          </div>
-          <div className="flex-1 bg-white rounded-2xl shadow-lg animate-pulse" />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-[100dvh] w-full">
