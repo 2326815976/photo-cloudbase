@@ -17,11 +17,8 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
   // 检测用户是否启用了减少动画偏好设置(无障碍功能)
   const shouldReduceMotion = useReducedMotion();
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const [isAndroid, setIsAndroid] = useState(false);
-
-  useEffect(() => {
-    setIsAndroid(isAndroidApp());
-  }, []);
+  // 直接检测Android环境，避免useEffect延迟
+  const isAndroid = typeof window !== 'undefined' && isAndroidApp();
 
   const addTimeout = (handler: () => void, delay: number) => {
     const timeoutId = setTimeout(handler, delay);
