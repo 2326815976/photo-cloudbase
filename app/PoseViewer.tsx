@@ -60,8 +60,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   useEffect(() => {
     if (initialTags.length === 0) {
       const supabase = createClient();
-      supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }).then(({ data }) => {
-        if (data) setTags(data);
+      supabase.from('pose_tags').select('*').order('usage_count', { ascending: false }).then((result) => {
+        if (result.data) setTags(result.data);
       });
     }
   }, [initialTags.length]);
