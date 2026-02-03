@@ -109,8 +109,7 @@ BEGIN
         SELECT COUNT(*) FROM public.albums
         WHERE COALESCE(expires_at, created_at + INTERVAL '7 days') < NOW()
       ),
-      'tipping_enabled', (SELECT COUNT(*) FROM public.albums WHERE enable_tipping = true),
-      'with_folders', (SELECT COUNT(DISTINCT album_id) FROM public.album_folders)
+      'tipping_enabled', (SELECT COUNT(*) FROM public.albums WHERE enable_tipping = true)
     ),
 
     -- 照片统计
@@ -121,7 +120,7 @@ BEGIN
       'private', (SELECT COUNT(*) FROM public.album_photos WHERE is_public = false),
       'total_views', (SELECT COALESCE(SUM(view_count), 0) FROM public.album_photos),
       'total_likes', (SELECT COALESCE(SUM(like_count), 0) FROM public.album_photos),
-      'total_comments', (SELECT COUNT(*) FROM public.photo_comments),
+      'total_comments', 0,
       'avg_rating', (SELECT ROUND(AVG(rating)::numeric, 2) FROM public.album_photos WHERE rating > 0)
     ),
 
@@ -138,13 +137,13 @@ BEGIN
         WHERE status IN ('pending', 'confirmed') AND booking_date >= CURRENT_DATE
       ),
       'types', (
-        SELECT jsonb_agg(jsonb_build_object(
-          'type_name', bt.name,
-          'count', COUNT(b.id)
-        ))
-        FROM public.booking_types bt
-        LEFT JOIN public.bookings b ON b.type_id = bt.id
-        GROUP BY bt.id, bt.name
+        SELECT COALESCE(jsonb_agg(row_to_json(t)::jsonb), '[]'::jsonb)
+        FROM (
+          SELECT bt.name as type_name, COUNT(b.id) as count
+          FROM public.booking_types bt
+          LEFT JOIN public.bookings b ON b.type_id = bt.id
+          GROUP BY bt.id, bt.name
+        ) t
       )
     ),
 
@@ -160,12 +159,9 @@ BEGIN
         WHERE tags IS NOT NULL AND array_length(tags, 1) > 0
       ),
       'top_tags', (
-        SELECT jsonb_agg(jsonb_build_object(
-          'tag_name', name,
-          'usage_count', usage_count
-        ))
+        SELECT COALESCE(jsonb_agg(row_to_json(t)::jsonb), '[]'::jsonb)
         FROM (
-          SELECT name, usage_count
+          SELECT name as tag_name, usage_count
           FROM public.pose_tags
           ORDER BY usage_count DESC
           LIMIT 10
@@ -177,47 +173,38 @@ BEGIN
     'system', jsonb_build_object(
       'total_cities', (SELECT COUNT(*) FROM public.allowed_cities WHERE is_active = true),
       'total_blackout_dates', (SELECT COUNT(*) FROM public.booking_blackouts WHERE date >= CURRENT_DATE),
-      'total_releases', (SELECT COUNT(*) FROM public.app_releases),
-      'latest_version', (
-        SELECT jsonb_build_object(
-          'version', version,
-          'platform', platform,
-          'created_at', created_at
-        )
-        FROM public.app_releases
-        ORDER BY created_at DESC
-        LIMIT 1
-      )
+      'total_releases', 0,
+      'latest_version', NULL
     ),
 
     -- 趋势数据（最近7天）
     'trends', jsonb_build_object(
       'daily_new_users', (
-        SELECT jsonb_agg(jsonb_build_object(
-          'date', date,
-          'count', new_users_count
-        ) ORDER BY date DESC)
-        FROM public.analytics_daily
-        WHERE date >= CURRENT_DATE - INTERVAL '6 days'
-        ORDER BY date DESC
+        SELECT COALESCE(jsonb_agg(row_to_json(t)::jsonb), '[]'::jsonb)
+        FROM (
+          SELECT date, new_users_count as count
+          FROM public.analytics_daily
+          WHERE date >= CURRENT_DATE - INTERVAL '6 days'
+          ORDER BY date DESC
+        ) t
       ),
       'daily_active_users', (
-        SELECT jsonb_agg(jsonb_build_object(
-          'date', date,
-          'count', active_users_count
-        ) ORDER BY date DESC)
-        FROM public.analytics_daily
-        WHERE date >= CURRENT_DATE - INTERVAL '6 days'
-        ORDER BY date DESC
+        SELECT COALESCE(jsonb_agg(row_to_json(t)::jsonb), '[]'::jsonb)
+        FROM (
+          SELECT date, active_users_count as count
+          FROM public.analytics_daily
+          WHERE date >= CURRENT_DATE - INTERVAL '6 days'
+          ORDER BY date DESC
+        ) t
       ),
       'daily_new_bookings', (
-        SELECT jsonb_agg(jsonb_build_object(
-          'date', date,
-          'count', new_bookings_count
-        ) ORDER BY date DESC)
-        FROM public.analytics_daily
-        WHERE date >= CURRENT_DATE - INTERVAL '6 days'
-        ORDER BY date DESC
+        SELECT COALESCE(jsonb_agg(row_to_json(t)::jsonb), '[]'::jsonb)
+        FROM (
+          SELECT date, new_bookings_count as count
+          FROM public.analytics_daily
+          WHERE date >= CURRENT_DATE - INTERVAL '6 days'
+          ORDER BY date DESC
+        ) t
       )
     )
   ) INTO result;
