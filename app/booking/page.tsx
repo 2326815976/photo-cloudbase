@@ -47,8 +47,20 @@ export default function BookingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+
+  const checkLoginStatus = async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      setShowLoginPrompt(true);
+    }
+  };
 
   useEffect(() => {
+    // 检查登录状态
+    checkLoginStatus();
     loadBookingTypes();
     loadAllowedCities();
     checkActiveBooking();
@@ -251,7 +263,9 @@ export default function BookingPage() {
       .insert({
         user_id: user.id,
         type_id: formData.typeId,
-        booking_date: bookingDate, // 至少提前一天预约（明天），实际时间通过微信沟通
+        booking_date: bookingDate,
+        time_slot_start: '09:00:00', // 默认时间段开始
+        time_slot_end: '18:00:00',   // 默认时间段结束
         location: formData.location,
         latitude: formData.latitude,
         longitude: formData.longitude,
@@ -614,6 +628,56 @@ export default function BookingPage() {
             onSelect={handleMapSelect}
             onClose={() => setShowMapPicker(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* 登录提示弹窗 */}
+      <AnimatePresence>
+        {showLoginPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFFBF0] rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Camera className="w-8 h-8 text-[#FFC857]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                  ✨ 需要登录才能预约哦
+                </h3>
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed">
+                  登录后即可提交约拍邀请，我们会通过微信与您联系确认时间~
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowLoginPrompt(false)}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors"
+                >
+                  随便看看
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    window.location.href = '/login';
+                  }}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+                >
+                  💛 去登录
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
