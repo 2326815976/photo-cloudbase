@@ -175,10 +175,10 @@ export default function AlbumLoginPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-3 py-2.5 flex items-center gap-2">
-          <h1 className="flex-1 text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属返图空间</h1>
-          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[45%]">
-            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">🤫 嘘，这里藏着你的独家记忆 🤫</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>专属返图空间</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">🤫 嘘，这里藏着你的独家记忆 🤫</p>
           </div>
         </div>
       </motion.div>
@@ -207,14 +207,14 @@ export default function AlbumLoginPage() {
                   >
                     <div className="flex gap-4 p-4">
                       {/* 封面图 */}
-                      <div className="flex-none w-24 h-24 rounded-2xl overflow-hidden bg-gray-100">
+                      <div className="flex-none w-24 rounded-2xl overflow-hidden bg-gray-100">
                         {album.cover_url ? (
                           <img
                             src={album.cover_url}
                             alt={album.title}
                             loading="lazy"
                             decoding="async"
-                            className="w-full h-full object-cover"
+                            className="w-full h-auto"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-[#5D4037]/20">

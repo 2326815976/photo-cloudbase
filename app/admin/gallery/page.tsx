@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Image, Trash2, Upload, Heart, Eye, CheckCircle, XCircle, AlertCircle, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateBlurHash } from '@/lib/utils/blurhash';
-import { generateGalleryImageVersions } from '@/lib/utils/image-versions';
+import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 interface Photo {
@@ -215,69 +215,96 @@ export default function AdminGalleryPage() {
 
   const handleUpload = async () => {
     if (uploadImages.length === 0) {
-      setShowToast({ message: '请选择图片', type: 'error' });
+      setShowToast({ message: '请选择图片', type: 'warning' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
     setUploading(true);
-    setUploadProgress({ current: 0, total: uploadImages.length });
     const supabase = createClient();
+    let successCount = 0;
+    let failCount = 0;
 
-    try {
-      for (let i = 0; i < uploadImages.length; i++) {
-        const file = uploadImages[i];
-        setUploadProgress({ current: i + 1, total: uploadImages.length });
+    setUploadProgress({ current: 0, total: uploadImages.length });
 
-        // 1. 生成预览图（照片墙不需要缩略图和原图）
-        const versions = await generateGalleryImageVersions(file);
+    for (let i = 0; i < uploadImages.length; i++) {
+      const file = uploadImages[i];
+      setUploadProgress({ current: i + 1, total: uploadImages.length });
+
+      try {
+        // 1. 生成多版本图片（thumbnail + preview + original，智能压缩）
+        const versions = await generateAlbumImageVersions(file);
+        const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
         const previewVersion = versions.find(v => v.type === 'preview')!;
+        const originalVersion = versions.find(v => v.type === 'original')!;
 
-        // 2. 生成 BlurHash（基于预览图）
-        const blurhash = await generateBlurHash(previewVersion.file);
+        // 2. 生成 BlurHash（基于 thumbnail）
+        const blurhash = await generateBlurHash(thumbnailVersion.file);
 
         const timestamp = Date.now();
+        let thumbnail_url = '';
         let preview_url = '';
+        let original_url = '';
 
-        // 3. 客户端直传预览图到腾讯云COS（gallery文件夹）
-        const fileName = `${timestamp}_${i}_preview.webp`;
+        // 3. 客户端直传三个版本到腾讯云COS（gallery文件夹）
+        for (const version of versions) {
+          const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
+          const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
-        try {
-          preview_url = await uploadToCosDirect(previewVersion.file, fileName, 'gallery');
-        } catch (uploadError) {
-          console.error(`上传预览图失败:`, uploadError);
-          continue;
+          try {
+            const publicUrl = await uploadToCosDirect(version.file, fileName, 'gallery');
+
+            if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+            else if (version.type === 'preview') preview_url = publicUrl;
+            else if (version.type === 'original') original_url = publicUrl;
+          } catch (uploadError) {
+            console.error(`上传 ${version.type} 失败:`, uploadError);
+            failCount++;
+            break;
+          }
         }
 
-        // 4. 插入数据库（照片墙只需要预览图，thumbnail_url 和 url 使用相同的预览图）
-        const { error: insertError } = await supabase
-          .from('album_photos')
-          .insert({
+        // 4. 插入数据库
+        if (thumbnail_url && preview_url && original_url) {
+          const { error: insertError } = await supabase.from('album_photos').insert({
             album_id: null,
-            thumbnail_url: preview_url,  // 列表显示使用预览图
-            preview_url: preview_url,     // 点击查看使用预览图
-            width: previewVersion.width,
-            height: previewVersion.height,
+            thumbnail_url,
+            preview_url,
+            original_url,
+            width: thumbnailVersion.width,
+            height: thumbnailVersion.height,
             blurhash,
             is_public: true
           });
 
-        if (insertError) {
-          console.error(`保存第 ${i + 1} 张图片失败:`, insertError);
+          if (insertError) {
+            failCount++;
+          } else {
+            successCount++;
+          }
+        } else {
+          failCount++;
         }
+      } catch (error) {
+        failCount++;
       }
+    }
 
-      setShowToast({ message: `成功上传 ${uploadImages.length} 张照片`, type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-      setShowUploadModal(false);
-      setUploadImages([]);
+    setUploading(false);
+    setShowUploadModal(false);
+    setUploadImages([]);
+    setUploadProgress({ current: 0, total: 0 });
+
+    if (successCount > 0) {
       loadPhotos();
-    } catch (error: any) {
-      setShowToast({ message: `上传失败：${error.message}`, type: 'error' });
+    }
+
+    if (failCount > 0) {
+      setShowToast({ message: `上传完成：成功 ${successCount} 张，失败 ${failCount} 张`, type: 'warning' });
       setTimeout(() => setShowToast(null), 3000);
-    } finally {
-      setUploading(false);
-      setUploadProgress({ current: 0, total: 0 });
+    } else {
+      setShowToast({ message: `成功上传 ${successCount} 张照片`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -365,7 +392,7 @@ export default function AdminGalleryPage() {
                 onClick={() => isSelectionMode && togglePhotoSelection(photo.id)}
                 style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
               >
-                <div className="aspect-[3/4] relative">
+                <div className="aspect-[3/4] relative group">
                   {isSelectionMode && (
                     <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
                       selectedPhotoIds.includes(photo.id)
@@ -396,9 +423,9 @@ export default function AdminGalleryPage() {
                         e.stopPropagation();
                         handleDelete(photo.id);
                       }}
-                      className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                      className="absolute top-2 right-2 w-12 h-12 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-md"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 size={28} strokeWidth={2.5} className="text-white" />
                     </button>
                   )}
                 </div>
@@ -455,80 +482,98 @@ export default function AdminGalleryPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => !uploading && setShowUploadModal(false)}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setShowUploadModal(false)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-md"
               onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-[#5D4037]">上传照片到照片墙</h3>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#5D4037]">批量上传照片</h2>
                 <button
                   onClick={() => setShowUploadModal(false)}
-                  disabled={uploading}
-                  className="w-8 h-8 rounded-full hover:bg-[#5D4037]/5 flex items-center justify-center transition-colors"
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
                 >
                   <X className="w-5 h-5 text-[#5D4037]" />
                 </button>
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
-                    选择图片（支持多选）
-                  </label>
+                <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
                   <input
                     type="file"
                     accept="image/*"
                     multiple
                     onChange={(e) => setUploadImages(Array.from(e.target.files || []))}
-                    disabled={uploading}
-                    className="w-full px-3 py-2 border border-[#5D4037]/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFC857]"
+                    className="hidden"
+                    id="batch-upload"
                   />
-                  {uploadImages.length > 0 && (
-                    <p className="text-sm text-[#5D4037]/60 mt-2">
-                      已选择 {uploadImages.length} 张图片
+                  <label htmlFor="batch-upload" className="cursor-pointer">
+                    <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                    <p className="text-sm text-[#5D4037]/60">
+                      {uploadImages.length > 0
+                        ? `已选择 ${uploadImages.length} 张图片`
+                        : '点击选择多张图片'}
                     </p>
-                  )}
+                  </label>
                 </div>
 
-                {uploading && (
-                  <div className="bg-[#FFC857]/10 rounded-lg p-4">
+                {uploadImages.length > 0 && (
+                  <div className="bg-[#FFFBF0] rounded-xl p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-[#5D4037]">上传进度</span>
                       <span className="text-sm font-medium text-[#5D4037]">
+                        已选择 {uploadImages.length} 张图片
+                      </span>
+                      <button
+                        onClick={() => setUploadImages([])}
+                        className="text-xs text-red-600 hover:text-red-700"
+                      >
+                        清空
+                      </button>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {uploadImages.map((file, index) => (
+                        <div key={index} className="text-xs text-[#5D4037]/60 truncate">
+                          {index + 1}. {file.name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {uploading && uploadProgress.total > 0 && (
+                  <div className="bg-[#FFFBF0] rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-[#5D4037]">
+                        上传进度
+                      </span>
+                      <span className="text-sm text-[#5D4037]/60">
                         {uploadProgress.current} / {uploadProgress.total}
                       </span>
                     </div>
-                    <div className="w-full bg-[#5D4037]/10 rounded-full h-2">
+                    <div className="w-full bg-white rounded-full h-2 overflow-hidden">
                       <div
-                        className="bg-[#FFC857] h-2 rounded-full transition-all duration-300"
+                        className="h-full bg-[#FFC857] transition-all duration-300"
                         style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
                       />
                     </div>
                   </div>
                 )}
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowUploadModal(false)}
-                    disabled={uploading}
-                    className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 transition-all font-medium disabled:opacity-50"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleUpload}
-                    disabled={uploading || uploadImages.length === 0}
-                    className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:bg-[#FFC857]/80 transition-all disabled:opacity-50"
-                  >
-                    {uploading ? '上传中...' : '开始上传'}
-                  </button>
-                </div>
+                <button
+                  onClick={handleUpload}
+                  disabled={uploading || uploadImages.length === 0}
+                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {uploading
+                    ? `上传中 (${uploadProgress.current}/${uploadProgress.total})...`
+                    : `批量上传 (${uploadImages.length} 张)`
+                  }
+                </button>
               </div>
             </motion.div>
           </motion.div>

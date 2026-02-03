@@ -246,11 +246,11 @@ begin
   select id into target_album_id from public.albums where access_key = input_key;
   if target_album_id is null then return null; end if;
 
+  -- 注意：此函数会被后续迁移文件覆盖，这里保留基础版本
   select jsonb_build_object(
     'album', (
         select jsonb_build_object(
-            'id', id, 'title', title, 'welcome_letter', welcome_letter, 'cover_url', cover_url, 'enable_tipping', enable_tipping, 'donation_qr_code_url', donation_qr_code_url,
-            'admin_qr_path', (select payment_qr_code from profiles where role='admin' limit 1)
+            'id', id, 'title', title, 'welcome_letter', welcome_letter, 'cover_url', cover_url, 'enable_tipping', enable_tipping
         ) from public.albums where id = target_album_id
     ),
     'folders', (
@@ -261,15 +261,8 @@ begin
        select coalesce(json_agg(
            jsonb_build_object(
                'id', id, 'folder_id', folder_id, 'storage_path', url,
-               'width', width, 'height', height, 'blurhash', blurhash,
-               'is_public', is_public, 'rating', rating,
-               -- 仅在专属空间内返回评论数据
-               'comments', (
-                   select coalesce(json_agg(
-                       jsonb_build_object('nickname', nickname, 'content', content, 'is_admin', is_admin_reply, 'created_at', created_at)
-                   ), '[]'::json) 
-                   from public.photo_comments where photo_id = album_photos.id order by created_at asc
-               )
+               'width', width, 'height', height,
+               'is_public', is_public
            ) order by created_at desc
        ), '[]'::json)
        from public.album_photos where album_id = target_album_id
@@ -320,20 +313,8 @@ begin
 end; $$;
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
 
--- 删除照片 -> 加入删除队列
-create or replace function public.queue_storage_deletion() returns trigger language plpgsql security definer as $$
-begin
-  -- 根据表名判断存储桶和字段名
-  if TG_TABLE_NAME = 'album_photos' and old.url is not null then
-    insert into public.sys_storage_delete_queue (bucket_name, file_path)
-    values ('albums', old.url);
-  elsif old.storage_path is not null then
-    insert into public.sys_storage_delete_queue (bucket_name, file_path)
-    values ('poses', old.storage_path);
-  end if;
-  return old;
-end; $$;
-create trigger on_photo_deleted after delete on public.album_photos for each row execute procedure public.queue_storage_deletion();
+-- 删除照片触发器已移除（项目已迁移至腾讯云COS，文件删除由应用层处理）
+-- 保留此注释以说明为何没有删除触发器
 
 -- 魔法过期逻辑 (可配合 pg_cron 或外部定时任务)
 create or replace function public.cleanup_expired_data() returns void language plpgsql security definer as $$

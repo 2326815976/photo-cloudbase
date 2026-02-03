@@ -363,30 +363,29 @@ export default function AlbumDetailPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-3 py-2.5 flex items-center gap-2">
-          <motion.button
-            whileTap={{ scale: 0.9 }}
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <button
             onClick={() => router.push('/')}
-            className="flex-shrink-0"
+            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors flex-shrink-0"
           >
-            <ArrowLeft className="w-5 h-5 text-[#FFC857]" strokeWidth={2.5} />
-          </motion.button>
+            <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
+          </button>
 
-          <div className="flex-1 min-w-0 text-center">
-            <h1 className="text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <div className="flex-1 text-center">
+            <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
               {albumData.album.title || '专属回忆'}
             </h1>
           </div>
 
-          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[40%]">
-            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">✨ 趁魔法消失前，把美好定格 ✨</p>
+          <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 趁魔法消失前，把美好定格 ✨</p>
           </div>
         </div>
       </motion.div>
 
       {/* 极细提示跑马灯 */}
       <AnimatePresence>
-        {showToast && (
+        {showToast && albumData && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -398,8 +397,33 @@ export default function AlbumDetailPage() {
               transition={shouldReduceMotion ? { duration: 0 } : { duration: 20, repeat: Infinity, ease: "linear" }}
               className="text-[10px] text-[#5D4037]/60 whitespace-nowrap"
             >
-              <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
-              <span className="inline-block ml-8">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
+              {(() => {
+                const expiresAt = albumData.album.expires_at;
+                if (!expiresAt) {
+                  // 如果没有过期时间，显示默认的7天提示
+                  return (
+                    <>
+                      <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
+                      <span className="inline-block ml-8">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
+                    </>
+                  );
+                }
+
+                const now = new Date();
+                const expiryDate = new Date(expiresAt);
+                const daysLeft = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+                const message = daysLeft > 0
+                  ? `✨ 这里的照片只有 ${daysLeft} 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......`
+                  : `✨ 这里的照片魔法时效已过期，未被【定格】的照片已经消失......`;
+
+                return (
+                  <>
+                    <span className="inline-block">{message}</span>
+                    <span className="inline-block ml-8">{message}</span>
+                  </>
+                );
+              })()}
             </motion.div>
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -440,17 +464,17 @@ export default function AlbumDetailPage() {
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={toggleSelectAll}
-            className="flex items-center gap-2 px-3 py-1.5 bg-[#5D4037]/5 rounded-full"
+            className="flex items-center gap-2 px-2.5 py-1.5 md:px-2 md:py-0.5 bg-[#5D4037]/5 rounded-full"
           >
             {selectedPhotos.size === filteredPhotos.length ? (
               <>
-                <CheckSquare className="w-4 h-4 text-[#FFC857]" />
-                <span className="text-xs font-medium text-[#5D4037]">全选</span>
+                <CheckSquare className="w-5 h-5 md:w-4 md:h-4 text-[#FFC857]" />
+                <span className="text-sm md:text-xs font-medium text-[#5D4037]">全选</span>
               </>
             ) : (
               <>
-                <Square className="w-4 h-4 text-[#5D4037]/40" />
-                <span className="text-xs font-medium text-[#5D4037]/60">全选</span>
+                <Square className="w-5 h-5 md:w-4 md:h-4 text-[#5D4037]/40" />
+                <span className="text-sm md:text-xs font-medium text-[#5D4037]/60">全选</span>
               </>
             )}
           </motion.button>
@@ -462,9 +486,9 @@ export default function AlbumDetailPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={handleBatchDelete}
-                className="w-8 h-8 rounded-full bg-red-500/10 shadow-sm flex items-center justify-center"
+                className="compact-button w-9 h-9 rounded-full bg-red-500/10 shadow-sm flex items-center justify-center"
               >
-                <Trash2 className="w-4 h-4 text-red-600" />
+                <Trash2 className="w-6 h-6 text-red-600" />
               </motion.button>
 
               <motion.button
@@ -472,10 +496,10 @@ export default function AlbumDetailPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={handleBatchDownload}
-                className="w-8 h-8 rounded-full bg-[#FFC857] shadow-sm flex items-center justify-center relative"
+                className="compact-button w-9 h-9 rounded-full bg-[#FFC857] shadow-sm flex items-center justify-center relative"
               >
-                <Download className="w-4 h-4 text-[#5D4037]" />
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#5D4037] text-white text-[8px] rounded-full flex items-center justify-center">
+                <Download className="w-6 h-6 text-[#5D4037]" />
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#5D4037] text-white text-[11px] rounded-full flex items-center justify-center font-bold">
                   {selectedPhotos.size}
                 </span>
               </motion.button>
@@ -647,12 +671,12 @@ export default function AlbumDetailPage() {
                       e.stopPropagation();
                       togglePhotoSelection(photo.id);
                     }}
-                    className="absolute top-3 right-3 w-8 h-8 rounded-2xl bg-transparent flex items-center justify-center hover:bg-white/20 transition-colors"
+                    className="compact-button absolute top-2 right-2 w-9 h-9 rounded-xl bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md border-2 border-white/50 transition-all"
                   >
                     {selectedPhotos.has(photo.id) ? (
-                      <CheckSquare className="w-5 h-5 text-[#FFC857]" />
+                      <CheckSquare className="w-6 h-6 text-[#FFC857]" />
                     ) : (
-                      <Square className="w-5 h-5 text-white/80" />
+                      <Square className="w-6 h-6 text-[#5D4037]/40" />
                     )}
                   </motion.button>
                 </div>
@@ -663,7 +687,7 @@ export default function AlbumDetailPage() {
                     whileTap={{ scale: 0.9 }}
                     onClick={() => photo.is_public ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
                     className={`
-                      flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all
+                      compact-button flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all
                       ${photo.is_public
                         ? 'bg-[#FFC857] text-[#5D4037]'
                         : 'bg-[#5D4037]/10 text-[#5D4037]/60'
@@ -764,9 +788,35 @@ export default function AlbumDetailPage() {
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setFullscreenPhoto(selectedPhoto);
-                        setScale(1);
-                        setPosition({ x: 0, y: 0 });
+
+                        // 检测是否在Android环境中
+                        const isAndroid = typeof window !== 'undefined' &&
+                          window.AndroidPhotoViewer &&
+                          typeof window.AndroidPhotoViewer.openPhotoViewer === 'function';
+
+                        if (isAndroid) {
+                          // 使用Android原生图片查看器
+                          const currentIndex = photos.findIndex(p => p.id === selectedPhoto);
+                          const photoUrls = photos.map(p => p.original_url);
+
+                          try {
+                            window.AndroidPhotoViewer.openPhotoViewer(
+                              JSON.stringify(photoUrls),
+                              currentIndex
+                            );
+                          } catch (error) {
+                            console.error('调用原生图片查看器失败:', error);
+                            // 降级到Web查看器
+                            setFullscreenPhoto(selectedPhoto);
+                            setScale(1);
+                            setPosition({ x: 0, y: 0 });
+                          }
+                        } else {
+                          // Web环境使用原有的全屏查看器
+                          setFullscreenPhoto(selectedPhoto);
+                          setScale(1);
+                          setPosition({ x: 0, y: 0 });
+                        }
                       }}
                       className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#FFC857] text-[#5D4037] transition-colors"
                     >

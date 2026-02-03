@@ -81,6 +81,7 @@ export default function BookingsPage() {
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [editingType, setEditingType] = useState<BookingType | null>(null);
   const [typeFormData, setTypeFormData] = useState({ name: '', description: '' });
+  const [deletingType, setDeletingType] = useState<BookingType | null>(null);
 
   // 城市管理状态
   const [cities, setCities] = useState<AllowedCity[]>([]);
@@ -90,6 +91,7 @@ export default function BookingsPage() {
   const [cityFormData, setCityFormData] = useState({ city_name: '', province: '', city_code: '' });
   const [showCityMapPicker, setShowCityMapPicker] = useState(false);
   const [cityLocation, setCityLocation] = useState({ latitude: 0, longitude: 0 });
+  const [deletingCity, setDeletingCity] = useState<AllowedCity | null>(null);
 
   useEffect(() => {
     loadBookings();
@@ -465,6 +467,37 @@ export default function BookingsPage() {
     }
   };
 
+  const handleDeleteType = (type: BookingType) => {
+    setDeletingType(type);
+  };
+
+  const confirmDeleteType = async () => {
+    if (!deletingType) return;
+
+    setActionLoading(true);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('booking_types')
+        .delete()
+        .eq('id', deletingType.id);
+
+      if (error) throw error;
+
+      setActionLoading(false);
+      setDeletingType(null);
+      loadBookingTypes();
+      setShowToast({ message: '约拍类型已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } catch (error: any) {
+      setActionLoading(false);
+      setDeletingType(null);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
   // 城市管理函数
   const loadCities = async () => {
     setCitiesLoading(true);
@@ -575,6 +608,37 @@ export default function BookingsPage() {
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const handleDeleteCity = (city: AllowedCity) => {
+    setDeletingCity(city);
+  };
+
+  const confirmDeleteCity = async () => {
+    if (!deletingCity) return;
+
+    setActionLoading(true);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('allowed_cities')
+        .delete()
+        .eq('id', deletingCity.id);
+
+      if (error) throw error;
+
+      setActionLoading(false);
+      setDeletingCity(null);
+      loadCities();
+      setShowToast({ message: '城市已删除', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } catch (error: any) {
+      setActionLoading(false);
+      setDeletingCity(null);
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -976,6 +1040,12 @@ export default function BookingsPage() {
                       编辑
                     </button>
                     <button
+                      onClick={() => handleDeleteType(type)}
+                      className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors text-sm"
+                    >
+                      删除
+                    </button>
+                    <button
                       onClick={() => handleToggleTypeStatus(type)}
                       className={`flex-1 px-4 py-2 rounded-full transition-colors text-sm ${type.is_active ? 'bg-gray-500 text-white hover:bg-gray-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
                     >
@@ -1036,6 +1106,12 @@ export default function BookingsPage() {
                       className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors text-sm"
                     >
                       编辑
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCity(city)}
+                      className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors text-sm"
+                    >
+                      删除
                     </button>
                     <button
                       onClick={() => handleToggleCityStatus(city)}
@@ -1441,6 +1517,90 @@ export default function BookingsPage() {
                 </button>
                 <button
                   onClick={confirmBatchDelete}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 约拍类型删除确认对话框 */}
+      <AnimatePresence>
+        {deletingType && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingType(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-[#5D4037] mb-4">确认删除约拍类型</h3>
+              <p className="text-[#5D4037]/80 mb-6">
+                确定要删除约拍类型「{deletingType.name}」吗？此操作无法撤销。
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeletingType(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDeleteType}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 城市删除确认对话框 */}
+      <AnimatePresence>
+        {deletingCity && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setDeletingCity(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-[#5D4037] mb-4">确认删除城市</h3>
+              <p className="text-[#5D4037]/80 mb-6">
+                确定要删除城市「{deletingCity.city_name}」吗？此操作无法撤销。
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeletingCity(null)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDeleteCity}
                   disabled={actionLoading}
                   className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
                 >

@@ -217,7 +217,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                     key={tag.id}
                     onClick={() => toggleTag(tag.name)}
                     className={`
-                      flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors
+                      tag-button flex-shrink-0 px-2 py-0.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-colors
                       ${selectedTags.includes(tag.name)
                         ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
                         : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
@@ -234,7 +234,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             {tags.length > 0 && (
               <button
                 onClick={() => setShowTagSelector(true)}
-                className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors bg-[#5D4037] text-white border-2 border-[#5D4037] flex items-center gap-1"
+                className="tag-button flex-shrink-0 px-2 py-0.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-colors bg-[#5D4037] text-white border-2 border-[#5D4037] flex items-center gap-1"
               >
                 全部
               </button>

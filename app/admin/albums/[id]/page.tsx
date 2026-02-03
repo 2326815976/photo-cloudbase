@@ -471,8 +471,11 @@ export default function AlbumDetailPage() {
     <div className="space-y-6 pt-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <button onClick={() => router.back()} className="text-[#5D4037] hover:text-[#FFC857] transition-colors">
-            <ArrowLeft className="w-6 h-6" />
+          <button
+            onClick={() => router.back()}
+            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>

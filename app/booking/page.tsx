@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import MapPicker from '@/components/MapPicker';
+import CustomSelect from '@/components/CustomSelect';
 import { createClient } from '@/lib/supabase/client';
 
 interface BookingType {
@@ -51,6 +52,7 @@ export default function BookingPage() {
     loadBookingTypes();
     loadAllowedCities();
     checkActiveBooking();
+    loadUserProfile();
 
     // 设置高德地图安全密钥
     (window as any)._AMapSecurityConfig = {
@@ -96,6 +98,27 @@ export default function BookingPage() {
 
     if (!error && data) {
       setAllowedCities(data);
+    }
+  };
+
+  const loadUserProfile = async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('phone, wechat')
+        .eq('id', user.id)
+        .single();
+
+      if (profile) {
+        setFormData(prev => ({
+          ...prev,
+          phone: profile.phone || '',
+          wechat: profile.wechat || '',
+        }));
+      }
     }
   };
 
@@ -373,10 +396,10 @@ export default function BookingPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-3 py-2.5 flex items-center gap-2">
-          <h1 className="flex-1 text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
-          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[45%]">
-            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">📝 写下你的约拍便利贴 📝</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
           </div>
         </div>
       </motion.div>
@@ -438,33 +461,23 @@ export default function BookingPage() {
                   </div>
 
                   <form onSubmit={handleSubmit} className="space-y-8">
-                    {/* 约拍类型 - 手账风下拉框 */}
+                    {/* 约拍类型 - 自定义下拉框 */}
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                         <Camera className="w-4 h-4" />
                         <span>约拍类型</span>
                       </label>
-                      <div className="relative">
-                        <select
-                          value={formData.typeId}
-                          onChange={(e) => handleTypeSelect(Number(e.target.value))}
-                          required
-                          className="w-full px-4 py-3 pr-10 bg-white border-2 border-[#5D4037]/20 rounded-2xl text-[#5D4037] font-medium appearance-none cursor-pointer focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] transition-all text-base"
-                          style={{
-                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235D4037' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                            backgroundRepeat: 'no-repeat',
-                            backgroundPosition: 'right 12px center',
-                            backgroundSize: '20px'
-                          }}
-                        >
-                          <option value={0} disabled>请选择约拍类型...</option>
-                          {bookingTypes.map((type) => (
-                            <option key={type.id} value={type.id}>
-                              {type.emoji} {type.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <CustomSelect
+                        value={formData.typeId}
+                        onChange={(value) => handleTypeSelect(value)}
+                        options={bookingTypes.map(type => ({
+                          value: type.id,
+                          label: type.name,
+                          emoji: type.emoji
+                        }))}
+                        placeholder="请选择约拍类型..."
+                        required
+                      />
                     </div>
 
                     {/* 约拍地点 - 可点击卡片 */}

@@ -69,9 +69,9 @@ export default function NewReleasePage() {
       <div className="flex items-center gap-4">
         <button
           onClick={() => window.location.href = '/admin/releases'}
-          className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+          className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
         >
-          <ArrowLeft className="w-6 h-6 text-[#5D4037]" />
+          <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
         </button>
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>

@@ -52,6 +52,8 @@ export default function PosesPage() {
   const [addingTag, setAddingTag] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [isTagSelectionMode, setIsTagSelectionMode] = useState(false);
+  const [editingTag, setEditingTag] = useState<PoseTag | null>(null);
+  const [editingTagName, setEditingTagName] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [deletingPose, setDeletingPose] = useState<Pose | null>(null);
@@ -448,6 +450,48 @@ export default function PosesPage() {
     }
   };
 
+  const handleEditTag = (tag: PoseTag) => {
+    setEditingTag(tag);
+    setEditingTagName(tag.name);
+  };
+
+  const handleUpdateTag = async () => {
+    if (!editingTag || !editingTagName.trim()) {
+      setShowToast({ message: '请输入标签名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (editingTagName === editingTag.name) {
+      setEditingTag(null);
+      setEditingTagName('');
+      return;
+    }
+
+    setActionLoading(true);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('pose_tags')
+        .update({ name: editingTagName.trim() })
+        .eq('id', editingTag.id);
+
+      if (error) throw error;
+
+      setEditingTag(null);
+      setEditingTagName('');
+      loadTags();
+      setShowToast({ message: '标签已更新', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } catch (error: any) {
+      setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const confirmDeleteTag = async () => {
     if (!deletingTag) return;
 
@@ -612,15 +656,15 @@ export default function PosesPage() {
                 <>
                   <button
                     onClick={() => setIsSelectionMode(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
                   >
                     批量删除
                   </button>
                   <button
                     onClick={openAddModal}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
                   >
-                    <Plus className="w-5 h-5" />
+                    <Plus className="w-4 h-4" />
                     新增摆姿
                   </button>
                 </>
@@ -681,7 +725,7 @@ export default function PosesPage() {
                     onClick={() => isSelectionMode && togglePoseSelection(pose.id)}
                     style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
                   >
-                    <div className="aspect-[3/4] relative">
+                    <div className="aspect-[3/4] relative group">
                       {isSelectionMode && (
                         <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
                           selectedPoseIds.includes(pose.id)
@@ -720,16 +764,22 @@ export default function PosesPage() {
                       {!isSelectionMode && (
                         <div className="absolute top-2 right-2 flex gap-2">
                           <button
-                            onClick={() => openEditModal(pose)}
-                            className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditModal(pose);
+                            }}
+                            className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors shadow-md"
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Edit2 size={28} strokeWidth={2.5} className="text-white" />
                           </button>
                           <button
-                            onClick={() => handleDeletePose(pose.id, pose.storage_path)}
-                            className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeletePose(pose.id, pose.storage_path);
+                            }}
+                            className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-md"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 size={28} strokeWidth={2.5} className="text-white" />
                           </button>
                         </div>
                       )}
@@ -884,12 +934,20 @@ export default function PosesPage() {
                         </div>
                       </div>
                       {!isTagSelectionMode && (
-                        <button
-                          onClick={() => handleDeleteTag(tag.id, tag.name)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleEditTag(tag)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTag(tag.id, tag.name)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </motion.div>
@@ -1161,6 +1219,70 @@ export default function PosesPage() {
                   className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
                 >
                   {addingTag ? '添加中...' : '确认添加'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 编辑标签弹窗 */}
+      <AnimatePresence>
+        {editingTag && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => {
+              setEditingTag(null);
+              setEditingTagName('');
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-[#5D4037]">修改标签</h2>
+                <button
+                  onClick={() => {
+                    setEditingTag(null);
+                    setEditingTagName('');
+                  }}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                    标签名称 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editingTagName}
+                    onChange={(e) => setEditingTagName(e.target.value)}
+                    placeholder="输入新的标签名称"
+                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                    autoFocus
+                  />
+                  <p className="mt-2 text-xs text-[#5D4037]/60">
+                    💡 修改标签名称不会影响已绑定的图片
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleUpdateTag}
+                  disabled={actionLoading || !editingTagName.trim()}
+                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {actionLoading ? '保存中...' : '保存修改'}
                 </button>
               </div>
             </motion.div>

@@ -122,13 +122,12 @@ export default function ChangePasswordPage() {
 
   return (
     <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
-      <motion.button
-        whileTap={{ scale: 0.9 }}
+      <button
         onClick={() => router.back()}
-        className="absolute left-6 top-6"
+        className="absolute left-6 top-6 w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
       >
-        <ArrowLeft className="w-6 h-6 text-[#5D4037]" strokeWidth={2} />
-      </motion.button>
+        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
+      </button>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

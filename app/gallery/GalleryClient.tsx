@@ -16,6 +16,7 @@ interface Photo {
   id: string;
   thumbnail_url: string;  // 速览图 URL
   preview_url: string;    // 高质量预览 URL
+  
   width: number;
   height: number;
   blurhash?: string;
@@ -131,6 +132,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         }
         return photo;
       }));
+
+      // 同步更新预览照片的点赞状态
+      if (previewPhoto && previewPhoto.id === photoId) {
+        setPreviewPhoto({
+          ...previewPhoto,
+          is_liked: data.liked,
+          like_count: data.liked ? previewPhoto.like_count + 1 : previewPhoto.like_count - 1
+        });
+      }
     }
   };
 
@@ -166,10 +176,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-3 py-2.5 flex items-center gap-2">
-          <h1 className="flex-1 text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
-          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[45%]">
-            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">📸 贩卖人间路过的温柔 📸</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>照片墙</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📸 贩卖人间路过的温柔 📸</p>
           </div>
         </div>
       </motion.div>
@@ -224,13 +234,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     </div>
 
                     {/* 信息区域 */}
-                    <div className="p-2">
+                    <div className="p-1.5 md:p-2">
                       {/* 互动数据 */}
                       <div className="flex items-center justify-between">
                         {/* 左侧：上传时间 */}
-                        <div className="flex items-center gap-1 text-[#8D6E63]/50">
+                        <div className="flex items-center gap-1 text-[#8D6E63]/50 py-0.5 pl-1">
                           <span className="text-[10px]">
                             {new Date(photo.created_at).toLocaleDateString('zh-CN', {
+                              year: 'numeric',
                               month: '2-digit',
                               day: '2-digit'
                             })}
@@ -242,7 +253,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                           // Android 环境：使用 CSS 动画
                           <button
                             onClick={(e) => handleLike(photo.id, e)}
-                            className="flex items-center gap-0.5 active:scale-90 transition-transform"
+                            className="compact-button flex items-center gap-0.5 active:scale-90 transition-transform py-0.5 pr-1"
                           >
                             <Heart
                               className={`w-3 h-3 transition-all duration-300 ${
@@ -258,7 +269,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                           <motion.button
                             whileTap={{ scale: 0.85 }}
                             onClick={(e) => handleLike(photo.id, e)}
-                            className="flex items-center gap-0.5"
+                            className="compact-button flex items-center gap-0.5 py-0.5 pr-1"
                           >
                             <motion.div
                               animate={photo.is_liked ? { scale: [1, 1.4, 1] } : {}}
@@ -342,13 +353,45 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                 {/* 图片容器 */}
                 <div className="p-4 pb-3">
-                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                  <div
+                    className="relative bg-white rounded-lg overflow-hidden shadow-inner cursor-pointer group"
+                    onClick={() => {
+                      // 检测是否在Android环境中
+                      const isAndroid = typeof window !== 'undefined' &&
+                        window.AndroidPhotoViewer &&
+                        typeof window.AndroidPhotoViewer.openPhotoViewer === 'function';
+
+                      if (isAndroid) {
+                        // 使用Android原生图片查看器
+                        const currentIndex = photos.findIndex(p => p.id === previewPhoto.id);
+                        const photoUrls = photos.map(p => p.preview_url);
+
+                        try {
+                          window.AndroidPhotoViewer.openPhotoViewer(
+                            JSON.stringify(photoUrls),
+                            currentIndex
+                          );
+                        } catch (error) {
+                          console.error('调用原生图片查看器失败:', error);
+                        }
+                      } else {
+                        // Web环境：在新标签页打开原图
+                        window.open(previewPhoto.preview_url, '_blank');
+                      }
+                    }}
+                  >
                     <SimpleImage
                       src={previewPhoto.preview_url}
                       alt="预览"
                       priority={true}
                       className="w-full h-auto max-h-[70vh]"
                     />
+                    {/* 点击提示 */}
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm rounded-full px-4 py-2">
+                        <p className="text-sm font-medium text-[#5D4037]">点击查看原图</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -359,10 +402,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       <Eye className="w-4 h-4" />
                       <span className="text-sm font-medium">{previewPhoto.view_count} 次浏览</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => handleLike(previewPhoto.id, e)}
+                      className="flex items-center gap-2 hover:scale-105 active:scale-95 transition-transform"
+                    >
                       <Heart className={`w-4 h-4 ${previewPhoto.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : ''}`} />
                       <span className="text-sm font-medium">{previewPhoto.like_count} 次点赞</span>
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>

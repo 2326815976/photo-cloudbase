@@ -3,13 +3,16 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle, Upload, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
 
 export default function NewAlbumPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     access_key: '',
@@ -29,56 +32,116 @@ export default function NewAlbumPage() {
     return key;
   };
 
+  const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+      setShowToast({ message: '请选择图片文件', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    try {
+      // 使用统一的压缩工具
+      const { compressImage } = await import('@/lib/utils/image-compression');
+      const compressedFile = await compressImage(file);
+      setCoverFile(compressedFile);
+
+      // 生成预览
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCoverPreview(reader.result as string);
+      };
+      reader.readAsDataURL(compressedFile);
+
+      setShowToast({ message: '图片已处理完成', type: 'success' });
+      setTimeout(() => setShowToast(null), 2000);
+    } catch (error: any) {
+      setShowToast({ message: `图片处理失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const removeCover = () => {
+    setCoverFile(null);
+    setCoverPreview(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    const supabase = createClient();
-    const accessKey = formData.auto_generate_key ? generateRandomKey() : formData.access_key;
+    try {
+      const supabase = createClient();
+      const accessKey = formData.auto_generate_key ? generateRandomKey() : formData.access_key;
 
-    if (!accessKey) {
-      setShowToast({ message: '请输入访问密钥', type: 'warning' });
-      setTimeout(() => setShowToast(null), 3000);
-      setLoading(false);
-      return;
-    }
+      if (!accessKey) {
+        setShowToast({ message: '请输入访问密钥', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        setLoading(false);
+        return;
+      }
 
-    // 检查密钥是否已存在
-    const { data: existing } = await supabase
-      .from('albums')
-      .select('id')
-      .eq('access_key', accessKey)
-      .single();
+      // 检查密钥是否已存在
+      const { data: existing } = await supabase
+        .from('albums')
+        .select('id')
+        .eq('access_key', accessKey)
+        .single();
 
-    if (existing) {
-      setShowToast({ message: '该访问密钥已存在，请使用其他密钥', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      setLoading(false);
-      return;
-    }
+      if (existing) {
+        setShowToast({ message: '该访问密钥已存在，请使用其他密钥', type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+        setLoading(false);
+        return;
+      }
 
-    // 计算有效期
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + formData.expiry_days);
+      // 上传封面图片（如果有）
+      let coverUrl = null;
+      if (coverFile) {
+        try {
+          const timestamp = Date.now();
+          const ext = coverFile.name.split('.').pop();
+          const fileName = `cover_${timestamp}.${ext}`;
+          coverUrl = await uploadToCosDirect(coverFile, fileName, 'albums');
+        } catch (uploadError: any) {
+          setShowToast({ message: `封面上传失败：${uploadError.message}`, type: 'error' });
+          setTimeout(() => setShowToast(null), 3000);
+          setLoading(false);
+          return;
+        }
+      }
 
-    const { error } = await supabase.from('albums').insert({
-      title: formData.title || '未命名空间',
-      access_key: accessKey,
-      welcome_letter: formData.welcome_letter,
-      recipient_name: formData.recipient_name || '拾光者',
-      enable_tipping: formData.enable_tipping,
-      expires_at: expiresAt.toISOString(),
-    });
+      // 计算有效期
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + formData.expiry_days);
 
-    if (error) {
+      const { error } = await supabase.from('albums').insert({
+        title: formData.title || '未命名空间',
+        access_key: accessKey,
+        cover_url: coverUrl,
+        welcome_letter: formData.welcome_letter,
+        recipient_name: formData.recipient_name || '拾光者',
+        enable_tipping: formData.enable_tipping,
+        expires_at: expiresAt.toISOString(),
+      });
+
+      if (error) {
+        setShowToast({ message: `创建失败：${error.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+        setLoading(false);
+      } else {
+        setShowToast({ message: '专属空间创建成功！', type: 'success' });
+        setTimeout(() => {
+          router.push('/admin/albums');
+        }, 1000);
+      }
+    } catch (error: any) {
       setShowToast({ message: `创建失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       setLoading(false);
-    } else {
-      setShowToast({ message: '专属空间创建成功！', type: 'success' });
-      setTimeout(() => {
-        router.push('/admin/albums');
-      }, 1000);
     }
   };
 
@@ -86,10 +149,9 @@ export default function NewAlbumPage() {
     <div className="max-w-2xl mx-auto space-y-6 pt-6">
       <button
         onClick={() => router.back()}
-        className="flex items-center gap-2 text-[#5D4037] hover:text-[#FFC857] transition-colors active:scale-95"
+        className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
       >
-        <ArrowLeft className="w-5 h-5" />
-        返回
+        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
       </button>
 
       <div>
@@ -111,6 +173,47 @@ export default function NewAlbumPage() {
             placeholder="例如：小美的专属空间"
             className="w-full px-4 py-2 border border-[#5D4037]/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFC857]"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-[#5D4037] mb-2">
+            封面图片
+          </label>
+          {!coverPreview ? (
+            <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleCoverSelect}
+                className="hidden"
+                id="cover-upload"
+              />
+              <label htmlFor="cover-upload" className="cursor-pointer">
+                <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                <p className="text-sm text-[#5D4037]/60">
+                  点击上传封面图片（最大5MB）
+                </p>
+                <p className="text-xs text-[#5D4037]/40 mt-1">
+                  将显示在用户的返图列表中
+                </p>
+              </label>
+            </div>
+          ) : (
+            <div className="relative border-2 border-[#5D4037]/20 rounded-xl overflow-hidden">
+              <img
+                src={coverPreview}
+                alt="封面预览"
+                className="w-full h-48 object-cover"
+              />
+              <button
+                type="button"
+                onClick={removeCover}
+                className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+          )}
         </div>
 
         <div>

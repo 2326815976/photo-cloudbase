@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Calendar, Lock, LogOut } from 'lucide-react';
+import { Calendar, Lock, LogOut, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 export default function ProfilePage() {
@@ -154,10 +154,10 @@ export default function ProfilePage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-3 py-2.5 flex items-center gap-2">
-          <h1 className="flex-1 text-lg sm:text-xl font-bold text-[#5D4037] leading-tight truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>我的小天地</h1>
-          <div className="flex-shrink-0 px-2 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[45%]">
-            <p className="text-[9px] sm:text-[10px] font-bold text-[#8D6E63] tracking-tight truncate">📒 管理你的拾光小秘密 📒</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>我的小天地</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📒 管理你的拾光小秘密 📒</p>
           </div>
         </div>
       </motion.div>
@@ -190,6 +190,25 @@ export default function ProfilePage() {
             transition={{ delay: 0.2 }}
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
+            onClick={() => router.push('/profile/edit')}
+            className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
+          >
+            <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
+              <User className="w-5 h-5 text-[#FFC857]" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-[#5D4037]">编辑个人资料</h3>
+              <p className="text-xs text-[#5D4037]/50">修改用户名、手机号、微信号</p>
+            </div>
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.25 }}
+            whileTap={{ scale: 0.98 }}
+            whileHover={{ x: 4 }}
+            onClick={() => router.push('/booking')}
             className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
           >
             <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">

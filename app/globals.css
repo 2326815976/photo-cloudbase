@@ -161,7 +161,7 @@ body {
 /* 移动端触摸优化 */
 @media (hover: none) and (pointer: coarse) {
   /* 移动设备：增大可点击区域 */
-  button, a {
+  button:not(.tag-button):not(.compact-button), a:not(.tag-button) {
     padding: 0.75rem 1rem;
   }
 

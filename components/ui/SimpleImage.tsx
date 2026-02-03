@@ -30,17 +30,12 @@ export default function SimpleImage({
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
+  const delayTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 智能初始化：检查图片是否已在缓存中
-  const [isLoading, setIsLoading] = useState(() => {
-    // 仅在浏览器环境中检查缓存
-    if (typeof window === 'undefined') return true;
+  // 统一初始状态避免 hydration 错误
+  const [isLoading, setIsLoading] = useState(true);
 
-    const img = new Image();
-    img.src = src;
-    return !(img.complete && img.naturalHeight !== 0);
-  });
-
+  const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
 
@@ -49,10 +44,21 @@ export default function SimpleImage({
     const img = imgRef.current;
     if (img && img.complete && img.naturalHeight !== 0) {
       setIsLoading(false);
+      setShowLoadingAnimation(false);
     } else {
       // 记录加载开始时间
       loadStartTimeRef.current = performance.now();
+      // 延迟0.5s后才显示加载动画
+      delayTimerRef.current = setTimeout(() => {
+        setShowLoadingAnimation(true);
+      }, 500);
     }
+
+    return () => {
+      if (delayTimerRef.current) {
+        clearTimeout(delayTimerRef.current);
+      }
+    };
   }, [src]);
 
   useEffect(() => {
@@ -70,7 +76,7 @@ export default function SimpleImage({
     <div className={`relative overflow-hidden ${className}`} onClick={onClick}>
       {/* 加载占位符 - 优化版 */}
       <AnimatePresence>
-        {isLoading && !hasError && (
+        {showLoadingAnimation && isLoading && !hasError && (
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -222,10 +228,20 @@ export default function SimpleImage({
             if (loadTime > 3000) {
               console.warn(`⚠️ 图片加载缓慢: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
             }
+            // 清除延迟计时器
+            if (delayTimerRef.current) {
+              clearTimeout(delayTimerRef.current);
+            }
             setIsLoading(false);
+            setShowLoadingAnimation(false);
           }}
           onError={() => {
+            // 清除延迟计时器
+            if (delayTimerRef.current) {
+              clearTimeout(delayTimerRef.current);
+            }
             setIsLoading(false);
+            setShowLoadingAnimation(false);
             setHasError(true);
           }}
         />
