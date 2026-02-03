@@ -20,7 +20,28 @@ interface AndroidPhotoDownload {
   downloadPhoto(url: string, filename: string): void;
 }
 
+interface AndroidClipboard {
+  /**
+   * 读取剪贴板内容
+   * @returns 剪贴板中的文本内容
+   */
+  getClipboardText(): string;
+
+  /**
+   * 写入内容到剪贴板
+   * @param text 要写入的文本内容
+   */
+  setClipboardText(text: string): void;
+
+  /**
+   * 检查剪贴板是否有内容
+   * @returns true 如果剪贴板有内容
+   */
+  hasClipboardText(): boolean;
+}
+
 interface Window {
   AndroidPhotoViewer?: AndroidPhotoViewer;
   AndroidPhotoDownload?: AndroidPhotoDownload;
+  AndroidClipboard?: AndroidClipboard;
 }

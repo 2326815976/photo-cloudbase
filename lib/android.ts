@@ -7,7 +7,7 @@
  */
 export function isAndroid(): boolean {
   return typeof window !== 'undefined' &&
-         (!!((window as any).AndroidPhotoDownload) || !!((window as any).AndroidClipboard));
+         (!!window.AndroidPhotoDownload || !!window.AndroidClipboard);
 }
 
 /**
@@ -18,10 +18,10 @@ export function isAndroid(): boolean {
 export function downloadPhoto(url: string, filename?: string): void {
   if (typeof window === 'undefined') return;
 
-  if ((window as any).AndroidPhotoDownload) {
+  if (window.AndroidPhotoDownload) {
     // Android原生下载
     const finalFilename = filename || url.split('/').pop() || 'photo.jpg';
-    (window as any).AndroidPhotoDownload.downloadPhoto(url, finalFilename);
+    window.AndroidPhotoDownload.downloadPhoto(url, finalFilename);
   } else {
     // Web端降级：使用浏览器下载
     const link = document.createElement('a');
@@ -39,9 +39,9 @@ export function downloadPhoto(url: string, filename?: string): void {
 export async function getClipboardText(): Promise<string> {
   if (typeof window === 'undefined') return '';
 
-  if ((window as any).AndroidClipboard) {
+  if (window.AndroidClipboard) {
     // Android原生读取
-    return (window as any).AndroidClipboard.getClipboardText();
+    return window.AndroidClipboard.getClipboardText();
   } else {
     // Web端降级：使用Clipboard API
     try {
@@ -59,9 +59,9 @@ export async function getClipboardText(): Promise<string> {
 export async function setClipboardText(text: string): Promise<boolean> {
   if (typeof window === 'undefined') return false;
 
-  if ((window as any).AndroidClipboard) {
+  if (window.AndroidClipboard) {
     // Android原生写入
-    (window as any).AndroidClipboard.setClipboardText(text);
+    window.AndroidClipboard.setClipboardText(text);
     return true;
   } else {
     // Web端降级：使用Clipboard API
@@ -81,8 +81,8 @@ export async function setClipboardText(text: string): Promise<boolean> {
 export function hasClipboardText(): boolean {
   if (typeof window === 'undefined') return false;
 
-  if ((window as any).AndroidClipboard) {
-    return (window as any).AndroidClipboard.hasClipboardText();
+  if (window.AndroidClipboard) {
+    return window.AndroidClipboard.hasClipboardText();
   }
   return false;
 }
