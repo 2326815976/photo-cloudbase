@@ -14,7 +14,7 @@ const journalColors = [
   'bg-[#FFF0F5] text-[#8B5A6B] border-[#D4A5B5]',
 ];
 
-const MAX_PRELOADED_IMAGES = 50;
+const MAX_PRELOADED_IMAGES = 20;
 
 interface PoseTag {
   id: number;

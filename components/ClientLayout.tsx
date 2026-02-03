@@ -31,15 +31,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  // 禁用预加载机制以提升性能
-  // useEffect(() => {
-  //   if (!isAdminRoute && pathname) {
-  //     const timer = setTimeout(() => {
-  //       prefetchByRoute(pathname);
-  //     }, 1000);
-  //     return () => clearTimeout(timer);
-  //   }
-  // }, [pathname, isAdminRoute]);
+  // 启用预加载机制，首页加载完成后再预加载其他页面
+  useEffect(() => {
+    if (!isAdminRoute && pathname) {
+      // 首页立即预加载，其他页面延迟预加载
+      const delay = pathname === '/' ? 0 : 1500;
+      const timer = setTimeout(() => {
+        prefetchByRoute(pathname);
+      }, delay);
+      return () => clearTimeout(timer);
+    }
+  }, [pathname, isAdminRoute]);
 
   if (isAdminRoute) {
     // 管理后台：使用桌面端全屏布局

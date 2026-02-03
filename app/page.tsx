@@ -25,11 +25,11 @@ export default async function HomePage() {
     .select('*')
     .order('usage_count', { ascending: false });
 
-  // 在服务端预加载适量摆姿数据（50张）用于快速切换
+  // 在服务端预加载少量摆姿数据（10张）用于快速首屏加载
   const { data: initialPoses } = await supabase
     .from('poses')
     .select('*')
-    .limit(50);
+    .limit(10);
 
   let initialPose: Pose | null = null;
   if (initialPoses && initialPoses.length > 0) {

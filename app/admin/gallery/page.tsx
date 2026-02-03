@@ -26,7 +26,7 @@ export default function AdminGalleryPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState<Photo | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
