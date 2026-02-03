@@ -8,6 +8,7 @@ import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import { createClient } from '@/lib/supabase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
+import { isAndroidApp } from '@/lib/platform';
 
 interface Folder {
   id: string;
@@ -790,11 +791,9 @@ export default function AlbumDetailPage() {
                         e.stopPropagation();
 
                         // 检测是否在Android环境中
-                        const isAndroid = typeof window !== 'undefined' &&
-                          window.AndroidPhotoViewer &&
-                          typeof window.AndroidPhotoViewer?.openPhotoViewer === 'function';
+                        const isAndroid = isAndroidApp();
 
-                        if (isAndroid) {
+                        if (isAndroid && window.AndroidPhotoViewer) {
                           // 使用Android原生图片查看器
                           const currentIndex = photos.findIndex(p => p.id === selectedPhoto);
                           const photoUrls = photos.map(p => p.original_url);

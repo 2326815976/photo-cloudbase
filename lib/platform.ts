@@ -27,10 +27,27 @@ declare global {
 
 /**
  * 检测是否在 Android App 环境中运行
+ * 使用 UserAgent 检测，避免依赖 JavaScript Bridge 的注入时机
  */
 export function isAndroidApp(): boolean {
   if (typeof window === 'undefined') return false;
-  return !!(window.AndroidPhotoDownload || window.AndroidClipboard || window.AndroidPhotoViewer);
+
+  // 优先使用 UserAgent 检测（更可靠，不依赖 Bridge 注入时机）
+  const userAgent = navigator.userAgent || '';
+  // 检测特定的App标识或Android WebView特征
+  const isAndroidWebView = /SloganApp|median|Android.*wv|Android.*Version\/[\d.]+.*Chrome/i.test(userAgent);
+
+  // 备用方案：检测 Bridge 对象（用于确认）
+  const hasBridge = !!(window.AndroidPhotoDownload || window.AndroidClipboard || window.AndroidPhotoViewer);
+
+  // 调试日志
+  if (typeof console !== 'undefined') {
+    console.log('[Platform] UserAgent:', userAgent);
+    console.log('[Platform] isAndroidWebView:', isAndroidWebView);
+    console.log('[Platform] hasBridge:', hasBridge);
+  }
+
+  return isAndroidWebView || hasBridge;
 }
 
 /**

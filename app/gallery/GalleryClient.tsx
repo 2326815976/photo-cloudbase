@@ -357,11 +357,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     className="relative bg-white rounded-lg overflow-hidden shadow-inner cursor-pointer group"
                     onClick={() => {
                       // 检测是否在Android环境中
-                      const isAndroid = typeof window !== 'undefined' &&
-                        window.AndroidPhotoViewer &&
-                        typeof window.AndroidPhotoViewer?.openPhotoViewer === 'function';
+                      const isAndroid = isAndroidApp();
 
-                      if (isAndroid) {
+                      if (isAndroid && window.AndroidPhotoViewer) {
                         // 使用Android原生图片查看器
                         const currentIndex = photos.findIndex(p => p.id === previewPhoto.id);
                         const photoUrls = photos.map(p => p.preview_url);
