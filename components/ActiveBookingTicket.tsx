@@ -31,6 +31,15 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
     });
   };
 
+  // 检查是否是预约当天
+  const isBookingDay = () => {
+    const bookingDate = new Date(booking.date);
+    const today = new Date();
+    return bookingDate.toDateString() === today.toDateString();
+  };
+
+  const canCancel = !isBookingDay();
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -120,16 +129,23 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
           </div>
 
           {/* 取消按钮 */}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={onCancel}
-            disabled={isCanceling}
-            className="w-full py-3 bg-[#5D4037]/10 hover:bg-[#5D4037]/20 text-[#5D4037] font-medium rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
-          >
-            <X className="w-4 h-4" />
-            <span>{isCanceling ? '取消中...' : '取消预约'}</span>
-          </motion.button>
+          {canCancel ? (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={onCancel}
+              disabled={isCanceling}
+              className="w-full py-3 bg-[#5D4037]/10 hover:bg-[#5D4037]/20 text-[#5D4037] font-medium rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
+            >
+              <X className="w-4 h-4" />
+              <span>{isCanceling ? '取消中...' : '取消预约'}</span>
+            </motion.button>
+          ) : (
+            <div className="w-full py-3 bg-[#5D4037]/5 text-[#5D4037]/40 font-medium rounded-2xl flex items-center justify-center gap-2 mt-6">
+              <X className="w-4 h-4" />
+              <span>预约当天不可取消</span>
+            </div>
+          )}
         </div>
 
         {/* 底部装饰 - 撕边效果 */}

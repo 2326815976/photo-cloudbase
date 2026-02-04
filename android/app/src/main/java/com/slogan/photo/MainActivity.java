@@ -1,5 +1,7 @@
 package com.slogan.photo;
 
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -11,6 +13,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.graphics.Insets;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.Bridge;
 import com.slogan.photo.download.DownloadPlugin;
 
 public class MainActivity extends BridgeActivity {
@@ -74,9 +77,32 @@ public class MainActivity extends BridgeActivity {
             // DownloadListener（备用方案）
             webView.setDownloadListener(fileDownloader);
 
+            // 动态注入版本号到URL
+            injectVersionToUrl();
+
             Log.d(TAG, "All bridges registered successfully");
         } else {
             Log.e(TAG, "WebView is null, cannot register bridges");
+        }
+    }
+
+    private void injectVersionToUrl() {
+        try {
+            PackageInfo packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            String versionName = packageInfo.versionName;
+
+            WebView webView = getBridge().getWebView();
+            if (webView != null) {
+                String currentUrl = webView.getUrl();
+                if (currentUrl != null && !currentUrl.contains("app_version=")) {
+                    String separator = currentUrl.contains("?") ? "&" : "?";
+                    String newUrl = currentUrl + separator + "app_version=" + versionName + "&platform=Android";
+                    webView.loadUrl(newUrl);
+                    Log.d(TAG, "Injected version to URL: " + newUrl);
+                }
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+            Log.e(TAG, "Failed to get version name", e);
         }
     }
 

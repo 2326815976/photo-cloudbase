@@ -6,6 +6,7 @@ import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import MapPicker from '@/components/MapPicker';
 import CustomSelect from '@/components/CustomSelect';
+import DatePicker from '@/components/DatePicker';
 import { createClient } from '@/lib/supabase/client';
 
 interface BookingType {
@@ -40,6 +41,8 @@ export default function BookingPage() {
     wechat: '',
     notes: '',
   });
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [activeBooking, setActiveBooking] = useState<any>(null);
@@ -65,6 +68,7 @@ export default function BookingPage() {
     loadAllowedCities();
     checkActiveBooking();
     loadUserProfile();
+    loadBlockedDates();
 
     // 设置高德地图安全密钥
     (window as any)._AMapSecurityConfig = {
@@ -134,6 +138,17 @@ export default function BookingPage() {
     }
   };
 
+  const loadBlockedDates = async () => {
+    try {
+      const response = await fetch('/api/blocked-dates');
+      const data = await response.json();
+      setBlockedDates(data.dates || []);
+    } catch (error) {
+      console.error('Failed to load blocked dates:', error);
+      setBlockedDates([]);
+    }
+  };
+
   const checkActiveBooking = async () => {
     setLoading(true);
     const supabase = createClient();
@@ -157,6 +172,7 @@ export default function BookingPage() {
           type: data.booking_types?.name || '',
           location: data.location,
           phone: data.phone,
+          wechat: data.wechat,
           status: data.status,
         });
       }
@@ -234,26 +250,33 @@ export default function BookingPage() {
       return;
     }
 
-    // 计算预约日期（至少提前一天，即明天）
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const bookingDate = tomorrow.toISOString().split('T')[0];
+    // 使用用户选择的日期，如果没有选择则默认为明天
+    const bookingDate = selectedDate || (() => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow.toISOString().split('T')[0];
+    })();
 
-    // 检查该日期是否已有预约（一天只能有一个用户申请）
-    const { data: existingBookings, error: checkError } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('booking_date', bookingDate)
-      .in('status', ['pending', 'confirmed']);
-
-    if (checkError) {
-      setError('检查预约状态失败，请稍后重试');
+    // 验证日期是否被选择
+    if (!selectedDate) {
+      setError('请选择预约日期');
       setIsSubmitting(false);
       return;
     }
 
-    if (existingBookings && existingBookings.length > 0) {
-      setError('抱歉，该日期已有预约，请选择其他日期或稍后再试');
+    // 🔒 安全验证：调用数据库函数检查日期是否可预约（包括锁定日期和已有预约检查）
+    const { data: isAvailable, error: availabilityError } = await supabase
+      .rpc('check_date_availability', { target_date: bookingDate });
+
+    if (availabilityError) {
+      console.error('Date availability check error:', availabilityError);
+      setError('检查日期可用性失败，请稍后重试');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!isAvailable) {
+      setError('抱歉，该日期不可预约（可能已被锁定或已有预约），请选择其他日期');
       setIsSubmitting(false);
       return;
     }
@@ -489,6 +512,25 @@ export default function BookingPage() {
                         }))}
                         placeholder="请选择约拍类型..."
                         required
+                      />
+                    </div>
+
+                    {/* 约拍日期 - 日期选择器 */}
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
+                        <Camera className="w-4 h-4" />
+                        <span>约拍日期 *</span>
+                      </label>
+                      <DatePicker
+                        value={selectedDate}
+                        onChange={setSelectedDate}
+                        minDate={(() => {
+                          const tomorrow = new Date();
+                          tomorrow.setDate(tomorrow.getDate() + 1);
+                          return tomorrow.toISOString().split('T')[0];
+                        })()}
+                        blockedDates={blockedDates}
+                        placeholder="请选择约拍日期（最早明天）..."
                       />
                     </div>
 

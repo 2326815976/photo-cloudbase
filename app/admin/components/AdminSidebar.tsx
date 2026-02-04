@@ -27,6 +27,7 @@ const navItems = [
   { href: '/admin/stats', label: '数据统计', icon: LayoutDashboard },
   { href: '/admin/poses', label: '摆姿管理', icon: Camera },
   { href: '/admin/bookings', label: '预约管理', icon: Calendar },
+  { href: '/admin/schedule', label: '档期管理', icon: Calendar },
   { href: '/admin/gallery', label: '照片墙管理', icon: Image },
   { href: '/admin/albums', label: '专属空间管理', icon: FolderHeart },
   { href: '/admin/releases', label: '发布版本', icon: Package },
