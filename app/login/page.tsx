@@ -2,14 +2,13 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Mail, Lock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const shouldReduceMotion = useReducedMotion();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -93,38 +92,11 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20 relative overflow-hidden">
-      {/* 装饰性背景元素 */}
-      <motion.div
-        animate={shouldReduceMotion ? { scale: 1, opacity: 0.3 } : {
-          scale: [1, 1.2, 1],
-          opacity: [0.3, 0.5, 0.3]
-        }}
-        transition={shouldReduceMotion ? { duration: 0.2 } : {
-          duration: 8,
-          repeat: Infinity,
-          ease: "easeInOut"
-        }}
-        className="absolute top-20 right-10 w-32 h-32 bg-[#FFC857]/10 rounded-full blur-3xl"
-      />
-      <motion.div
-        animate={shouldReduceMotion ? { scale: 1, opacity: 0.3 } : {
-          scale: [1, 1.3, 1],
-          opacity: [0.3, 0.5, 0.3]
-        }}
-        transition={shouldReduceMotion ? { duration: 0.2 } : {
-          duration: 10,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 2
-        }}
-        className="absolute bottom-40 left-10 w-40 h-40 bg-[#FFC857]/10 rounded-full blur-3xl"
-      />
-
+    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
       {/* 返回按钮 */}
       <button
         onClick={() => router.back()}
-        className="absolute left-6 top-6 z-10 w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+        className="absolute left-6 top-6 w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
       >
         <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
       </button>
@@ -133,7 +105,7 @@ function LoginForm() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12 mt-8 relative z-10"
+        className="text-center mb-12 mt-8"
       >
         <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
           欢迎回来 👋
@@ -147,35 +119,31 @@ function LoginForm() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
         onSubmit={handleSubmit}
-        className="flex-1 flex flex-col max-w-md mx-auto w-full relative z-10"
+        className="flex-1 flex flex-col max-w-md mx-auto w-full"
       >
-        <div className="space-y-5 mb-8">
-          {/* Email 输入框 - 使用注册页面样式 */}
+        <div className="space-y-4 mb-6">
+          {/* Email 输入框 - 完全使用注册页面样式 */}
           <div className="relative">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center z-10">
-              <Mail className="w-5 h-5 text-[#5D4037]/40" />
-            </div>
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
             <input
               type="email"
               placeholder="邮箱地址"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full h-14 pl-12 pr-4 rounded-2xl bg-white/80 backdrop-blur-sm border-2 border-[#5D4037]/10 focus:border-[#FFC857] focus:bg-white focus:outline-none transition-all text-[#5D4037] placeholder:text-[#5D4037]/40"
+              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
               required
             />
           </div>
 
-          {/* Password 输入框 - 使用注册页面样式 */}
+          {/* Password 输入框 - 完全使用注册页面样式 */}
           <div className="relative">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center z-10">
-              <Lock className="w-5 h-5 text-[#5D4037]/40" />
-            </div>
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
             <input
               type="password"
               placeholder="密码"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="w-full h-14 pl-12 pr-4 rounded-2xl bg-white/80 backdrop-blur-sm border-2 border-[#5D4037]/10 focus:border-[#FFC857] focus:bg-white focus:outline-none transition-all text-[#5D4037] placeholder:text-[#5D4037]/40"
+              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
               required
             />
           </div>
