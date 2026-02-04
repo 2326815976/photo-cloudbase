@@ -6,9 +6,10 @@ export const dynamic = 'force-dynamic'; // 不缓存
 // 删除锁定日期
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = await createClient();
 
     // 验证管理员权限
@@ -31,7 +32,7 @@ export async function DELETE(
     const { error } = await supabase
       .from('booking_blackouts')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       console.error('Error deleting blocked date:', error);
