@@ -172,9 +172,9 @@ export default function RegisterPage() {
                 theme: 'light',
                 size: 'normal',
                 retry: 'auto',
-                retryInterval: 8000, // 增加重试间隔到 8 秒（WebView 需要更多时间）
+                retryInterval: 8000,
                 refreshExpired: 'auto',
-                language: 'zh-CN',
+                language: 'zh-cn', // 修复：使用小写 zh-cn 而不是 zh-CN
                 execution: 'render',
                 appearance: 'always',
               }}

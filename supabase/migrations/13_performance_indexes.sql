@@ -66,18 +66,7 @@ COMMENT ON INDEX analytics_daily_date_idx IS '分析数据日期索引 - 优化�
 
 DO $$
 BEGIN
-  RAISE NOTICE '✅ 性能优化索引创建完成！';
-  RAISE NOTICE '📊 已创建索引：';
-  RAISE NOTICE '   - bookings: status, booking_date, status+date 复合索引';
-  RAISE NOTICE '   - profiles: role';
-  RAISE NOTICE '   - album_photos: is_public, created_at';
-  RAISE NOTICE '   - poses: tags (GIN索引)';
-  RAISE NOTICE '   - user_active_logs: active_date, user_id+active_date';
-  RAISE NOTICE '   - albums: expires_at, created_at';
-  RAISE NOTICE '   - analytics_daily: date';
-  RAISE NOTICE '   - photo_comments: photo_id, created_at';
-  RAISE NOTICE '💡 预期效果：';
-  RAISE NOTICE '   - 管理后台统计查询性能提升 50-80%';
-  RAISE NOTICE '   - 摆姿标签查询性能提升 70-90%';
-  RAISE NOTICE '   - 预约列表查询性能提升 60-80%';
+  RAISE NOTICE '性能优化索引创建完成';
+  RAISE NOTICE '已创建索引: bookings, profiles, album_photos, poses, user_active_logs, albums, analytics_daily, photo_comments';
+  RAISE NOTICE '预期效果: 查询性能提升 50-90%%';
 END $$;
