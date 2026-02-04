@@ -264,8 +264,6 @@ export default function BookingPage() {
         user_id: user.id,
         type_id: formData.typeId,
         booking_date: bookingDate,
-        time_slot_start: '09:00:00', // 默认时间段开始
-        time_slot_end: '18:00:00',   // 默认时间段结束
         location: formData.location,
         latitude: formData.latitude,
         longitude: formData.longitude,
@@ -450,7 +448,7 @@ export default function BookingPage() {
                   收到你的邀请啦！
                 </h2>
                 <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-                  我们会尽快通过微信与您联系确认约拍时间 ✨
+                  我们会尽快添加你的微信 {formData.wechat} 与您联系确认约拍时间 ✨
                 </p>
               </div>
             ) : (
