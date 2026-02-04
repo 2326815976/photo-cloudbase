@@ -111,17 +111,3 @@ export async function batchDeleteFromCOS(keys: string[]): Promise<void> {
   });
 }
 
-/**
- * 从URL中提取COS存储路径
- * @param url - 完整的URL（如：https://xxx.com/albums/timestamp_0_thumbnail.webp）
- * @returns 存储路径（如：albums/timestamp_0_thumbnail.webp）
- */
-export function extractKeyFromURL(url: string): string | null {
-  try {
-    const urlObj = new URL(url);
-    // 移除开头的斜杠
-    return urlObj.pathname.substring(1);
-  } catch {
-    return null;
-  }
-}

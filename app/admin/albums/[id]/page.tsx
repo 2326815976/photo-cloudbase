@@ -316,7 +316,7 @@ export default function AlbumDetailPage() {
 
     try {
       // 从URL中提取COS存储路径
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
 
       // 收集需要删除的文件路径（缩略图、预览图、原图）
       const filesToDelete = [
@@ -402,7 +402,7 @@ export default function AlbumDetailPage() {
       const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
 
       // 2. 收集所有需要删除的COS文件路径
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
       const filesToDelete: string[] = [];
 
       for (const photo of photosToDelete) {

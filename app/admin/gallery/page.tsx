@@ -73,7 +73,7 @@ export default function AdminGalleryPage() {
     const supabase = createClient();
 
     // 从URL中提取COS存储路径
-    const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+    const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
 
     // 收集需要删除的文件路径
     const filesToDelete = [
@@ -138,7 +138,7 @@ export default function AdminGalleryPage() {
       const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
 
       // 从URL中提取COS存储路径
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
 
       // 收集所有需要删除的文件路径（包括所有版本）
       const filePaths = photosToDelete.flatMap(p => [

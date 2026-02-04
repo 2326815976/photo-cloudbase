@@ -236,7 +236,7 @@ export default function AlbumDetailPage() {
       if (!photo) continue;
 
       // 从URL中提取COS存储路径
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
 
       // 收集需要删除的文件路径
       const filesToDelete = [

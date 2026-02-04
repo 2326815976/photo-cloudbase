@@ -56,7 +56,7 @@ export default function ReleasesPage() {
 
     // 从URL中提取COS存储路径并删除文件
     if (deletingRelease.download_url) {
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-client');
+      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
       const key = extractKeyFromURL(deletingRelease.download_url);
       if (key) {
         try {
