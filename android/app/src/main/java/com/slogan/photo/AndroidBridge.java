@@ -35,6 +35,33 @@ public class AndroidBridge {
                 Cursor cursor = downloadManager.query(query);
 
                 if (cursor != null && cursor.moveToFirst()) {
+                    int statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
+
+                    if (statusIndex != -1) {
+                        int status = cursor.getInt(statusIndex);
+
+                        // 检查下载是否完成
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                            Log.d(TAG, "下载完成，准备安装");
+                            cursor.close();
+                            // 停止轮询
+                            progressHandler.removeCallbacks(this);
+                            // 直接调用安装
+                            installApk();
+                            // 注销广播接收器
+                            unregisterDownloadReceiver();
+                            return;
+                        } else if (status == DownloadManager.STATUS_FAILED) {
+                            Log.e(TAG, "下载失败");
+                            cursor.close();
+                            progressHandler.removeCallbacks(this);
+                            sendEventToWeb("downloadError", "{\"error\":\"下载失败\"}");
+                            unregisterDownloadReceiver();
+                            return;
+                        }
+                    }
+
+                    // 更新进度
                     int bytesDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
                     int bytesTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
 
@@ -50,6 +77,7 @@ public class AndroidBridge {
                     cursor.close();
                 }
 
+                // 继续轮询
                 progressHandler.postDelayed(this, 500);
             }
         }
