@@ -14,6 +14,7 @@ export default function RegisterPage() {
   const [turnstileToken, setTurnstileToken] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [turnstileKey, setTurnstileKey] = useState(0);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,11 +129,34 @@ export default function RegisterPage() {
 
           {/* Turnstile 验证 */}
           <div className="relative">
-            <div className="bg-white rounded-full border-2 border-[#5D4037]/20 p-4 flex items-center justify-center min-h-[80px]">
+            <div className="bg-white rounded-full border-2 border-[#5D4037]/20 px-6 py-3 flex items-center justify-center min-h-[70px] transition-all hover:border-[#FFC857]/50">
               <Turnstile
+                key={turnstileKey}
                 siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
-                onSuccess={(token) => setTurnstileToken(token)}
-                onError={() => setError('人机验证失败，请刷新重试')}
+                onSuccess={(token) => {
+                  setTurnstileToken(token);
+                  setError('');
+                }}
+                onError={(errorCode) => {
+                  console.error('Turnstile 错误:', errorCode);
+                  setError('人机验证失败，请刷新重试');
+                }}
+                onTimeout={() => {
+                  console.error('Turnstile 超时');
+                  setError('验证超时，请重试');
+                }}
+                onExpire={() => {
+                  console.error('Turnstile 过期');
+                  setTurnstileToken('');
+                }}
+                options={{
+                  theme: 'light',
+                  size: 'normal',
+                  retry: 'auto',
+                  retryInterval: 3000,
+                  refreshExpired: 'auto',
+                  language: 'zh-CN'
+                }}
               />
             </div>
           </div>
