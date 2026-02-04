@@ -28,7 +28,7 @@ export default function MaintenanceButton() {
       } else {
         setResult({
           success: false,
-          message: `执行失败：${data.error || '未知错误'}`
+          message: `执行失败：${data.error || '未知错误'}${data.details ? ` - ${data.details}` : ''}`
         });
       }
     } catch (error: any) {

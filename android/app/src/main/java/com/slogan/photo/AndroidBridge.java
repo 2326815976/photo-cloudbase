@@ -107,7 +107,16 @@ public class AndroidBridge {
                         }
                     }
                 };
-                context.registerReceiver(downloadReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+                // Android 13+ 需要明确指定 RECEIVER_EXPORTED 或 RECEIVER_NOT_EXPORTED
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(
+                        downloadReceiver,
+                        new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                        Context.RECEIVER_NOT_EXPORTED
+                    );
+                } else {
+                    context.registerReceiver(downloadReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+                }
 
                 // 启动进度监控
                 progressHandler.post(progressRunnable);
