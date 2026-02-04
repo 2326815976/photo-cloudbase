@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // 使用手机号作为邮箱格式（临时方案）
-    const email = `${phone}@temp.local`;
+    const email = `${phone}@example.com`;
 
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email,

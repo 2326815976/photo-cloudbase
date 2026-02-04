@@ -53,7 +53,7 @@ function LoginForm() {
       }
 
       // 使用手机号作为邮箱格式登录
-      const email = `${formData.phone}@temp.local`;
+      const email = `${formData.phone}@example.com`;
 
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,

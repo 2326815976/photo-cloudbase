@@ -155,7 +155,7 @@ body {
 }
 
 .font-handwriting {
-  font-family: 'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive;
+  font-family: var(--font-ma-shan-zheng), var(--font-zcool-kuaile), cursive;
 }
 
 /* 移动端触摸优化 */

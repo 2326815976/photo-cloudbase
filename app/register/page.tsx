@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { createClient } from '@/lib/supabase/client';
@@ -56,14 +56,21 @@ export default function RegisterPage() {
 
       if (!response.ok) {
         setError(data.error || '注册失败，请重试');
+        // 重置 Turnstile 组件
+        setTurnstileToken('');
+        setTurnstileKey(prev => prev + 1);
         return;
       }
 
-      // 注册成功，跳转到首页
+      // 注册成功，清空 token 并跳转
+      setTurnstileToken('');
       router.push('/');
     } catch (err) {
       console.error('注册错误:', err);
       setError('网络错误，请重试');
+      // 重置 Turnstile 组件
+      setTurnstileToken('');
+      setTurnstileKey(prev => prev + 1);
     } finally {
       setLoading(false);
     }
