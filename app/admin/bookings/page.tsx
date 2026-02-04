@@ -162,7 +162,22 @@ export default function BookingsPage() {
       setShowToast({ message: `查询失败: ${error.message}`, type: 'error' });
     }
 
-    if (!error && data) {
+    if (!error && data && data.length > 0) {
+      // 手动获取用户信息
+      const userIds = [...new Set(data.map(b => b.user_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .in('id', userIds);
+
+      // 将用户信息合并到预约数据中
+      const bookingsWithProfiles = data.map(booking => ({
+        ...booking,
+        profiles: profiles?.find(p => p.id === booking.user_id) || { name: '未知用户', email: '' }
+      }));
+
+      setBookings(bookingsWithProfiles as any);
+    } else if (!error && data) {
       setBookings(data as any);
     }
     setBookingsLoading(false);
