@@ -7,6 +7,8 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.CookieManager;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import androidx.activity.EdgeToEdge;
 import androidx.core.view.ViewCompat;
@@ -50,7 +52,66 @@ public class MainActivity extends BridgeActivity {
             });
         }
 
+        // 配置 WebView 以支持 Turnstile
+        configureWebViewForTurnstile();
+
         Log.d(TAG, "MainActivity onCreate completed");
+    }
+
+    private void configureWebViewForTurnstile() {
+        WebView webView = getBridge().getWebView();
+        if (webView != null) {
+            WebSettings settings = webView.getSettings();
+
+            // 启用第三方 Cookie（Turnstile 必需）
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.setAcceptThirdPartyCookies(webView, true);
+            }
+
+            // 启用 DOM Storage（Turnstile 必需）
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+
+            // 设置缓存模式
+            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+            // 启用混合内容模式（允许 HTTPS 页面加载 Cloudflare 资源）
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            }
+
+            // 确保 JavaScript 完全启用
+            settings.setJavaScriptEnabled(true);
+            settings.setJavaScriptCanOpenWindowsAutomatically(true);
+
+            // 启用文件访问
+            settings.setAllowFileAccess(true);
+            settings.setAllowContentAccess(true);
+
+            // 启用硬件加速（提升 Turnstile 性能）
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+            // 设置 User-Agent（避免被识别为受限 WebView）
+            String userAgent = settings.getUserAgentString();
+            if (!userAgent.contains("Chrome")) {
+                settings.setUserAgentString(userAgent + " Chrome/120.0.0.0");
+            }
+
+            // 视口和缩放设置
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(true);
+            settings.setSupportZoom(false);
+            settings.setBuiltInZoomControls(false);
+
+            // 媒体播放设置（Turnstile 可能需要）
+            settings.setMediaPlaybackRequiresUserGesture(false);
+
+            Log.d(TAG, "WebView configured for Turnstile support with hardware acceleration");
+        } else {
+            Log.w(TAG, "WebView is null in onCreate, will configure in onStart");
+        }
     }
 
     @Override
@@ -62,6 +123,9 @@ public class MainActivity extends BridgeActivity {
         Log.d(TAG, "WebView instance: " + (webView != null ? "found" : "null"));
 
         if (webView != null) {
+            // 如果在 onCreate 中未配置（WebView 为 null），在这里再次配置
+            configureWebViewForTurnstile();
+
             // 初始化AndroidBridge
             androidBridge = new AndroidBridge(this, webView);
 

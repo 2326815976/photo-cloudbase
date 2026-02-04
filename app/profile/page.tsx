@@ -177,7 +177,6 @@ export default function ProfilePage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-[#5D4037]">{userName}</h2>
-              <p className="text-xs text-[#5D4037]/50">{userEmail}</p>
             </div>
           </div>
         </motion.div>

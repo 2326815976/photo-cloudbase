@@ -90,7 +90,7 @@ function LoginForm() {
         }
       } else {
         localStorage.removeItem('login_redirect');
-        router.push('/');
+        router.push('/profile');
       }
       router.refresh();
     } catch (err) {
@@ -190,15 +190,6 @@ function LoginForm() {
           transition={{ delay: 0.3 }}
           className="text-center mt-8 space-y-3"
         >
-          <p className="text-sm text-[#5D4037]/60">
-            <button
-              type="button"
-              onClick={() => router.push('/auth/forgot-password')}
-              className="text-[#FFC857] font-medium hover:underline"
-            >
-              忘记密码？
-            </button>
-          </p>
           <p className="text-sm text-[#5D4037]/60">
             还没有账号？
             <button
