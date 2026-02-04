@@ -102,18 +102,18 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
           if (allMatches && allMatches.length > 0) {
             if (selectedTags.length === 1) {
-              let filtered = allMatches.filter(p => p.tags.length === 1 && p.tags.includes(selectedTags[0]));
+              let filtered = allMatches.filter((p: any) => p.tags.length === 1 && p.tags.includes(selectedTags[0]));
               if (filtered.length === 0) {
-                filtered = allMatches.filter(p => (p.tags.length === 2 || p.tags.length === 3) && p.tags.includes(selectedTags[0]));
+                filtered = allMatches.filter((p: any) => (p.tags.length === 2 || p.tags.length === 3) && p.tags.includes(selectedTags[0]));
               }
               poses = filtered.length > 0 ? filtered : allMatches;
             } else if (selectedTags.length === 2 || selectedTags.length === 3) {
-              let filtered = allMatches.filter(p =>
+              let filtered = allMatches.filter((p: any) =>
                 (p.tags.length === 2 || p.tags.length === 3) &&
                 selectedTags.every(tag => p.tags.includes(tag))
               );
               if (filtered.length === 0) {
-                filtered = allMatches.filter(p =>
+                filtered = allMatches.filter((p: any) =>
                   (p.tags.length === 1 || p.tags.length === 2) &&
                   selectedTags.some(tag => p.tags.includes(tag))
                 );
