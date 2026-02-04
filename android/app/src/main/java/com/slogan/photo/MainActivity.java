@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     private ClipboardBridge clipboardBridge;
     private DownloadBridge downloadBridge;
     private FileDownloader fileDownloader;
+    private AndroidBridge androidBridge;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -58,11 +59,17 @@ public class MainActivity extends BridgeActivity {
         Log.d(TAG, "WebView instance: " + (webView != null ? "found" : "null"));
 
         if (webView != null) {
+            // 初始化AndroidBridge
+            androidBridge = new AndroidBridge(this, webView);
+
             // 剪切板桥接
             webView.addJavascriptInterface(clipboardBridge, "AndroidClipboard");
 
             // 下载桥接（主要方案）- 接口名称必须与Web端匹配
             webView.addJavascriptInterface(downloadBridge, "AndroidPhotoDownload");
+
+            // 版本更新桥接
+            webView.addJavascriptInterface(androidBridge, "AndroidBridge");
 
             // DownloadListener（备用方案）
             webView.setDownloadListener(fileDownloader);
