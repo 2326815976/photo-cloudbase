@@ -133,8 +133,6 @@ export default function RegisterPage() {
                 siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
                 onSuccess={(token) => setTurnstileToken(token)}
                 onError={() => setError('人机验证失败，请刷新重试')}
-                theme="light"
-                size="normal"
               />
             </div>
           </div>
