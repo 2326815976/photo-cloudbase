@@ -19,10 +19,10 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
   }, []);
 
   const handleDownload = async () => {
-    // Android原生下载
-    if (isAndroid && (window as any).AndroidBridge?.downloadImage) {
+    // Android原生下载 - 使用统一的下载接口
+    if (isAndroid && (window as any).AndroidPhotoDownload?.downloadPhoto) {
       try {
-        (window as any).AndroidBridge.downloadImage(qrCodeUrl, '赞赏码.png');
+        (window as any).AndroidPhotoDownload.downloadPhoto(qrCodeUrl, '赞赏码.png');
         return;
       } catch (error) {
         console.error('Android下载失败:', error);

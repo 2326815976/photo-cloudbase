@@ -364,7 +364,7 @@ export default function AlbumDetailPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
+        <div className="px-4 py-3 flex items-center gap-2">
           <button
             onClick={() => router.push('/')}
             className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors flex-shrink-0"
@@ -372,14 +372,14 @@ export default function AlbumDetailPage() {
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
 
-          <div className="flex-1 text-center">
-            <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <div className="flex-1 min-w-0 text-center">
+            <h1 className="text-2xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
               {albumData.album.title || '专属回忆'}
             </h1>
           </div>
 
-          <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 趁魔法消失前，把美好定格 ✨</p>
+          <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 max-w-[40%] overflow-hidden">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap overflow-hidden text-ellipsis">✨ 趁魔法消失前，把美好定格 ✨</p>
           </div>
         </div>
       </motion.div>

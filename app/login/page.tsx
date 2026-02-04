@@ -135,11 +135,6 @@ function LoginForm() {
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-12 mt-8 relative z-10"
       >
-        <div className="inline-block mb-4">
-          <div className="w-20 h-20 bg-gradient-to-br from-[#FFC857] to-[#FFB347] rounded-full flex items-center justify-center shadow-lg">
-            <span className="text-3xl">✨</span>
-          </div>
-        </div>
         <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
           欢迎回来 👋
         </h1>
@@ -155,28 +150,32 @@ function LoginForm() {
         className="flex-1 flex flex-col max-w-md mx-auto w-full relative z-10"
       >
         <div className="space-y-5 mb-8">
-          {/* Email 输入框 */}
+          {/* Email 输入框 - 使用注册页面样式 */}
           <div className="relative">
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40 z-10" />
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center z-10">
+              <Mail className="w-5 h-5 text-[#5D4037]/40" />
+            </div>
             <input
               type="email"
               placeholder="邮箱地址"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
+              className="w-full h-14 pl-12 pr-4 rounded-2xl bg-white/80 backdrop-blur-sm border-2 border-[#5D4037]/10 focus:border-[#FFC857] focus:bg-white focus:outline-none transition-all text-[#5D4037] placeholder:text-[#5D4037]/40"
               required
             />
           </div>
 
-          {/* Password 输入框 */}
+          {/* Password 输入框 - 使用注册页面样式 */}
           <div className="relative">
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40 z-10" />
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center z-10">
+              <Lock className="w-5 h-5 text-[#5D4037]/40" />
+            </div>
             <input
               type="password"
               placeholder="密码"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
+              className="w-full h-14 pl-12 pr-4 rounded-2xl bg-white/80 backdrop-blur-sm border-2 border-[#5D4037]/10 focus:border-[#FFC857] focus:bg-white focus:outline-none transition-all text-[#5D4037] placeholder:text-[#5D4037]/40"
               required
             />
           </div>

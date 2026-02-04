@@ -16,13 +16,13 @@ const config: CapacitorConfig = {
     // 状态栏配置：保持可见，不全屏
     SplashScreen: {
       launchShowDuration: 2000,
-      backgroundColor: "#ffffff",
+      backgroundColor: "#FFFBF0",
       androidScaleType: "CENTER_CROP",
       showSpinner: false,
     },
     StatusBar: {
       style: 'LIGHT',  // 状态栏样式
-      backgroundColor: '#000000',  // 状态栏背景色
+      overlaysWebView: false,  // 不覆盖WebView，保留状态栏空间
     },
   },
 };

@@ -26,7 +26,7 @@ public class DownloadHelper {
         request.setDescription("正在下载...");
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,
-            filename != null ? filename : URLUtil.guessFileName(url, null, null));
+            "拾光谣/" + (filename != null ? filename : URLUtil.guessFileName(url, null, null)));
         request.setAllowedOverMetered(true);
         request.setAllowedOverRoaming(true);
 
