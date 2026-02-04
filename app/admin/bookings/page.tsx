@@ -122,11 +122,26 @@ export default function BookingsPage() {
     setBookingsLoading(true);
     const supabase = createClient();
 
+    // 调试：检查当前登录用户
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log('🔍 当前登录用户:', user);
+
+    // 调试：检查用户的 profile 信息
+    if (user) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, email, role')
+        .eq('id', user.id)
+        .single();
+      console.log('🔍 用户 Profile:', profile);
+      console.log('🔍 Profile 查询错误:', profileError);
+    }
+
+    // 分步查询：先查询预约，再手动关联用户信息
     let query = supabase
       .from('bookings')
       .select(`
         *,
-        profiles(name, email),
         booking_types(name)
       `)
       .order('booking_date', { ascending: false });
@@ -136,6 +151,16 @@ export default function BookingsPage() {
     }
 
     const { data, error } = await query;
+
+    // 调试：打印查询结果
+    console.log('🔍 预约查询结果:', data);
+    console.log('🔍 预约查询错误:', error);
+    console.log('🔍 预约数量:', data?.length || 0);
+
+    if (error) {
+      console.error('❌ 预约查询失败:', error);
+      setShowToast({ message: `查询失败: ${error.message}`, type: 'error' });
+    }
 
     if (!error && data) {
       setBookings(data as any);

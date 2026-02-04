@@ -100,10 +100,14 @@ public class AndroidBridge {
                     @Override
                     public void onReceive(Context ctx, Intent intent) {
                         long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                        Log.d(TAG, "下载完成广播接收 - downloadId: " + id + ", 期望: " + downloadId);
                         if (id == downloadId) {
+                            Log.d(TAG, "ID匹配，开始安装APK");
                             progressHandler.removeCallbacks(progressRunnable);
                             installApk();
                             unregisterDownloadReceiver();
+                        } else {
+                            Log.w(TAG, "下载ID不匹配，忽略此广播");
                         }
                     }
                 };
@@ -143,11 +147,13 @@ public class AndroidBridge {
 
     private void installApk() {
         try {
+            Log.d(TAG, "开始执行 installApk()");
             DownloadManager.Query query = new DownloadManager.Query();
             query.setFilterById(downloadId);
             Cursor cursor = downloadManager.query(query);
 
             if (cursor != null && cursor.moveToFirst()) {
+                Log.d(TAG, "成功查询到下载记录");
                 int statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
                 if (statusIndex == -1) {
                     sendEventToWeb("downloadError", "{\"error\":\"无法获取下载状态\"}");
@@ -156,51 +162,53 @@ public class AndroidBridge {
                 }
 
                 int status = cursor.getInt(statusIndex);
+                Log.d(TAG, "下载状态: " + status + " (成功=" + DownloadManager.STATUS_SUCCESSFUL + ")");
 
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    int fileUriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI);
-                    if (fileUriIndex != -1) {
-                        String fileUriString = cursor.getString(fileUriIndex);
+                    cursor.close();
 
-                        if (fileUriString != null) {
-                            Uri fileUri = Uri.parse(fileUriString);
-                            File apkFile = new File(Uri.decode(fileUri.getPath()));
+                    // 使用 DownloadManager 的 API 获取 content URI
+                    Uri downloadUri = downloadManager.getUriForDownloadedFile(downloadId);
+                    Log.d(TAG, "下载文件URI: " + downloadUri);
 
-                            if (apkFile.exists()) {
-                                Intent intent = new Intent(Intent.ACTION_VIEW);
-                                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    if (downloadUri != null) {
+                        // 使用 ACTION_INSTALL_PACKAGE Intent（Android 7.0+）
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+                            intent.setData(downloadUri);
+                            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                    Uri apkUri = FileProvider.getUriForFile(
-                                        context,
-                                        context.getPackageName() + ".fileprovider",
-                                        apkFile
-                                    );
-                                    intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-                                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                } else {
-                                    intent.setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive");
-                                }
-
-                                context.startActivity(intent);
-                                sendEventToWeb("installStarted", "{}");
-                            } else {
-                                sendEventToWeb("installError", "{\"error\":\"APK文件不存在\"}");
-                            }
+                            Log.d(TAG, "启动安装Intent (ACTION_INSTALL_PACKAGE)");
+                            context.startActivity(intent);
+                            sendEventToWeb("installStarted", "{}");
                         } else {
-                            sendEventToWeb("installError", "{\"error\":\"无法获取文件路径\"}");
+                            // Android 6.0 及以下使用 ACTION_VIEW
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setDataAndType(downloadUri, "application/vnd.android.package-archive");
+                            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                            Log.d(TAG, "启动安装Intent (ACTION_VIEW)");
+                            context.startActivity(intent);
+                            sendEventToWeb("installStarted", "{}");
                         }
                     } else {
-                        sendEventToWeb("installError", "{\"error\":\"无法获取文件URI索引\"}");
+                        Log.e(TAG, "无法获取下载文件URI");
+                        sendEventToWeb("installError", "{\"error\":\"无法获取下载文件URI\"}");
                     }
                 } else if (status == DownloadManager.STATUS_FAILED) {
                     int reasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON);
                     int reason = reasonIndex != -1 ? cursor.getInt(reasonIndex) : -1;
+                    cursor.close();
                     sendEventToWeb("downloadError", "{\"error\":\"下载失败，错误码: " + reason + "\"}");
                 } else {
+                    cursor.close();
                     sendEventToWeb("downloadError", "{\"error\":\"下载未完成，状态: " + status + "\"}");
                 }
-                cursor.close();
+            } else {
+                if (cursor != null) cursor.close();
+                sendEventToWeb("downloadError", "{\"error\":\"无法查询下载记录\"}");
             }
         } catch (Exception e) {
             Log.e(TAG, "安装APK失败", e);
