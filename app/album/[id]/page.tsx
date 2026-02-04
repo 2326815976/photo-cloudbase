@@ -218,7 +218,7 @@ export default function AlbumDetailPage() {
       }
     }
 
-    setToast({ message: `已开始下载 ${selectedPhotosList.length} 张原图`, type: 'success' });
+    setToast({ message: `成功保存 ${selectedPhotosList.length} 张原图 📸`, type: 'success' });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -832,10 +832,10 @@ export default function AlbumDetailPage() {
                         try {
                           // 使用Android原生下载（自动降级到Web下载）
                           downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
-                          setToast({ message: '原图下载已开始', type: 'success' });
+                          setToast({ message: '原图保存成功 📸', type: 'success' });
                           setTimeout(() => setToast(null), 3000);
                         } catch (error) {
-                          setToast({ message: '下载失败', type: 'error' });
+                          setToast({ message: '保存失败，请重试', type: 'error' });
                           setTimeout(() => setToast(null), 3000);
                         }
                       }}
@@ -1015,7 +1015,7 @@ export default function AlbumDetailPage() {
                   const photo = photos.find(p => p.id === fullscreenPhoto);
                   if (photo) {
                     downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
-                    setToast({ message: '原图下载已开始', type: 'success' });
+                    setToast({ message: '原图保存成功 📸', type: 'success' });
                     setTimeout(() => setToast(null), 3000);
                   }
                 }, 800);

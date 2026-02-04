@@ -5,7 +5,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, Download, X } from 'lucide-react';
-import Toast from '@/components/ui/Toast';
 
 interface UpdateInfo {
   needUpdate: boolean;
@@ -242,7 +241,24 @@ export default function VersionChecker() {
           </div>
         </motion.div>
       </motion.div>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Toast 提示 - 参考下载原图的实现 */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          className="fixed bottom-6 right-6 z-[10000]"
+        >
+          <div className={`px-6 py-3 rounded-full shadow-lg ${
+            toast.type === 'success'
+              ? 'bg-green-500 text-white'
+              : 'bg-red-500 text-white'
+          }`}>
+            {toast.message}
+          </div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

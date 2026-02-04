@@ -1,19 +1,15 @@
 -- ================================================================================================
 -- 📂 项目：拾光谣 - 预约系统完整实现
--- 📝 版本：v1.0 - Booking System
--- 🎯 目标：
---   1. 创建约拍类型表（管理员可管理）
---   2. 创建城市限制表（管理员设定允许预约的城市）
---   3. 创建预约表（用户提交预约信息）
---   4. 创建档期锁定表（管理员锁定不可预约的日期）
--- 📅 日期：2026-02-02
+-- 📝 版本：v1.0_Consolidated
+-- 🎯 目标：约拍类型、城市限制、预约管理、档期锁定、取消策略
+-- 📅 日期：2026-02-04
+-- 🔄 合并自：006, 012, 013
 -- ================================================================================================
 
 -- ================================================================================================
--- Part 1: 约拍类型表
+-- 1. 约拍类型表
 -- ================================================================================================
 
--- 创建约拍类型表
 CREATE TABLE IF NOT EXISTS public.booking_types (
   id serial PRIMARY KEY,
   name text NOT NULL,
@@ -23,20 +19,7 @@ CREATE TABLE IF NOT EXISTS public.booking_types (
   updated_at timestamptz DEFAULT now()
 );
 
--- 如果表已存在但缺少description列，则添加它
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-    AND table_name = 'booking_types'
-    AND column_name = 'description'
-  ) THEN
-    ALTER TABLE public.booking_types ADD COLUMN description text;
-  END IF;
-END $$;
-
--- 添加唯一约束（如果不存在）
+-- 添加唯一约束
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -48,10 +31,8 @@ BEGIN
   END IF;
 END $$;
 
--- 添加索引
 CREATE INDEX IF NOT EXISTS idx_booking_types_is_active ON public.booking_types(is_active);
 
--- 添加注释
 COMMENT ON TABLE public.booking_types IS '约拍类型表 - 管理员可添加和管理';
 COMMENT ON COLUMN public.booking_types.name IS '约拍类型名称';
 COMMENT ON COLUMN public.booking_types.is_active IS '是否启用';
@@ -65,10 +46,9 @@ INSERT INTO public.booking_types (name, description) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- ================================================================================================
--- Part 2: 城市限制表
+-- 2. 城市限制表
 -- ================================================================================================
 
--- 创建城市限制表
 CREATE TABLE IF NOT EXISTS public.allowed_cities (
   id serial PRIMARY KEY,
   city_name text NOT NULL,
@@ -81,11 +61,9 @@ CREATE TABLE IF NOT EXISTS public.allowed_cities (
   updated_at timestamptz DEFAULT now()
 );
 
--- 添加索引
 CREATE INDEX IF NOT EXISTS idx_allowed_cities_is_active ON public.allowed_cities(is_active);
 CREATE INDEX IF NOT EXISTS idx_allowed_cities_city_name ON public.allowed_cities(city_name);
 
--- 添加注释
 COMMENT ON TABLE public.allowed_cities IS '允许预约的城市列表 - 管理员设定';
 COMMENT ON COLUMN public.allowed_cities.city_name IS '城市名称';
 COMMENT ON COLUMN public.allowed_cities.province IS '省份';
@@ -94,58 +72,27 @@ COMMENT ON COLUMN public.allowed_cities.latitude IS '城市中心纬度';
 COMMENT ON COLUMN public.allowed_cities.longitude IS '城市中心经度';
 
 -- ================================================================================================
--- Part 3: 预约表
+-- 3. 预约表
 -- ================================================================================================
 
--- 创建预约表
 CREATE TABLE IF NOT EXISTS public.bookings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   type_id integer NOT NULL REFERENCES public.booking_types(id) ON DELETE RESTRICT,
   booking_date date NOT NULL,
+  time_slot_start time,
+  time_slot_end time,
   location text NOT NULL,
+  latitude numeric(10, 6),
+  longitude numeric(10, 6),
+  city_name text,
   phone text NOT NULL,
   wechat text NOT NULL,
+  notes text,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'finished', 'cancelled')),
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-
--- 添加缺失的列（如果不存在）
-DO $$
-BEGIN
-  -- 添加 latitude 列
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'latitude'
-  ) THEN
-    ALTER TABLE public.bookings ADD COLUMN latitude numeric(10, 6);
-  END IF;
-
-  -- 添加 longitude 列
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'longitude'
-  ) THEN
-    ALTER TABLE public.bookings ADD COLUMN longitude numeric(10, 6);
-  END IF;
-
-  -- 添加 city_name 列
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'city_name'
-  ) THEN
-    ALTER TABLE public.bookings ADD COLUMN city_name text;
-  END IF;
-
-  -- 添加 notes 列
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'notes'
-  ) THEN
-    ALTER TABLE public.bookings ADD COLUMN notes text;
-  END IF;
-END $$;
 
 -- 添加索引
 CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON public.bookings(user_id);
@@ -154,10 +101,12 @@ CREATE INDEX IF NOT EXISTS idx_bookings_booking_date ON public.bookings(booking_
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON public.bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON public.bookings(created_at DESC);
 
--- 添加注释
+-- 字段注释
 COMMENT ON TABLE public.bookings IS '预约表 - 用户提交的预约信息';
 COMMENT ON COLUMN public.bookings.type_id IS '约拍类型ID';
 COMMENT ON COLUMN public.bookings.booking_date IS '约拍日期';
+COMMENT ON COLUMN public.bookings.time_slot_start IS '约拍时间段开始（可选，预留字段）';
+COMMENT ON COLUMN public.bookings.time_slot_end IS '约拍时间段结束（可选，预留字段）';
 COMMENT ON COLUMN public.bookings.location IS '约拍地点名称';
 COMMENT ON COLUMN public.bookings.latitude IS '约拍地点纬度';
 COMMENT ON COLUMN public.bookings.longitude IS '约拍地点经度';
@@ -168,10 +117,9 @@ COMMENT ON COLUMN public.bookings.notes IS '备注（选填）';
 COMMENT ON COLUMN public.bookings.status IS '预约状态：pending-待确认, confirmed-已确认, finished-已完成, cancelled-已取消';
 
 -- ================================================================================================
--- Part 4: 档期锁定表
+-- 4. 档期锁定表
 -- ================================================================================================
 
--- 创建档期锁定表
 CREATE TABLE IF NOT EXISTS public.booking_blackouts (
   id serial PRIMARY KEY,
   date date NOT NULL UNIQUE,
@@ -179,21 +127,19 @@ CREATE TABLE IF NOT EXISTS public.booking_blackouts (
   created_at timestamptz DEFAULT now()
 );
 
--- 添加索引
 CREATE INDEX IF NOT EXISTS idx_booking_blackouts_date ON public.booking_blackouts(date);
 
--- 添加注释
 COMMENT ON TABLE public.booking_blackouts IS '档期锁定表 - 管理员锁定不可预约的日期';
 COMMENT ON COLUMN public.booking_blackouts.date IS '锁定日期';
 COMMENT ON COLUMN public.booking_blackouts.reason IS '锁定原因';
 
 -- ================================================================================================
--- Part 5: RPC 函数
+-- 5. RPC 函数
 -- ================================================================================================
 
 -- 检查日期是否可预约
 CREATE OR REPLACE FUNCTION public.check_date_availability(target_date date)
-RETURNS boolean LANGUAGE plpgsql SECURITY definer AS $$
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   -- 检查是否在黑名单中
   IF EXISTS (
@@ -220,7 +166,7 @@ COMMENT ON FUNCTION public.check_date_availability(date) IS '检查指定日期�
 
 -- 验证城市是否在允许列表中
 CREATE OR REPLACE FUNCTION public.validate_city(p_city_name text)
-RETURNS boolean LANGUAGE plpgsql SECURITY definer AS $$
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.allowed_cities
@@ -232,8 +178,21 @@ $$;
 
 COMMENT ON FUNCTION public.validate_city(text) IS '验证城市是否在允许预约的列表中';
 
+-- 自动完成过期预约
+CREATE OR REPLACE FUNCTION public.auto_complete_expired_bookings()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE public.bookings
+  SET status = 'finished'
+  WHERE status IN ('pending', 'confirmed')
+    AND booking_date < CURRENT_DATE;
+END;
+$$;
+
+COMMENT ON FUNCTION public.auto_complete_expired_bookings() IS '自动将过期的预约（预约日期已过）标记为已完成';
+
 -- ================================================================================================
--- Part 6: RLS 策略
+-- 6. RLS 策略
 -- ================================================================================================
 
 -- 约拍类型表 RLS
@@ -296,6 +255,7 @@ ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own bookings" ON public.bookings;
 DROP POLICY IF EXISTS "Users can create bookings" ON public.bookings;
 DROP POLICY IF EXISTS "Users can update own pending bookings" ON public.bookings;
+DROP POLICY IF EXISTS "Users can cancel bookings before booking date" ON public.bookings;
 DROP POLICY IF EXISTS "Admins can view all bookings" ON public.bookings;
 DROP POLICY IF EXISTS "Admins can manage all bookings" ON public.bookings;
 
@@ -309,10 +269,14 @@ CREATE POLICY "Users can create bookings"
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update own pending bookings"
+CREATE POLICY "Users can cancel bookings before booking date"
   ON public.bookings FOR UPDATE
   TO authenticated
-  USING (auth.uid() = user_id AND status = 'pending')
+  USING (
+    auth.uid() = user_id
+    AND status IN ('pending', 'confirmed')
+    AND booking_date > CURRENT_DATE
+  )
   WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Admins can view all bookings"
@@ -340,6 +304,9 @@ CREATE POLICY "Admins can manage all bookings"
       WHERE id = auth.uid() AND role = 'admin'
     )
   );
+
+COMMENT ON POLICY "Users can cancel bookings before booking date" ON public.bookings
+IS '允许用户在预约日期之前取消待确认或已确认的预约（预约当天不可取消）';
 
 -- 档期锁定表 RLS
 ALTER TABLE public.booking_blackouts ENABLE ROW LEVEL SECURITY;
@@ -369,7 +336,7 @@ CREATE POLICY "Admins can manage blackouts"
   );
 
 -- ================================================================================================
--- Part 7: 触发器
+-- 7. 触发器
 -- ================================================================================================
 
 -- 更新 updated_at 字段的触发器函数
@@ -403,12 +370,40 @@ CREATE TRIGGER update_bookings_updated_at
   EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ================================================================================================
+-- 8. 定时任务配置（可选）
+-- ================================================================================================
+
+-- 尝试创建定时任务（每天凌晨1点执行）
+DO $$
+BEGIN
+  -- 检查 pg_cron 扩展是否存在
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    -- 删除旧的定时任务（如果存在）
+    PERFORM cron.unschedule('auto-complete-expired-bookings');
+
+    -- 创建新的定时任务
+    PERFORM cron.schedule(
+      'auto-complete-expired-bookings',
+      '0 1 * * *',
+      'SELECT public.auto_complete_expired_bookings()'
+    );
+
+    RAISE NOTICE '✅ 定时任务已创建：每天凌晨1点自动完成过期预约';
+  ELSE
+    RAISE NOTICE '⚠️  pg_cron 扩展未启用，请手动调用 auto_complete_expired_bookings() 或使用其他方式';
+  END IF;
+END $$;
+
+-- 立即执行一次，清理现有的过期预约
+SELECT public.auto_complete_expired_bookings();
+
+-- ================================================================================================
 -- 完成
 -- ================================================================================================
 
 DO $$
 BEGIN
-  RAISE NOTICE '✅ 预约系统数据库创建完成！';
+  RAISE NOTICE '✅ 预约系统完整功能创建完成！';
   RAISE NOTICE '📋 已创建表：';
   RAISE NOTICE '  - booking_types（约拍类型）';
   RAISE NOTICE '  - allowed_cities（城市限制）';
@@ -417,4 +412,5 @@ BEGIN
   RAISE NOTICE '🔒 RLS 策略已配置';
   RAISE NOTICE '⚡ RPC 函数已创建';
   RAISE NOTICE '🔄 触发器已设置';
+  RAISE NOTICE '📅 预约取消策略：只能在预约日期之前取消';
 END $$;

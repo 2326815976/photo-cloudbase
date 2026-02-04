@@ -60,6 +60,14 @@ export default function BookingsPage() {
     setLoading(false);
   };
 
+  const canCancelBooking = (booking: Booking) => {
+    const bookingDate = new Date(booking.booking_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    bookingDate.setHours(0, 0, 0, 0);
+    return bookingDate > today && booking.status === 'pending';
+  };
+
   const handleCancel = async (id: string) => {
     setCancelingId(id);
     const supabase = createClient();
@@ -234,7 +242,7 @@ export default function BookingsPage() {
 
                 {/* 操作按钮 */}
                 <div className="flex gap-2 mt-4 pt-4 border-t border-[#5D4037]/10">
-                  {booking.status === 'pending' && (
+                  {canCancelBooking(booking) && (
                     <motion.button
                       whileTap={{ scale: 0.95 }}
                       onClick={() => handleCancel(booking.id)}

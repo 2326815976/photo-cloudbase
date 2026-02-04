@@ -13,24 +13,29 @@ interface DonationModalProps {
 
 export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationModalProps) {
   const [isAndroid, setIsAndroid] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     setIsAndroid(isAndroidApp());
   }, []);
 
-  const handleDownload = async () => {
-    // Android原生下载 - 使用统一的下载接口
-    if (isAndroid && (window as any).AndroidPhotoDownload?.downloadPhoto) {
-      try {
-        (window as any).AndroidPhotoDownload.downloadPhoto(qrCodeUrl, '赞赏码.png');
-        return;
-      } catch (error) {
-        console.error('Android下载失败:', error);
-      }
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
     }
+  }, [toast]);
 
-    // Web降级方案
+  const handleDownload = async () => {
     try {
+      // Android原生下载
+      if (isAndroid && (window as any).AndroidPhotoDownload?.downloadPhoto) {
+        (window as any).AndroidPhotoDownload.downloadPhoto(qrCodeUrl, '赞赏码.png');
+        setToast({ message: '赞赏码保存成功 💝', type: 'success' });
+        return;
+      }
+
+      // Web降级方案
       const response = await fetch(qrCodeUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -41,8 +46,10 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+      setToast({ message: '赞赏码保存成功 💝', type: 'success' });
     } catch (error) {
       console.error('下载失败:', error);
+      setToast({ message: '保存失败，请重试', type: 'error' });
     }
   };
 
@@ -106,6 +113,19 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
             </div>
           </div>
         </div>
+
+        {/* Toast 提示 */}
+        {toast && (
+          <div className="fixed bottom-6 right-6 z-[10000] animate-in slide-in-from-bottom-4 duration-300">
+            <div className={`px-6 py-3 rounded-full shadow-lg ${
+              toast.type === 'success'
+                ? 'bg-green-500 text-white'
+                : 'bg-red-500 text-white'
+            }`}>
+              {toast.message}
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -182,6 +202,24 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
             </div>
           </motion.div>
         </>
+      )}
+
+      {/* Toast 提示 */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          className="fixed bottom-6 right-6 z-[10000]"
+        >
+          <div className={`px-6 py-3 rounded-full shadow-lg ${
+            toast.type === 'success'
+              ? 'bg-green-500 text-white'
+              : 'bg-red-500 text-white'
+          }`}>
+            {toast.message}
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

@@ -208,7 +208,7 @@ export default function ProfilePage() {
             transition={{ delay: 0.25 }}
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
-            onClick={() => router.push('/booking')}
+            onClick={() => router.push('/profile/bookings')}
             className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
           >
             <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">

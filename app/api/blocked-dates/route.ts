@@ -7,11 +7,19 @@ export async function GET() {
   try {
     const supabase = await createClient();
 
+    // 格式化日期为本地时间 YYYY-MM-DD（避免UTC时区问题）
+    const formatLocalDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     // 查询未来30天内的锁定日期
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate(new Date());
     const maxDate = new Date();
     maxDate.setDate(maxDate.getDate() + 30);
-    const maxDateStr = maxDate.toISOString().split('T')[0];
+    const maxDateStr = formatLocalDate(maxDate);
 
     const { data, error } = await supabase
       .from('booking_blackouts')

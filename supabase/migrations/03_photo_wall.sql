@@ -1,43 +1,13 @@
 -- ================================================================================================
--- 📂 项目：拾光谣 - 照片墙功能增强
--- 📝 版本：v3.0 - Photo Wall Enhancements (合并 010 + 012 + 013)
--- 🎯 目标：点赞、浏览量统计、多版本图片、浏览去重
--- 📅 日期：2026-02-02
+-- 📂 项目：拾光谣 - 照片墙功能完整实现
+-- 📝 版本：v1.0_Consolidated
+-- 🎯 目标：多版本图片、浏览量去重、点赞功能、定格到照片墙
+-- 📅 日期：2026-02-04
+-- 🔄 合并自：005
 -- ================================================================================================
 
 -- ================================================================================================
--- Part 1: 多版本图片支持
--- ================================================================================================
-
--- 为 album_photos 表添加多版本图片字段
-ALTER TABLE public.album_photos
-ADD COLUMN IF NOT EXISTS thumbnail_url text,     -- 速览图 URL (300px, 质量75, ~50-100KB)
-ADD COLUMN IF NOT EXISTS preview_url text,       -- 高质量预览 URL (1200px, 质量85, ~300-500KB)
-ADD COLUMN IF NOT EXISTS original_url text;      -- 原图 URL (仅返图空间，完整质量)
-
--- 添加字段注释
-COMMENT ON COLUMN public.album_photos.thumbnail_url IS '速览图URL - 用于列表快速加载 (300px, 质量75)';
-COMMENT ON COLUMN public.album_photos.preview_url IS '高质量预览URL - 用于点击预览 (1200px, 质量85)';
-COMMENT ON COLUMN public.album_photos.original_url IS '原图URL - 仅返图空间，用于下载 (完整质量)';
-
--- 保留 url 字段用于向后兼容，但改为可空（新数据不再使用）
-ALTER TABLE public.album_photos ALTER COLUMN url DROP NOT NULL;
-COMMENT ON COLUMN public.album_photos.url IS '兼容字段 - 新数据使用 thumbnail_url/preview_url/original_url';
-
--- 数据迁移：为现有数据填充新字段
-UPDATE public.album_photos
-SET
-  thumbnail_url = COALESCE(thumbnail_url, url),
-  preview_url = COALESCE(preview_url, url),
-  original_url = COALESCE(original_url, url)
-WHERE thumbnail_url IS NULL OR preview_url IS NULL OR original_url IS NULL;
-
--- 添加索引优化查询性能
-CREATE INDEX IF NOT EXISTS idx_album_photos_thumbnail_url ON public.album_photos(thumbnail_url) WHERE thumbnail_url IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_album_photos_preview_url ON public.album_photos(preview_url) WHERE preview_url IS NOT NULL;
-
--- ================================================================================================
--- Part 2: 浏览量去重机制
+-- 1. 浏览量去重机制
 -- ================================================================================================
 
 -- 创建照片浏览记录表
@@ -45,7 +15,7 @@ CREATE TABLE IF NOT EXISTS public.photo_views (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   photo_id uuid NOT NULL REFERENCES public.album_photos(id) ON DELETE CASCADE,
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
-  session_id text,  -- 用于未登录用户的会话标识
+  session_id text,
   viewed_at timestamptz DEFAULT now(),
   CONSTRAINT photo_views_unique_user UNIQUE (photo_id, user_id),
   CONSTRAINT photo_views_unique_session UNIQUE (photo_id, session_id)
@@ -56,10 +26,6 @@ CREATE INDEX IF NOT EXISTS idx_photo_views_photo_id ON public.photo_views(photo_
 CREATE INDEX IF NOT EXISTS idx_photo_views_user_id ON public.photo_views(user_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_photo_views_session_id ON public.photo_views(session_id) WHERE session_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_photo_views_viewed_at ON public.photo_views(viewed_at);
-
--- 添加表注释
-COMMENT ON TABLE public.photo_views IS '照片浏览记录表 - 用于防止重复计数';
-COMMENT ON COLUMN public.photo_views.session_id IS '未登录用户的会话标识（浏览器指纹或UUID）';
 
 -- RLS 策略
 ALTER TABLE public.photo_views ENABLE ROW LEVEL SECURITY;
@@ -88,13 +54,17 @@ CREATE POLICY "Admins can view all photo views"
     )
   );
 
+-- 表注释
+COMMENT ON TABLE public.photo_views IS '照片浏览记录表 - 用于防止重复计数';
+COMMENT ON COLUMN public.photo_views.session_id IS '未登录用户的会话标识（浏览器指纹或UUID）';
+
 -- ================================================================================================
--- Part 3: RPC 函数 - 点赞功能
+-- 2. RPC 函数 - 点赞功能
 -- ================================================================================================
 
 -- 点赞照片（仅登录用户）
 CREATE OR REPLACE FUNCTION public.like_photo(p_photo_id uuid)
-RETURNS jsonb LANGUAGE plpgsql SECURITY definer AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   v_user_id uuid;
   v_already_liked boolean;
@@ -140,7 +110,7 @@ $$;
 COMMENT ON FUNCTION public.like_photo(uuid) IS '点赞/取消点赞照片（仅登录用户）';
 
 -- ================================================================================================
--- Part 4: RPC 函数 - 浏览量统计（带去重）
+-- 3. RPC 函数 - 浏览量统计（带去重）
 -- ================================================================================================
 
 -- 优化后的浏览量增加函数（带去重机制）
@@ -148,7 +118,7 @@ CREATE OR REPLACE FUNCTION public.increment_photo_view(
   p_photo_id uuid,
   p_session_id text DEFAULT NULL
 )
-RETURNS jsonb LANGUAGE plpgsql SECURITY definer AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   v_user_id uuid;
   v_already_viewed boolean;
@@ -209,7 +179,7 @@ $$;
 COMMENT ON FUNCTION public.increment_photo_view(uuid, text) IS '增加照片浏览量（带去重机制，防止重复计数）';
 
 -- ================================================================================================
--- Part 5: RPC 函数 - 用户定格照片到照片墙
+-- 4. RPC 函数 - 用户定格照片到照片墙
 -- ================================================================================================
 
 -- 用户在专属空间定格照片到照片墙
@@ -217,7 +187,7 @@ CREATE OR REPLACE FUNCTION public.pin_photo_to_wall(
   p_access_key text,
   p_photo_id uuid
 )
-RETURNS void LANGUAGE plpgsql SECURITY definer AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   v_album_id uuid;
   v_is_public boolean;
@@ -247,7 +217,7 @@ $$;
 COMMENT ON FUNCTION public.pin_photo_to_wall(text, uuid) IS '用户在专属空间定格/取消定格照片到照片墙';
 
 -- ================================================================================================
--- Part 6: RPC 函数 - 获取照片墙数据（优化版）
+-- 5. RPC 函数 - 获取照片墙数据（优化版）
 -- ================================================================================================
 
 -- 替换原有的 get_public_gallery 函数，添加多版本URL和更多信息
@@ -297,12 +267,12 @@ $$;
 COMMENT ON FUNCTION public.get_public_gallery(int, int) IS '获取照片墙数据（分页，包含点赞状态和多版本URL）';
 
 -- ================================================================================================
--- Part 7: 清理旧浏览记录的定时任务
+-- 6. 清理旧浏览记录的定时任务
 -- ================================================================================================
 
 -- 创建清理函数：删除90天前的浏览记录
 CREATE OR REPLACE FUNCTION public.cleanup_old_photo_views()
-RETURNS void LANGUAGE plpgsql SECURITY definer AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   DELETE FROM public.photo_views
   WHERE viewed_at < now() - interval '90 days';
@@ -317,9 +287,8 @@ COMMENT ON FUNCTION public.cleanup_old_photo_views() IS '清理90天前的照片
 
 DO $$
 BEGIN
-  RAISE NOTICE '✅ 照片墙功能增强完成！';
+  RAISE NOTICE '✅ 照片墙功能完整实现完成！';
   RAISE NOTICE '📊 新增表：photo_views（浏览记录去重）';
-  RAISE NOTICE '🖼️  新增字段：thumbnail_url, preview_url, original_url';
   RAISE NOTICE '🔄 已创建 RPC 函数：';
   RAISE NOTICE '   - like_photo（点赞/取消点赞）';
   RAISE NOTICE '   - increment_photo_view（浏览量统计+去重）';

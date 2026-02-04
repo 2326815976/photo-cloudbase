@@ -1,16 +1,13 @@
 -- ================================================================================================
--- 📂 项目：拾光谣 - 后台管理系统数据统计
--- 📝 版本：v1.0 - Admin Dashboard Statistics
--- 🎯 目标：
---   1. 扩展 analytics_daily 表，添加完整的统计维度
---   2. 创建实时统计查询函数，供后台管理系统调用
---   3. 创建每日统计快照更新函数
---   4. 确保所有统计数据准确无误
--- 📅 日期：2026-02-03
+-- 📂 项目：拾光谣 - 统计分析系统
+-- 📝 版本：v1.0_Consolidated
+-- 🎯 目标：管理员仪表板统计、实时数据、趋势分析
+-- 📅 日期：2026-02-04
+-- 🔄 合并自：011
 -- ================================================================================================
 
 -- ================================================================================================
--- Part 1: 扩展 analytics_daily 表
+-- 1. 扩展 analytics_daily 表
 -- ================================================================================================
 
 -- 添加更多统计字段到每日快照表
@@ -73,7 +70,7 @@ COMMENT ON COLUMN public.analytics_daily.total_pose_tags_count IS '总标签数'
 COMMENT ON COLUMN public.analytics_daily.total_pose_views IS '摆姿总浏览量';
 
 -- ================================================================================================
--- Part 2: 实时统计查询函数
+-- 2. 实时统计查询函数
 -- ================================================================================================
 
 -- 获取后台管理系统实时统计数据
@@ -120,7 +117,7 @@ BEGIN
       'private', (SELECT COUNT(*) FROM public.album_photos WHERE is_public = false),
       'total_views', (SELECT COALESCE(SUM(view_count), 0) FROM public.album_photos),
       'total_likes', (SELECT COALESCE(SUM(like_count), 0) FROM public.album_photos),
-      'total_comments', 0,
+      'total_comments', (SELECT COUNT(*) FROM public.photo_comments),
       'avg_rating', (SELECT ROUND(AVG(rating)::numeric, 2) FROM public.album_photos WHERE rating > 0)
     ),
 
@@ -173,8 +170,8 @@ BEGIN
     'system', jsonb_build_object(
       'total_cities', (SELECT COUNT(*) FROM public.allowed_cities WHERE is_active = true),
       'total_blackout_dates', (SELECT COUNT(*) FROM public.booking_blackouts WHERE date >= CURRENT_DATE),
-      'total_releases', 0,
-      'latest_version', NULL
+      'total_releases', (SELECT COUNT(*) FROM public.app_releases),
+      'latest_version', (SELECT version FROM public.app_releases ORDER BY created_at DESC LIMIT 1)
     ),
 
     -- 趋势数据（最近7天）
@@ -216,7 +213,7 @@ $$;
 COMMENT ON FUNCTION public.get_admin_dashboard_stats() IS '获取后台管理系统实时统计数据（仅管理员）';
 
 -- ================================================================================================
--- Part 3: 每日统计快照更新函数
+-- 3. 每日统计快照更新函数
 -- ================================================================================================
 
 -- 更新每日统计快照
@@ -343,7 +340,7 @@ $$;
 COMMENT ON FUNCTION public.update_daily_analytics_snapshot() IS '更新每日统计快照（建议通过定时任务每日执行）';
 
 -- ================================================================================================
--- Part 4: 历史数据统计查询函数
+-- 4. 历史数据统计查询函数
 -- ================================================================================================
 
 -- 获取指定日期范围的统计趋势
@@ -393,7 +390,7 @@ $$;
 COMMENT ON FUNCTION public.get_analytics_trends(date, date) IS '获取指定日期范围的统计趋势（仅管理员）';
 
 -- ================================================================================================
--- Part 5: RLS 策略更新
+-- 5. RLS 策略更新
 -- ================================================================================================
 
 -- 确保 analytics_daily 表的 RLS 策略正确
@@ -427,7 +424,7 @@ CREATE POLICY "Admin manage stats"
   );
 
 -- ================================================================================================
--- Part 6: 初始化当前统计快照
+-- 6. 初始化当前统计快照
 -- ================================================================================================
 
 -- 立即执行一次统计快照更新
@@ -442,19 +439,12 @@ END $$;
 
 DO $$
 BEGIN
-  RAISE NOTICE '✅ 后台管理系统数据统计功能已完成！';
+  RAISE NOTICE '✅ 统计分析系统创建完成！';
   RAISE NOTICE '📊 已扩展 analytics_daily 表，添加完整统计维度';
   RAISE NOTICE '🔄 已创建 RPC 函数：';
   RAISE NOTICE '   - get_admin_dashboard_stats()：获取实时统计数据';
   RAISE NOTICE '   - update_daily_analytics_snapshot()：更新每日统计快照';
   RAISE NOTICE '   - get_analytics_trends(start_date, end_date)：获取历史趋势';
   RAISE NOTICE '🔒 RLS 策略已更新';
-  RAISE NOTICE '📈 统计维度包括：';
-  RAISE NOTICE '   - 用户统计（总数、新增、活跃、管理员）';
-  RAISE NOTICE '   - 相册统计（总数、新增、过期、打赏）';
-  RAISE NOTICE '   - 照片统计（总数、新增、公开/私密、浏览/点赞/评论）';
-  RAISE NOTICE '   - 预约统计（总数、新增、各状态数量、类型分布）';
-  RAISE NOTICE '   - 摆姿统计（总数、新增、标签、浏览量）';
-  RAISE NOTICE '   - 系统统计（城市、档期、版本发布）';
   RAISE NOTICE '💡 建议：配置定时任务每日执行 update_daily_analytics_snapshot()';
 END $$;
