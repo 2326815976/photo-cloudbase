@@ -14,11 +14,9 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [turnstileKey, setTurnstileKey] = useState(0);
-  const [turnstileLoading, setTurnstileLoading] = useState(true);
 
   // 每次进入页面时自动刷新 Turnstile
   useEffect(() => {
-    setTurnstileLoading(true);
     setTurnstileKey(prev => prev + 1);
   }, []);
 
@@ -141,31 +139,20 @@ export default function RegisterPage() {
           </div>
 
           {/* Turnstile 验证 */}
-          <div className="w-full flex justify-center relative min-h-[65px]">
-            {turnstileLoading && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
-                  <p className="text-xs text-[#5D4037]/60">加载人机验证中...</p>
-                </div>
-              </div>
-            )}
+          <div className="w-full flex justify-center">
             <Turnstile
               key={turnstileKey}
               siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
               onSuccess={(token) => {
                 setTurnstileToken(token);
-                setTurnstileLoading(false);
                 setError('');
               }}
               onError={(errorCode) => {
                 console.error('Turnstile 错误:', errorCode);
-                setTurnstileLoading(false);
                 setError('人机验证失败，请刷新重试');
               }}
               onTimeout={() => {
                 console.error('Turnstile 超时');
-                setTurnstileLoading(false);
                 setError('验证超时，请重试');
               }}
               onExpire={() => {

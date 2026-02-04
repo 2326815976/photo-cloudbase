@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
         .insert({
           id: authData.user.id,
           email,
+          name: '拾光者', // 默认用户名
           phone,
           role: 'user',
         });

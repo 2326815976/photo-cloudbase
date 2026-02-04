@@ -92,7 +92,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         poses = cachedPoses;
       } else {
         if (selectedTags.length === 0) {
-          const { data } = await supabase.from('poses').select('*');
+          const { data } = await supabase.from('poses').select('*').limit(50);
           if (data) poses = data;
         } else {
           const { data: allMatches } = await supabase
