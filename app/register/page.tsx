@@ -127,14 +127,16 @@ export default function RegisterPage() {
           </div>
 
           {/* Turnstile 验证 */}
-          <div className="flex justify-center py-2">
-            <Turnstile
-              siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
-              onSuccess={(token) => setTurnstileToken(token)}
-              onError={() => setError('人机验证失败，请刷新重试')}
-              theme="light"
-              size="normal"
-            />
+          <div className="relative">
+            <div className="bg-white rounded-full border-2 border-[#5D4037]/20 p-4 flex items-center justify-center min-h-[80px]">
+              <Turnstile
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
+                onSuccess={(token) => setTurnstileToken(token)}
+                onError={() => setError('人机验证失败，请刷新重试')}
+                theme="light"
+                size="normal"
+              />
+            </div>
           </div>
 
           {/* 错误提示 */}
