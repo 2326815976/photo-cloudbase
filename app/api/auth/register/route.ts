@@ -93,9 +93,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. 创建用户扩展信息表
+    // 6. 创建用户扩展信息表（同时写入 profiles 和 user_profiles 表）
     if (authData.user) {
-      const { error: profileError } = await supabaseAdmin
+      // 写入 user_profiles 表（手机号注册系统）
+      const { error: userProfileError } = await supabaseAdmin
         .from('user_profiles')
         .insert({
           id: authData.user.id,
@@ -105,9 +106,22 @@ export async function POST(request: NextRequest) {
           upload_limit: 20,
         });
 
+      if (userProfileError) {
+        console.error('创建 user_profiles 失败:', userProfileError);
+      }
+
+      // 写入 profiles 表（用户资料系统）
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: authData.user.id,
+          email,
+          phone,
+          role: 'user',
+        });
+
       if (profileError) {
-        console.error('创建用户资料失败:', profileError);
-        // 不阻断注册流程，仅记录错误
+        console.error('创建 profiles 失败:', profileError);
       }
     }
 
