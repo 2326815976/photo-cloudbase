@@ -25,11 +25,27 @@ export default function DatePicker({
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // 解析日期字符串为本地时间（避免UTC时区问题）
+  const parseLocalDate = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
   // 计算默认的最小和最大日期
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const min = minDate ? new Date(minDate) : today;
-  const max = maxDate ? new Date(maxDate) : new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const min = minDate ? parseLocalDate(minDate) : today;
+  const max = maxDate ? parseLocalDate(maxDate) : new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  // 格式化日期为 YYYY-MM-DD（本地时间）
+  const formatDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   // 格式化显示日期
   const formatDisplayDate = (dateStr: string) => {
@@ -59,7 +75,7 @@ export default function DatePicker({
 
   // 判断日期是否可选
   const isDateSelectable = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = formatDate(date);
     return date >= min && date <= max && !blockedDates.includes(dateStr);
   };
 
@@ -72,12 +88,12 @@ export default function DatePicker({
   // 判断日期是否被选中
   const isSelected = (date: Date) => {
     if (!value) return false;
-    return date.toISOString().split('T')[0] === value;
+    return formatDate(date) === value;
   };
 
   // 判断日期是否被锁定
   const isBlocked = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = formatDate(date);
     return blockedDates.includes(dateStr);
   };
 
@@ -133,18 +149,18 @@ export default function DatePicker({
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
             className="absolute z-50 w-full mt-2 bg-[#fffdf5] border-2 border-[#5D4037]/20 rounded-2xl shadow-lg overflow-hidden"
-            style={{ minWidth: '320px' }}
+            style={{ minWidth: '280px', maxWidth: '320px' }}
           >
             {/* 月份导航 */}
-            <div className="flex items-center justify-between px-4 py-3 bg-[#FFC857]/10 border-b border-[#5D4037]/10">
+            <div className="flex items-center justify-between px-3 py-2 bg-[#FFC857]/10 border-b border-[#5D4037]/10">
               <button
                 type="button"
                 onClick={() => changeMonth(-1)}
                 className="p-1 hover:bg-[#5D4037]/10 rounded-lg transition-colors"
               >
-                <ChevronLeft className="w-5 h-5 text-[#5D4037]" />
+                <ChevronLeft className="w-4 h-4 text-[#5D4037]" />
               </button>
-              <span className="font-bold text-[#5D4037]">
+              <span className="text-sm font-bold text-[#5D4037]">
                 {currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月
               </span>
               <button
@@ -152,16 +168,16 @@ export default function DatePicker({
                 onClick={() => changeMonth(1)}
                 className="p-1 hover:bg-[#5D4037]/10 rounded-lg transition-colors"
               >
-                <ChevronRight className="w-5 h-5 text-[#5D4037]" />
+                <ChevronRight className="w-4 h-4 text-[#5D4037]" />
               </button>
             </div>
 
             {/* 星期标题 */}
-            <div className="grid grid-cols-7 gap-1 px-2 py-2 bg-[#FFC857]/5">
+            <div className="grid grid-cols-7 gap-0.5 px-1.5 py-1.5 bg-[#FFC857]/5">
               {weekDays.map((day) => (
                 <div
                   key={day}
-                  className="text-center text-xs font-medium text-[#5D4037]/60 py-1"
+                  className="text-center text-[10px] font-medium text-[#5D4037]/60 py-0.5"
                 >
                   {day}
                 </div>
@@ -169,7 +185,7 @@ export default function DatePicker({
             </div>
 
             {/* 日期网格 */}
-            <div className="grid grid-cols-7 gap-1 p-2">
+            <div className="grid grid-cols-7 gap-0.5 p-1.5">
               {days.map((date, index) => {
                 const selectable = isDateSelectable(date);
                 const selected = isSelected(date);
@@ -182,7 +198,7 @@ export default function DatePicker({
                     type="button"
                     onClick={() => {
                       if (selectable) {
-                        onChange(date.toISOString().split('T')[0]);
+                        onChange(formatDate(date));
                         setIsOpen(false);
                       }
                     }}
@@ -190,7 +206,7 @@ export default function DatePicker({
                     whileHover={selectable ? { scale: 1.05 } : {}}
                     whileTap={selectable ? { scale: 0.95 } : {}}
                     className={`
-                      aspect-square rounded-lg text-sm font-medium transition-all
+                      aspect-square rounded-md text-xs font-medium transition-all
                       ${!inCurrentMonth ? 'text-[#5D4037]/20' : ''}
                       ${selected ? 'bg-[#FFC857] text-white shadow-md' : ''}
                       ${!selected && selectable && inCurrentMonth ? 'bg-white hover:bg-[#FFC857]/20 text-[#5D4037]' : ''}
@@ -210,13 +226,13 @@ export default function DatePicker({
             </div>
 
             {/* 图例说明 */}
-            <div className="px-4 py-3 bg-[#FFC857]/5 border-t border-[#5D4037]/10 text-xs text-[#5D4037]/60 space-y-1">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-[#FFC857] rounded" />
+            <div className="px-3 py-2 bg-[#FFC857]/5 border-t border-[#5D4037]/10 text-[10px] text-[#5D4037]/60 space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-[#FFC857] rounded" />
                 <span>已选中</span>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-[#5D4037]/5 rounded relative">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-[#5D4037]/5 rounded relative">
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-full h-0.5 bg-[#5D4037]/20 rotate-45" />
                   </div>

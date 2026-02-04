@@ -43,12 +43,14 @@ export default function VersionChecker() {
         case 'downloadStarted':
           setDownloading(true);
           setDownloadProgress(0);
+          setToast({ message: '开始下载新版本...', type: 'success' });
           break;
         case 'downloadProgress':
           setDownloadProgress(data.progress || 0);
           break;
         case 'installStarted':
           setDownloadProgress(100);
+          setToast({ message: '下载完成！正在打开安装界面...', type: 'success' });
           break;
         case 'downloadError':
         case 'installError':
