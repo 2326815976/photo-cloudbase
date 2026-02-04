@@ -33,6 +33,11 @@ interface GalleryClientProps {
 
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
+  const [fullscreenPhoto, setFullscreenPhoto] = useState<Photo | null>(null);
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [page, setPage] = useState(initialPage);
   const [allPhotos, setAllPhotos] = useState<Photo[]>(initialPhotos);
   const [hasMore, setHasMore] = useState(initialTotal > initialPhotos.length);
@@ -331,7 +336,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                 {/* 图片容器 */}
                 <div className="p-4 pb-3">
-                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                  <div
+                    className="relative bg-white rounded-lg overflow-hidden shadow-inner cursor-pointer"
+                    onClick={() => setFullscreenPhoto(previewPhoto)}
+                  >
                     <SimpleImage
                       src={previewPhoto.preview_url}
                       alt="预览"
@@ -360,6 +368,86 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               </div>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* 全屏高清预览弹窗 */}
+      <AnimatePresence>
+        {fullscreenPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              setFullscreenPhoto(null);
+              setScale(1);
+              setPosition({ x: 0, y: 0 });
+            }}
+            className="fixed inset-0 bg-black z-[60] flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full h-full flex items-center justify-center overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 关闭按钮 */}
+              <button
+                onClick={() => {
+                  setFullscreenPhoto(null);
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                }}
+                className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
+              >
+                <X className="w-6 h-6 text-white" />
+              </button>
+
+              {/* 高清预览图 - 支持缩放和拖拽 */}
+              <img
+                src={fullscreenPhoto.preview_url}
+                alt="全屏预览"
+                className="max-w-full max-h-full object-contain cursor-move select-none"
+                style={{
+                  transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+                  transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+                }}
+                onMouseDown={(e) => {
+                  setIsDragging(true);
+                  setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+                }}
+                onMouseMove={(e) => {
+                  if (isDragging) {
+                    setPosition({
+                      x: e.clientX - dragStart.x,
+                      y: e.clientY - dragStart.y
+                    });
+                  }
+                }}
+                onMouseUp={() => setIsDragging(false)}
+                onMouseLeave={() => setIsDragging(false)}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                  const newScale = Math.min(Math.max(1, scale + delta), 3);
+                  setScale(newScale);
+                  if (newScale === 1) {
+                    setPosition({ x: 0, y: 0 });
+                  }
+                }}
+                onDoubleClick={() => {
+                  if (scale === 1) {
+                    setScale(2);
+                  } else {
+                    setScale(1);
+                    setPosition({ x: 0, y: 0 });
+                  }
+                }}
+                draggable={false}
+              />
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

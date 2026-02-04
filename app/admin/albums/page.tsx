@@ -37,6 +37,8 @@ export default function AlbumsPage() {
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [editingCover, setEditingCover] = useState<Album | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [editingTitle, setEditingTitle] = useState<Album | null>(null);
+  const [newTitle, setNewTitle] = useState('');
 
   useEffect(() => {
     loadAlbums();
@@ -171,6 +173,27 @@ export default function AlbumsPage() {
       setNewWelcomeLetter('');
       loadAlbums();
       setShowToast({ message: '收件人和信内容已更新', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const handleUpdateTitle = async () => {
+    if (!editingTitle || !newTitle.trim()) return;
+
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('albums')
+      .update({ title: newTitle.trim() })
+      .eq('id', editingTitle.id);
+
+    if (!error) {
+      setEditingTitle(null);
+      setNewTitle('');
+      loadAlbums();
+      setShowToast({ message: '空间名称已更新', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
@@ -407,9 +430,21 @@ export default function AlbumsPage() {
                 <div className="p-5 space-y-4">
                   {/* 标题区域 */}
                   <div className="pb-3 border-b-2 border-dashed border-[#5D4037]/10">
-                    <h3 className="text-xl font-bold text-[#5D4037] mb-1" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-                      {album.title || '未命名空间'}
-                    </h3>
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <h3 className="text-xl font-bold text-[#5D4037] flex-1" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                        {album.title || '未命名空间'}
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setEditingTitle(album);
+                          setNewTitle(album.title || '');
+                        }}
+                        className="w-8 h-8 rounded-lg bg-[#5D4037]/5 hover:bg-[#FFC857] text-[#5D4037] hover:text-white transition-all flex items-center justify-center flex-shrink-0"
+                        title="修改空间名称"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    </div>
                     <p className="text-xs text-[#5D4037]/40">
                       创建于 {new Date(album.created_at).toLocaleDateString('zh-CN')}
                     </p>
@@ -801,6 +836,56 @@ export default function AlbumsPage() {
                 </button>
                 <button
                   onClick={handleUpdateRecipient}
+                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all"
+                >
+                  确认修改
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 标题编辑弹窗 */}
+      <AnimatePresence>
+        {editingTitle && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setEditingTitle(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-[#5D4037] mb-4">修改空间名称</h3>
+              <p className="text-sm text-[#5D4037]/60 mb-4">当前空间：{editingTitle.title || '未命名空间'}</p>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="输入新的空间名称"
+                className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 mb-4 transition-all"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setEditingTitle(null);
+                    setNewTitle('');
+                  }}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleUpdateTitle}
                   className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all"
                 >
                   确认修改

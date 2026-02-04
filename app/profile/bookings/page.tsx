@@ -12,7 +12,7 @@ interface Booking {
   location: string;
   phone: string;
   wechat: string;
-  status: 'pending' | 'confirmed' | 'finished' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'in_progress' | 'finished' | 'cancelled';
   notes?: string;
   city_name?: string;
   created_at: string;
@@ -20,10 +20,36 @@ interface Booking {
 }
 
 const statusConfig = {
-  pending: { label: '待确认', color: 'bg-yellow-100 text-yellow-800', emoji: '⏳' },
-  confirmed: { label: '已确认', color: 'bg-green-100 text-green-800', emoji: '✅' },
-  finished: { label: '已完成', color: 'bg-blue-100 text-blue-800', emoji: '🎉' },
-  cancelled: { label: '已取消', color: 'bg-gray-100 text-gray-600', emoji: '❌' },
+  pending: {
+    label: '待确认',
+    color: 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border border-amber-200/50',
+    emoji: '⏳',
+    shadow: 'shadow-sm shadow-amber-100'
+  },
+  confirmed: {
+    label: '已确认',
+    color: 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border border-emerald-200/50',
+    emoji: '✓',
+    shadow: 'shadow-sm shadow-emerald-100'
+  },
+  in_progress: {
+    label: '进行中',
+    color: 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200/50',
+    emoji: '📸',
+    shadow: 'shadow-sm shadow-blue-100'
+  },
+  finished: {
+    label: '已完成',
+    color: 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border border-purple-200/50',
+    emoji: '✨',
+    shadow: 'shadow-sm shadow-purple-100'
+  },
+  cancelled: {
+    label: '已取消',
+    color: 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-600 border border-gray-200/50',
+    emoji: '✕',
+    shadow: 'shadow-sm shadow-gray-100'
+  },
 };
 
 export default function BookingsPage() {
@@ -65,7 +91,13 @@ export default function BookingsPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     bookingDate.setHours(0, 0, 0, 0);
-    return bookingDate > today && booking.status === 'pending';
+    // 约拍当天前，待确认和已确认状态可以取消
+    return bookingDate > today && (booking.status === 'pending' || booking.status === 'confirmed');
+  };
+
+  const canDeleteBooking = (booking: Booking) => {
+    // 已取消和已完成的订单可以删除
+    return booking.status === 'cancelled' || booking.status === 'finished';
   };
 
   const handleCancel = async (id: string) => {
@@ -184,9 +216,9 @@ export default function BookingsPage() {
               >
                 {/* 状态标签 */}
                 <div className="flex items-center justify-between mb-4">
-                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${statusConfig[booking.status].color}`}>
-                    <span>{statusConfig[booking.status].emoji}</span>
-                    <span>{statusConfig[booking.status].label}</span>
+                  <span className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium ${statusConfig[booking.status].color} ${statusConfig[booking.status].shadow}`}>
+                    <span className="text-sm">{statusConfig[booking.status].emoji}</span>
+                    <span className="font-semibold">{statusConfig[booking.status].label}</span>
                   </span>
                   <span className="text-xs text-[#5D4037]/40">
                     {new Date(booking.created_at).toLocaleDateString('zh-CN')}
@@ -247,18 +279,18 @@ export default function BookingsPage() {
                       whileTap={{ scale: 0.95 }}
                       onClick={() => handleCancel(booking.id)}
                       disabled={cancelingId === booking.id}
-                      className="flex-1 py-2 px-4 bg-orange-50 text-orange-600 rounded-xl text-sm font-medium hover:bg-orange-100 transition-colors disabled:opacity-50"
+                      className="flex-1 py-2.5 px-4 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-600 rounded-xl text-sm font-medium hover:from-orange-100 hover:to-amber-100 transition-all disabled:opacity-50 border border-orange-200/50 shadow-sm"
                     >
                       {cancelingId === booking.id ? '取消中...' : '取消预约'}
                     </motion.button>
                   )}
 
-                  {(booking.status === 'cancelled' || booking.status === 'finished') && (
+                  {canDeleteBooking(booking) && (
                     <motion.button
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setShowDeleteConfirm(booking.id)}
                       disabled={deletingId === booking.id}
-                      className="flex-1 py-2 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                      className="flex-1 py-2.5 px-4 bg-gradient-to-r from-red-50 to-rose-50 text-red-600 rounded-xl text-sm font-medium hover:from-red-100 hover:to-rose-100 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 border border-red-200/50 shadow-sm"
                     >
                       <Trash2 className="w-4 h-4" />
                       <span>{deletingId === booking.id ? '删除中...' : '删除记录'}</span>

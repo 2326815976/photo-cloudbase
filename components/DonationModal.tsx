@@ -81,14 +81,10 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
                 ✨ 留下一份心意？
               </h3>
 
-              <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-4 text-center">
-                如果这些照片让你感受到了温暖和美好，不妨留下一份小小的心意~ 💝
+              <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-6 text-center">
+                如果这些照片让你感到满意，不妨留下一份小小的心意~ 💝
                 你的支持就像 <span className="font-bold text-[#FFC857]">【魔法星尘】</span>，
                 会让更多美好的瞬间被记录和分享！✨
-              </p>
-
-              <p className="text-xs text-[#5D4037]/50 leading-relaxed mb-6 text-center">
-                💡 Tips：长按保存赞赏码，用你喜欢的方式表达心意吧~
               </p>
 
               {/* 赞赏码图片 */}
@@ -168,14 +164,10 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
                   ✨ 留下一份心意？
                 </h3>
 
-                <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-4 text-center">
-                  如果这些照片让你感受到了温暖和美好，不妨留下一份小小的心意~ 💝
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-6 text-center">
+                  如果这些照片让你感到满意，不妨留下一份小小的心意~ 💝
                   你的支持就像 <span className="font-bold text-[#FFC857]">【魔法星尘】</span>，
                   会让更多美好的瞬间被记录和分享！✨
-                </p>
-
-                <p className="text-xs text-[#5D4037]/50 leading-relaxed mb-6 text-center">
-                  💡 Tips：长按保存赞赏码，用你喜欢的方式表达心意吧~
                 </p>
 
                 {/* 赞赏码图片 */}

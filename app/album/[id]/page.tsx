@@ -143,6 +143,16 @@ export default function AlbumDetailPage() {
     return photos.filter(photo => photo.folder_id === selectedFolder);
   }, [photos, selectedFolder]);
 
+  // 计算相册过期天数
+  const expiryDays = useMemo(() => {
+    if (!albumData?.album?.expires_at) return 7; // 默认7天
+    const expiryDate = new Date(albumData.album.expires_at);
+    const now = new Date();
+    const diffTime = expiryDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 7; // 如果已过期或计算出错，默认7天
+  }, [albumData]);
+
   const togglePublic = async (photoId: string) => {
     const photo = photos.find(p => p.id === photoId);
     if (!photo) return;
@@ -203,9 +213,12 @@ export default function AlbumDetailPage() {
   };
 
   const handleBatchDownload = async () => {
-    const selectedPhotosList = photos.filter(p => selectedPhotos.has(p.id));
+    // 如果有选中照片，下载选中的；否则下载全部
+    const photosToDownload = selectedPhotos.size > 0
+      ? photos.filter(p => selectedPhotos.has(p.id))
+      : filteredPhotos;
 
-    for (const photo of selectedPhotosList) {
+    for (const photo of photosToDownload) {
       try {
         // 使用Android原生下载（自动降级到Web下载）
         downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
@@ -218,7 +231,7 @@ export default function AlbumDetailPage() {
       }
     }
 
-    setToast({ message: `成功保存 ${selectedPhotosList.length} 张原图 📸`, type: 'success' });
+    setToast({ message: `成功保存 ${photosToDownload.length} 张原图 📸`, type: 'success' });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -345,7 +358,7 @@ export default function AlbumDetailPage() {
   }
 
   const folders = [
-    { id: 'all', name: '全部照片' },
+    { id: 'all', name: '原图' },
     ...albumData.folders
   ];
 
@@ -446,7 +459,6 @@ export default function AlbumDetailPage() {
               key={folder.id}
               whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedFolder(folder.id)}
-              animate={selectedFolder === folder.id && !shouldReduceMotion ? { rotate: 1.5 } : { rotate: 0 }}
               className={`
                 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all
                 ${selectedFolder === folder.id
@@ -463,48 +475,58 @@ export default function AlbumDetailPage() {
         {/* 右侧：功能图标按钮 */}
         <div className="flex-none flex items-center gap-1.5">
           <motion.button
-            whileTap={{ scale: 0.9 }}
+            whileTap={{ scale: 0.95 }}
             onClick={toggleSelectAll}
-            className="flex items-center gap-2 px-2.5 py-1.5 md:px-2 md:py-0.5 bg-[#5D4037]/5 rounded-full"
+            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+              selectedPhotos.size === filteredPhotos.length
+                ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
+                : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
+            }`}
           >
             {selectedPhotos.size === filteredPhotos.length ? (
               <>
-                <CheckSquare className="w-5 h-5 md:w-4 md:h-4 text-[#FFC857]" />
-                <span className="text-sm md:text-xs font-medium text-[#5D4037]">全选</span>
+                <CheckSquare className="w-4 h-4" />
+                <span>全选</span>
               </>
             ) : (
               <>
-                <Square className="w-5 h-5 md:w-4 md:h-4 text-[#5D4037]/40" />
-                <span className="text-sm md:text-xs font-medium text-[#5D4037]/60">全选</span>
+                <Square className="w-4 h-4" />
+                <span>全选</span>
               </>
             )}
           </motion.button>
 
-          {selectedPhotos.size > 0 && (
-            <>
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={handleBatchDelete}
-                className="compact-button w-9 h-9 rounded-full bg-red-500/10 shadow-sm flex items-center justify-center"
-              >
-                <Trash2 className="w-6 h-6 text-red-600" />
-              </motion.button>
+          {/* 下载按钮 - 常驻显示 */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={handleBatchDownload}
+            className={`flex-shrink-0 flex items-center gap-1.5 rounded-full text-xs font-bold transition-all ${
+              selectedPhotos.size > 0
+                ? 'compact-button w-9 h-9 bg-[#FFC857] shadow-sm justify-center relative'
+                : 'px-3 py-1.5 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
+            }`}
+          >
+            <Download className="w-4 h-4" />
+            {selectedPhotos.size > 0 ? (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#5D4037] text-white text-[11px] rounded-full flex items-center justify-center font-bold">
+                {selectedPhotos.size}
+              </span>
+            ) : (
+              <span>全部下载</span>
+            )}
+          </motion.button>
 
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={handleBatchDownload}
-                className="compact-button w-9 h-9 rounded-full bg-[#FFC857] shadow-sm flex items-center justify-center relative"
-              >
-                <Download className="w-6 h-6 text-[#5D4037]" />
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#5D4037] text-white text-[11px] rounded-full flex items-center justify-center font-bold">
-                  {selectedPhotos.size}
-                </span>
-              </motion.button>
-            </>
+          {/* 删除按钮 - 仅在选中时显示 */}
+          {selectedPhotos.size > 0 && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleBatchDelete}
+              className="compact-button w-9 h-9 rounded-full bg-red-500/10 shadow-sm flex items-center justify-center"
+            >
+              <Trash2 className="w-6 h-6 text-red-600" />
+            </motion.button>
           )}
         </div>
       </div>
@@ -875,10 +897,10 @@ export default function AlbumDetailPage() {
                 </div>
                 <h3 className="text-xl font-bold text-[#5D4037] mb-3">✨ 施展定格魔法？</h3>
                 <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
-                  魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【照片墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">[永恒]</span> 的魔法加持，打破 7 天消失的魔咒，永远在这里闪闪发光啦~ ✨
+                  魔法生效后，这张照片就会飞到 <span className="font-bold text-[#FFC857]">【照片墙】</span> 上，和更多人分享这份美好！📸 这样它就有了 <span className="font-bold text-[#FFC857]">【永恒】</span> 的魔法加持，打破 {expiryDays} 天消失的魔咒，永远在这里闪闪发光啦~ ✨
                 </p>
                 <p className="text-xs text-[#5D4037]/50 leading-relaxed">
-                  💡 Tips：如果改变主意，可以随时再次点击让魔法失效，照片会回到专属空间继续 7 天倒计时哦~
+                  💡 Tips：如果改变主意，可以随时再次点击让魔法失效，照片会回到专属空间继续 {expiryDays} 天倒计时哦~
                 </p>
               </div>
 

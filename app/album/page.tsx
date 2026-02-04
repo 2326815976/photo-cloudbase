@@ -70,6 +70,24 @@ export default function AlbumLoginPage() {
 
     const supabase = createClient();
 
+    // 使用 get_album_content RPC 验证密钥（可以绕过 RLS）
+    const { data, error: checkError } = await supabase.rpc('get_album_content', {
+      input_key: accessKey.toUpperCase()
+    });
+
+    if (checkError || !data) {
+      setError('❌ 密钥不存在，请检查后重试');
+      setIsLoading(false);
+      return;
+    }
+
+    // 检查是否过期
+    if (data.album?.is_expired) {
+      setError('⏰ 该空间已过期');
+      setIsLoading(false);
+      return;
+    }
+
     // 如果已登录，先尝试绑定该相册
     if (isLoggedIn) {
       const { error: bindError } = await supabase.rpc('bind_user_to_album', {
@@ -83,8 +101,7 @@ export default function AlbumLoginPage() {
       }
     }
 
-    // 直接跳转到专属空间，让 get_album_content RPC 验证密钥
-    // 如果密钥错误，专属空间页面会显示错误信息
+    // 验证通过，跳转到专属空间
     router.push(`/album/${accessKey.toUpperCase()}`);
   };
 

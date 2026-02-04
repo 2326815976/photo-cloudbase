@@ -3,13 +3,13 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Mail, Lock } from 'lucide-react';
+import { ArrowLeft, Phone, Lock } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ phone: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -38,6 +38,13 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
+      // 验证手机号格式
+      if (!/^1[3-9]\d{9}$/.test(formData.phone)) {
+        setError('请输入有效的手机号');
+        setIsLoading(false);
+        return;
+      }
+
       const supabase = createClient();
       if (!supabase) {
         setError('系统配置错误，请稍后重试');
@@ -45,31 +52,26 @@ function LoginForm() {
         return;
       }
 
+      // 使用手机号作为邮箱格式登录
+      const email = `${formData.phone}@temp.local`;
+
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: formData.email,
+        email,
         password: formData.password,
       });
 
       if (signInError) {
-        // 错误信息中文化（不区分大小写）
-        const errorMessages: Record<string, string> = {
-          'invalid login credentials': '邮箱或密码错误',
-          'email not confirmed': '请先验证您的邮箱',
-          'email rate limit exceeded': '登录尝试过于频繁，请稍后再试',
-        };
-        const errorMsg = errorMessages[signInError.message.toLowerCase()] || signInError.message;
-        setError(errorMsg);
+        if (signInError.message.toLowerCase().includes('invalid login credentials')) {
+          setError('手机号或密码错误');
+        } else {
+          setError('登录失败，请重试');
+        }
         setIsLoading(false);
         return;
       }
 
-      // 检查邮箱是否已验证
-      if (!data.user?.email_confirmed_at) {
-        await supabase.auth.signOut();
-        setError('请先验证您的邮箱后再登录');
-        setIsLoading(false);
-        return;
-      }
+      // 检查是否有保存的重定向路径
+      const savedRedirect = localStorage.getItem('login_redirect');
 
       // 获取用户角色
       const { data: profile } = await supabase
@@ -78,12 +80,8 @@ function LoginForm() {
         .eq('id', data.user.id)
         .single();
 
-      // 检查是否有保存的重定向路径
-      const savedRedirect = localStorage.getItem('login_redirect');
-
       // 根据角色和保存的路径跳转
       if (profile?.role === 'admin') {
-        // 管理员：优先跳转到保存的路径（如果是管理端路径），否则跳转到管理端首页
         if (savedRedirect?.startsWith('/admin')) {
           localStorage.removeItem('login_redirect');
           router.push(savedRedirect);
@@ -91,9 +89,8 @@ function LoginForm() {
           router.push('/admin');
         }
       } else {
-        // 普通用户：清除管理端重定向记录，跳转到个人中心
         localStorage.removeItem('login_redirect');
-        router.push('/profile');
+        router.push('/');
       }
       router.refresh();
     } catch (err) {
@@ -133,20 +130,21 @@ function LoginForm() {
         className="flex-1 flex flex-col max-w-md mx-auto w-full"
       >
         <div className="space-y-4 mb-6">
-          {/* Email 输入框 - 完全使用注册页面样式 */}
+          {/* 手机号输入框 */}
           <div className="relative">
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
+            <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
             <input
-              type="email"
-              placeholder="邮箱地址"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              type="tel"
+              placeholder="手机号"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
+              maxLength={11}
               required
             />
           </div>
 
-          {/* Password 输入框 - 完全使用注册页面样式 */}
+          {/* Password 输入框 */}
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
             <input
@@ -205,7 +203,7 @@ function LoginForm() {
             还没有账号？
             <button
               type="button"
-              onClick={() => router.push('/signup')}
+              onClick={() => router.push('/register')}
               className="text-[#FFC857] font-medium ml-1 hover:underline"
             >
               去注册

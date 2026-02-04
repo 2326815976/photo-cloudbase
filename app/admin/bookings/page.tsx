@@ -59,7 +59,7 @@ export default function BookingsPage() {
   // 预约管理状态
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'finished' | 'cancelled'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'in_progress' | 'finished' | 'cancelled'>('all');
 
   // 档期管理状态
   const [blackouts, setBlackouts] = useState<Blackout[]>([]);
@@ -250,28 +250,32 @@ export default function BookingsPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border border-amber-200/50';
       case 'confirmed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border border-emerald-200/50';
+      case 'in_progress':
+        return 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200/50';
       case 'finished':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border border-purple-200/50';
       case 'cancelled':
-        return 'bg-red-100 text-red-800';
+        return 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-600 border border-gray-200/50';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-600 border border-gray-200/50';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
       case 'pending':
-        return '待确认';
+        return '⏳ 待确认';
       case 'confirmed':
-        return '已确认';
+        return '✓ 已确认';
+      case 'in_progress':
+        return '📸 进行中';
       case 'finished':
-        return '已完成';
+        return '✨ 已完成';
       case 'cancelled':
-        return '已取消';
+        return '✕ 已取消';
       default:
         return status;
     }

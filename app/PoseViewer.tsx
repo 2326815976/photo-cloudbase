@@ -41,20 +41,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [tags, setTags] = useState<PoseTag[]>(initialTags);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [currentPose, setCurrentPose] = useState<Pose | null>(initialPose);
-  const [lastPoseId, setLastPoseId] = useState<number | null>(initialPose?.id || null);
+  const [recentPoseIds, setRecentPoseIds] = useState<number[]>(initialPose?.id ? [initialPose.id] : []);
   const [isAnimating, setIsAnimating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
-  const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
-  const [cacheKey, setCacheKey] = useState<string>('');
-  const [nextPose, setNextPose] = useState<Pose | null>(null);
-  const preloadedImagesRef = useRef<Set<string>>(new Set());
+  const [cachedPoses, setCachedPoses] = useState<Pose[]>([]);
+  const [cacheKey, setCacheKey] = useState<string>('__initial__');
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
 
-  const preloadImage = useCallback((url: string) => {
-    // 禁用预加载，只加载当前显示的图片
-    return;
-  }, []);
+  const HISTORY_SIZE = 5;
 
   // 客户端加载tags
   useEffect(() => {
@@ -67,16 +62,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       loadTags();
     }
   }, [initialTags.length]);
-
-  const selectNextPose = useCallback((poses: Pose[], excludeIds: number[]) => {
-    if (poses.length === 0) return null;
-
-    const availablePoses = poses.filter(p => !excludeIds.includes(p.id));
-    if (availablePoses.length === 0) return poses[0];
-
-    const randomIndex = Math.floor(Math.random() * availablePoses.length);
-    return availablePoses[randomIndex];
-  }, []);
 
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
@@ -103,26 +88,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       const currentCacheKey = selectedTagsKey;
       let poses: Pose[] = [];
 
-      if (nextPose && cacheKey === currentCacheKey) {
-        setCurrentPose({ ...nextPose, view_count: nextPose.view_count + 1 });
-        setLastPoseId(nextPose.id);
-
-        supabase
-          .from('poses')
-          .update({ view_count: nextPose.view_count + 1 })
-          .eq('id', nextPose.id)
-          .then(() => {})
-          .catch((err: any) => console.error('更新浏览次数失败:', err));
-
-        const next = selectNextPose(cachedPoses, [nextPose.id, lastPoseId].filter(Boolean) as number[]);
-        if (next) {
-          setNextPose(next);
-          preloadImage(next.image_url);
-        }
-
-        return;
-      }
-
       if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
         poses = cachedPoses;
       } else {
@@ -130,20 +95,33 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           const { data } = await supabase.from('poses').select('*');
           if (data) poses = data;
         } else {
-          const { data: exactMatches } = await supabase
+          const { data: allMatches } = await supabase
             .from('poses')
             .select('*')
-            .contains('tags', selectedTags);
+            .overlaps('tags', selectedTags);
 
-          if (exactMatches && exactMatches.length > 0) {
-            poses = exactMatches;
-          } else {
-            const { data: fuzzyMatches } = await supabase
-              .from('poses')
-              .select('*')
-              .overlaps('tags', selectedTags);
-
-            if (fuzzyMatches) poses = fuzzyMatches;
+          if (allMatches && allMatches.length > 0) {
+            if (selectedTags.length === 1) {
+              let filtered = allMatches.filter(p => p.tags.length === 1 && p.tags.includes(selectedTags[0]));
+              if (filtered.length === 0) {
+                filtered = allMatches.filter(p => (p.tags.length === 2 || p.tags.length === 3) && p.tags.includes(selectedTags[0]));
+              }
+              poses = filtered.length > 0 ? filtered : allMatches;
+            } else if (selectedTags.length === 2 || selectedTags.length === 3) {
+              let filtered = allMatches.filter(p =>
+                (p.tags.length === 2 || p.tags.length === 3) &&
+                selectedTags.every(tag => p.tags.includes(tag))
+              );
+              if (filtered.length === 0) {
+                filtered = allMatches.filter(p =>
+                  (p.tags.length === 1 || p.tags.length === 2) &&
+                  selectedTags.some(tag => p.tags.includes(tag))
+                );
+              }
+              poses = filtered.length > 0 ? filtered : allMatches;
+            } else {
+              poses = allMatches;
+            }
           }
         }
 
@@ -152,17 +130,14 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       }
 
       if (poses.length > 0) {
-        let availablePoses = poses;
-        if (poses.length > 1 && lastPoseId !== null) {
-          const filtered = poses.filter(p => p.id !== lastPoseId);
-          if (filtered.length > 0) availablePoses = filtered;
-        }
+        let availablePoses = poses.filter(p => !recentPoseIds.includes(p.id));
+        if (availablePoses.length === 0) availablePoses = poses;
 
         const randomIndex = Math.floor(Math.random() * availablePoses.length);
         const selectedPose = availablePoses[randomIndex];
 
         setCurrentPose({ ...selectedPose, view_count: selectedPose.view_count + 1 });
-        setLastPoseId(selectedPose.id);
+        setRecentPoseIds(prev => [selectedPose.id, ...prev].slice(0, HISTORY_SIZE));
 
         supabase
           .from('poses')
@@ -170,19 +145,13 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           .eq('id', selectedPose.id)
           .then(() => {})
           .catch((err: any) => console.error('更新浏览次数失败:', err));
-
-        const next = selectNextPose(poses, [selectedPose.id]);
-        if (next) {
-          setNextPose(next);
-          preloadImage(next.image_url);
-        }
       }
     } catch (error) {
       console.error('抽取摆姿失败:', error);
     } finally {
       setIsAnimating(false);
     }
-  }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, nextPose, lastPoseId, selectNextPose, preloadImage]);
+  }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, HISTORY_SIZE]);
 
   const displayTags = useMemo(() => tags.slice(0, 8), [tags]);
 
