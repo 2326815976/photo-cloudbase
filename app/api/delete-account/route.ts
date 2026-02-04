@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { getSupabaseUrlFromEnv, getSupabaseServiceRoleKeyFromEnv } from '@/lib/supabase/env';
 
 export async function POST() {
   try {
@@ -15,8 +16,13 @@ export async function POST() {
     const userId = authUser.user.id;
 
     // 使用 service role key 删除用户
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabaseUrl = getSupabaseUrlFromEnv();
+    const supabaseServiceRoleKey = getSupabaseServiceRoleKeyFromEnv();
+
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      console.error('Missing Supabase environment variables for admin operations');
+      return NextResponse.json({ error: '系统配置错误' }, { status: 500 });
+    }
 
     const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: {
@@ -29,11 +35,13 @@ export async function POST() {
     const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (error) {
+      console.error('Failed to delete user:', error);
       return NextResponse.json({ error: '删除失败，请稍后重试' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    console.error('Delete account error:', err);
     return NextResponse.json({ error: '系统错误' }, { status: 500 });
   }
 }

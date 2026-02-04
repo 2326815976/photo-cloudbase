@@ -14,12 +14,23 @@ function LoginForm() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // 记录来源路径
+    // 记录来源路径（安全验证：仅允许内部路径）
     const from = searchParams.get('from');
-    if (from) {
+    if (from && isValidRedirectPath(from)) {
       localStorage.setItem('login_redirect', from);
     }
   }, [searchParams]);
+
+  // 验证重定向路径是否安全（防止开放重定向攻击）
+  const isValidRedirectPath = (path: string): boolean => {
+    // 必须以 / 开头（内部路径）
+    if (!path.startsWith('/')) return false;
+    // 不能包含协议（防止 //evil.com 这样的绕过）
+    if (path.includes('://') || path.startsWith('//')) return false;
+    // 不能包含反斜杠（防止路径遍历）
+    if (path.includes('\\')) return false;
+    return true;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

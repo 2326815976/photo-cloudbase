@@ -73,8 +73,12 @@ export async function POST(request: NextRequest) {
           }]
         }
       }, (err: any, data: any) => {
-        if (err) reject(err);
-        else resolve(data);
+        if (err) {
+          console.error('STS credential generation error:', err);
+          reject(new Error(`Failed to get STS credentials: ${err.message || JSON.stringify(err)}`));
+        } else {
+          resolve(data);
+        }
       });
     });
 

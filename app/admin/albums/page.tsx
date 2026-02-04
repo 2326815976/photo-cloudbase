@@ -89,6 +89,13 @@ export default function AlbumsPage() {
   const handleUpdateKey = async () => {
     if (!editingAlbum || !newAccessKey) return;
 
+    // 验证密钥格式（8位字符，仅允许大写字母和数字）
+    if (!/^[A-Z0-9]{8}$/.test(newAccessKey)) {
+      setShowToast({ message: '访问密钥必须是8位大写字母或数字', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     const supabase = createClient();
 
     // 检查新密钥是否已被其他空间使用
@@ -203,6 +210,23 @@ export default function AlbumsPage() {
         return;
       }
 
+      // 删除旧赞赏码文件
+      if (album.donation_qr_code_url) {
+        try {
+          const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
+          const oldKey = extractKeyFromURL(album.donation_qr_code_url);
+          if (oldKey) {
+            await fetch('/api/delete', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: oldKey }),
+            });
+          }
+        } catch (error) {
+          console.error('删除旧赞赏码失败:', error);
+        }
+      }
+
       // 使用统一的压缩工具
       const { compressImage } = await import('@/lib/utils/image-compression');
       const compressedFile = await compressImage(file);
@@ -246,6 +270,23 @@ export default function AlbumsPage() {
         setTimeout(() => setShowToast(null), 3000);
         setUploadingCover(false);
         return;
+      }
+
+      // 删除旧封面文件
+      if (album.cover_url) {
+        try {
+          const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
+          const oldKey = extractKeyFromURL(album.cover_url);
+          if (oldKey) {
+            await fetch('/api/delete', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: oldKey }),
+            });
+          }
+        } catch (error) {
+          console.error('删除旧封面失败:', error);
+        }
       }
 
       // 使用统一的压缩工具

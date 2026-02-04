@@ -40,8 +40,30 @@ interface AndroidClipboard {
   hasClipboardText(): boolean;
 }
 
+interface AndroidVibrate {
+  /**
+   * 触发设备震动
+   * @param duration 震动时长（毫秒）
+   */
+  vibrate(duration: number): void;
+}
+
+interface AndroidKeyboard {
+  /**
+   * 显示软键盘
+   */
+  show(): void;
+
+  /**
+   * 隐藏软键盘
+   */
+  hide(): void;
+}
+
 interface Window {
   AndroidPhotoViewer?: AndroidPhotoViewer;
   AndroidPhotoDownload?: AndroidPhotoDownload;
   AndroidClipboard?: AndroidClipboard;
+  AndroidVibrate?: AndroidVibrate;
+  AndroidKeyboard?: AndroidKeyboard;
 }

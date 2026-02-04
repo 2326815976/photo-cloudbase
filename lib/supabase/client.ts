@@ -3,9 +3,10 @@ import { getSupabaseUrlFromEnv, getSupabaseAnonKeyFromEnv } from "./env";
 
 let supabaseInstance: ReturnType<typeof createBrowserClient> | null = null;
 
-export function createClient() {
+export function createClient(): ReturnType<typeof createBrowserClient> | null {
   if (typeof window === "undefined") {
-    return null as unknown as ReturnType<typeof createBrowserClient>;
+    console.warn("Supabase client cannot be created on server side");
+    return null;
   }
 
   if (supabaseInstance) {
@@ -16,8 +17,8 @@ export function createClient() {
   const supabaseKey = getSupabaseAnonKeyFromEnv();
 
   if (!supabaseUrl || !supabaseKey) {
-    console.warn("Missing Supabase environment variables");
-    return null as unknown as ReturnType<typeof createBrowserClient>;
+    console.error("Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+    return null;
   }
 
   supabaseInstance = createBrowserClient(supabaseUrl, supabaseKey);
