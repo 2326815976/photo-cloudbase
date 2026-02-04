@@ -31,26 +31,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. 验证 Turnstile Token
-    const turnstileResponse = await fetch(
-      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: process.env.TURNSTILE_SECRET_KEY,
-          response: turnstileToken,
-        }),
-      }
-    );
-
-    const turnstileData = await turnstileResponse.json();
-
-    if (!turnstileData.success) {
-      return NextResponse.json(
-        { error: '人机验证失败，请重试' },
-        { status: 400 }
+    // 4. 验证 Turnstile Token（开发环境降级处理）
+    if (process.env.NODE_ENV === 'production') {
+      const turnstileResponse = await fetch(
+        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            secret: process.env.TURNSTILE_SECRET_KEY,
+            response: turnstileToken,
+          }),
+        }
       );
+
+      const turnstileData = await turnstileResponse.json();
+
+      if (!turnstileData.success) {
+        return NextResponse.json(
+          { error: '人机验证失败，请重试' },
+          { status: 400 }
+        );
+      }
+    } else {
+      // 开发环境：如果没有 token 也允许通过（降级处理）
+      console.log('开发环境：跳过 Turnstile 验证');
     }
 
     // 5. 创建 Supabase 用户（使用 Admin API 绕过邮箱验证）

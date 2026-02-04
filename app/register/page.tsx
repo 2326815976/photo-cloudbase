@@ -15,9 +15,12 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [turnstileKey, setTurnstileKey] = useState(0);
 
-  // 每次进入页面时自动刷新 Turnstile
+  // 每次进入页面时强制刷新 Turnstile（清除缓存的 token）
   useEffect(() => {
-    setTurnstileKey(prev => prev + 1);
+    // 清空旧的 token
+    setTurnstileToken('');
+    // 强制重新渲染 Turnstile 组件
+    setTurnstileKey(Date.now());
   }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -163,9 +166,11 @@ export default function RegisterPage() {
                 theme: 'light',
                 size: 'normal',
                 retry: 'auto',
-                retryInterval: 3000,
+                retryInterval: 3000, // 重试间隔 3 秒
                 refreshExpired: 'auto',
-                language: 'zh-CN'
+                language: 'zh-CN',
+                execution: 'render', // 明确指定执行模式
+                appearance: 'always', // 始终显示验证框
               }}
             />
           </div>
