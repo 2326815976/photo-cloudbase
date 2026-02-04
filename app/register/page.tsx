@@ -1,10 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Turnstile } from '@marsidev/react-turnstile';
 import { useRouter } from 'next/navigation';
 import { Phone, Lock, ArrowLeft } from 'lucide-react';
+
+// 动态导入 Turnstile 组件，延迟加载，不在首页加载时执行
+const Turnstile = dynamic(
+  () => import('@marsidev/react-turnstile').then((mod) => mod.Turnstile),
+  { ssr: false }
+);
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -166,11 +172,11 @@ export default function RegisterPage() {
                 theme: 'light',
                 size: 'normal',
                 retry: 'auto',
-                retryInterval: 3000, // 重试间隔 3 秒
+                retryInterval: 8000, // 增加重试间隔到 8 秒（WebView 需要更多时间）
                 refreshExpired: 'auto',
                 language: 'zh-CN',
-                execution: 'render', // 明确指定执行模式
-                appearance: 'always', // 始终显示验证框
+                execution: 'render',
+                appearance: 'always',
               }}
             />
           </div>
