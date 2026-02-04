@@ -25,7 +25,7 @@ export default async function HomePage() {
     const startTime = Date.now();
 
     const [posesResult, tagsResult] = await Promise.all([
-      supabase.from('poses').select('*').limit(10),
+      supabase.from('poses').select('*').limit(3),
       supabase.from('pose_tags').select('*').order('usage_count', { ascending: false })
     ]);
 

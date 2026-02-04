@@ -214,7 +214,12 @@ export default function SimpleImage({
       {!hasError && (
         <img
           ref={imgRef}
-          src={src}
+          src={
+            // 为移动端腾讯云 COS 图片添加处理参数（WebP + 质量优化 + 宽度限制）
+            typeof window !== 'undefined' && window.innerWidth < 768 && src.includes('myqcloud.com')
+              ? `${src}?imageMogr2/format/webp/rquality/80/rwidth/750`
+              : src
+          }
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
