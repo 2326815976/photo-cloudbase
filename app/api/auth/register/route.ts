@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,20 +53,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. 创建 Supabase 用户
-    const supabase = await createClient();
+    // 5. 创建 Supabase 用户（使用 Admin API 绕过邮箱验证）
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
 
-    // 使用手机号作为邮箱格式（临时方案）
-    const email = `${phone}@example.com`;
+    // 使用手机号作为邮箱格式
+    const email = `${phone}@slogan.app`;
 
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
+    const { data: authData, error: signUpError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      options: {
-        data: {
-          phone, // 存储真实手机号
-          phone_verified: false, // 标记为未验证
-        },
+      email_confirm: true, // 自动确认邮箱，跳过验证
+      user_metadata: {
+        phone,
+        phone_verified: false,
       },
     });
 
@@ -87,14 +95,14 @@ export async function POST(request: NextRequest) {
 
     // 6. 创建用户扩展信息表
     if (authData.user) {
-      const { error: profileError } = await supabase
+      const { error: profileError } = await supabaseAdmin
         .from('user_profiles')
         .insert({
           id: authData.user.id,
           phone,
           phone_verified: false,
           upload_count: 0,
-          upload_limit: 20, // 新用户限制
+          upload_limit: 20,
         });
 
       if (profileError) {

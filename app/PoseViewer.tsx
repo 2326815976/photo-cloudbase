@@ -45,8 +45,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [isAnimating, setIsAnimating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
-  const [cachedPoses, setCachedPoses] = useState<Pose[]>([]);
-  const [cacheKey, setCacheKey] = useState<string>('__initial__');
+  const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
+  const [cacheKey, setCacheKey] = useState<string>('');
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
 
   const HISTORY_SIZE = 5;
