@@ -134,7 +134,7 @@ export default function ProfilePage() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => router.push('/signup')}
+                onClick={() => router.push('/register')}
                 className="w-full h-12 rounded-full bg-transparent border-2 border-[#5D4037]/30 text-[#5D4037]/70 font-medium hover:border-[#5D4037]/50 transition-colors"
               >
                 注册账号
