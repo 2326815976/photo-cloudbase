@@ -11,6 +11,7 @@ export default function ProfilePage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
+  const [userPhone, setUserPhone] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
   // 检查登录状态
@@ -28,14 +29,15 @@ export default function ProfilePage() {
         setIsLoggedIn(true);
         setUserEmail(session.user.email || '');
 
-        // 从数据库profiles表获取用户名
+        // 从数据库profiles表获取用户名和手机号
         const { data: profile } = await supabase
           .from('profiles')
-          .select('name')
+          .select('name, phone')
           .eq('id', session.user.id)
           .single();
 
         setUserName(profile?.name || session.user.email?.split('@')[0] || '用户');
+        setUserPhone(profile?.phone || '');
       }
 
       setIsLoading(false);
@@ -177,6 +179,9 @@ export default function ProfilePage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-[#5D4037]">{userName}</h2>
+              {userPhone && (
+                <p className="text-sm text-[#5D4037]/60 mt-1">{userPhone}</p>
+              )}
             </div>
           </div>
         </motion.div>
