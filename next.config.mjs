@@ -15,7 +15,7 @@ const nextConfig = {
   },
 
   // Webpack 配置：处理服务器端专用模块
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, dev }) => {
     if (!isServer) {
       // 在客户端构建时，排除 Node.js 内置模块
       config.resolve.fallback = {
@@ -32,6 +32,23 @@ const nextConfig = {
         os: false,
       };
     }
+
+    // 生产环境移除console日志
+    if (!dev) {
+      config.optimization.minimizer = config.optimization.minimizer || [];
+      const TerserPlugin = require('terser-webpack-plugin');
+
+      config.optimization.minimizer.push(
+        new TerserPlugin({
+          terserOptions: {
+            compress: {
+              drop_console: true, // 移除所有console.*
+            },
+          },
+        })
+      );
+    }
+
     return config;
   },
 
