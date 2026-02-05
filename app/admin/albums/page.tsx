@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, Heart, Upload } from 'lucide-react';
+import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, Heart, Upload, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Album {
@@ -14,6 +14,7 @@ interface Album {
   welcome_letter: string;
   recipient_name: string;
   enable_tipping: boolean;
+  enable_welcome_letter?: boolean;
   donation_qr_code_url: string | null;
   created_at: string;
   expires_at: string | null;
@@ -50,7 +51,7 @@ export default function AlbumsPage() {
 
     const { data, error } = await supabase
       .from('albums')
-      .select('id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, donation_qr_code_url, expires_at, created_at')
+      .select('id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, enable_welcome_letter, donation_qr_code_url, expires_at, created_at')
       .order('created_at', { ascending: false });
 
     if (!error && data) {
@@ -197,6 +198,26 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const handleToggleWelcomeLetter = async (album: Album) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('albums')
+      .update({ enable_welcome_letter: !(album.enable_welcome_letter ?? true) })
+      .eq('id', album.id);
+
+    if (!error) {
+      loadAlbums();
+      setShowToast({
+        message: (album.enable_welcome_letter ?? true) ? '欢迎信已关闭' : '欢迎信已开启',
+        type: 'success'
+      });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -543,6 +564,25 @@ export default function AlbumsPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* 欢迎信显示控制 */}
+                    <div className="group/item p-3 bg-gradient-to-r from-purple-50 to-purple-100/30 rounded-xl border border-purple-200/50 hover:border-purple-300 transition-all">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(album.enable_welcome_letter ?? true) ? 'bg-purple-500' : 'bg-purple-300'}`}>
+                          <Mail className={`w-5 h-5 text-white ${(album.enable_welcome_letter ?? true) ? 'fill-white' : ''}`} />
+                        </div>
+                        <span className="text-xs font-semibold text-purple-700 flex-1">
+                          欢迎信 {(album.enable_welcome_letter ?? true) ? '已开启' : '已关闭'}
+                        </span>
+                        <button
+                          onClick={() => handleToggleWelcomeLetter(album)}
+                          className="w-12 h-12 rounded-lg bg-white hover:bg-purple-500 text-purple-600 hover:text-white transition-all flex items-center justify-center shadow-sm"
+                          title={(album.enable_welcome_letter ?? true) ? '关闭欢迎信' : '开启欢迎信'}
+                        >
+                          {(album.enable_welcome_letter ?? true) ? <XCircle className="w-7 h-7" /> : <CheckCircle className="w-7 h-7" />}
+                        </button>
+                      </div>
+                    </div>
 
                     {/* 打赏功能 */}
                     <div className="group/item p-3 bg-gradient-to-r from-orange-50 to-orange-100/30 rounded-xl border border-orange-200/50 hover:border-orange-300 transition-all">

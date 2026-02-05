@@ -19,6 +19,7 @@ export default function NewAlbumPage() {
     welcome_letter: '',
     recipient_name: '',
     enable_tipping: true,
+    enable_welcome_letter: true,
     auto_generate_key: true,
     expiry_days: 7,
   });
@@ -125,6 +126,7 @@ export default function NewAlbumPage() {
         welcome_letter: formData.welcome_letter,
         recipient_name: formData.recipient_name || '拾光者',
         enable_tipping: formData.enable_tipping,
+        enable_welcome_letter: formData.enable_welcome_letter,
         expires_at: expiresAt.toISOString(),
       });
 
@@ -298,6 +300,18 @@ export default function NewAlbumPage() {
           <p className="text-xs text-[#5D4037]/60 mt-1">
             空间将在创建后 {formData.expiry_days} 天后过期
           </p>
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={formData.enable_welcome_letter}
+              onChange={(e) => setFormData({ ...formData, enable_welcome_letter: e.target.checked })}
+              className="w-4 h-4 text-[#FFC857] rounded focus:ring-[#FFC857]"
+            />
+            <span className="text-sm text-[#5D4037]">启用欢迎信显示</span>
+          </label>
         </div>
 
         <div>

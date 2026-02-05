@@ -43,6 +43,7 @@ interface AlbumData {
     welcome_letter: string;
     cover_url: string | null;
     enable_tipping: boolean;
+    enable_welcome_letter?: boolean;
     donation_qr_code_url?: string | null;
     recipient_name?: string;
     expires_at?: string;
@@ -128,6 +129,9 @@ export default function AlbumDetailPage() {
     setAlbumData(data);
     setPhotos(data.photos);
     setLoading(false);
+
+    // 根据管理员设置决定是否显示欢迎信（默认显示）
+    setShowWelcomeLetter(data.album.enable_welcome_letter !== false);
 
     // 预加载前10张照片的preview图片
     if (data.photos && data.photos.length > 0) {
