@@ -15,10 +15,12 @@ const config: CapacitorConfig = {
   plugins: {
     // 状态栏配置：保持可见，不全屏
     SplashScreen: {
-      launchShowDuration: 2000,
+      launchShowDuration: 0,  // 改为0，由前端控制隐藏时机
+      launchAutoHide: false,  // 手动控制隐藏
       backgroundColor: "#FFFBF0",
       androidScaleType: "CENTER_CROP",
-      showSpinner: false,
+      showSpinner: true,  // 启用加载指示器
+      spinnerColor: "#FFC857",  // 匹配主题色
     },
     StatusBar: {
       style: 'LIGHT',  // 状态栏样式

@@ -383,7 +383,7 @@ export default function AlbumDetailPage() {
       >
         <div className="px-4 py-3 flex items-center gap-2">
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/album')}
             className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors flex-shrink-0"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />

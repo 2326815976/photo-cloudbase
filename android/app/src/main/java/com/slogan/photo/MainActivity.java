@@ -22,6 +22,7 @@ public class MainActivity extends BridgeActivity {
     private DownloadBridge downloadBridge;
     private FileDownloader fileDownloader;
     private AndroidBridge androidBridge;
+    private boolean versionInjected = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -62,6 +63,9 @@ public class MainActivity extends BridgeActivity {
         Log.d(TAG, "WebView instance: " + (webView != null ? "found" : "null"));
 
         if (webView != null) {
+            // 配置WebView性能优化
+            configureWebView(webView);
+
             // 初始化AndroidBridge
             androidBridge = new AndroidBridge(this, webView);
 
@@ -77,13 +81,33 @@ public class MainActivity extends BridgeActivity {
             // DownloadListener（备用方案）
             webView.setDownloadListener(fileDownloader);
 
-            // 动态注入版本号到URL
-            injectVersionToUrl();
+            // 只在首次启动时注入版本号，避免重复加载
+            if (!versionInjected) {
+                injectVersionToUrl();
+                versionInjected = true;
+            }
 
             Log.d(TAG, "All bridges registered successfully");
         } else {
             Log.e(TAG, "WebView is null, cannot register bridges");
         }
+    }
+
+    private void configureWebView(WebView webView) {
+        android.webkit.WebSettings settings = webView.getSettings();
+
+        // 启用缓存
+        settings.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
+        settings.setAppCacheEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+
+        // 启用硬件加速
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
+
+        Log.d(TAG, "WebView performance optimization applied");
     }
 
     private void injectVersionToUrl() {

@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import SimpleImage from '@/components/ui/SimpleImage';
+import ToggleSwitch from '@/components/ui/ToggleSwitch';
+import { SplashScreen } from '@capacitor/splash-screen';
 
 const journalColors = [
   'bg-[#FFE5E5] text-[#8B4545] border-[#D4A5A5]',
@@ -46,10 +48,29 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
-  const [cacheKey, setCacheKey] = useState<string>('__initial__');  // 使用特殊初始值，强制第一次点击时重新加载
+  const [cacheKey, setCacheKey] = useState<string>('__initial__');
+  const [shakeEnabled, setShakeEnabled] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
 
   const HISTORY_SIZE = 5;
+  const SHAKE_THRESHOLD = 15;
+  const SHAKE_COOLDOWN = 2000; // 2秒冷却时间，对标微信
+
+  // 隐藏启动画面
+  useEffect(() => {
+    const hideSplash = async () => {
+      try {
+        await SplashScreen.hide();
+      } catch (error) {
+        // 非Capacitor环境下会报错，忽略即可
+      }
+    };
+
+    // 延迟确保首屏内容已渲染
+    const timer = setTimeout(hideSplash, 500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 客户端加载tags
   useEffect(() => {
@@ -158,6 +179,60 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       setIsAnimating(false);
     }
   }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, HISTORY_SIZE]);
+
+  // 摇一摇检测 - 必须在getRandomPose定义之后
+  useEffect(() => {
+    if (!shakeEnabled) return;
+
+    let lastX = 0, lastY = 0, lastZ = 0;
+    let lastTime = 0;
+    let lastShakeTime = 0;
+
+    const handleMotion = (event: DeviceMotionEvent) => {
+      const acceleration = event.accelerationIncludingGravity;
+      if (!acceleration) return;
+
+      const currentTime = Date.now();
+
+      // 基础防抖：100ms内不重复检测
+      if (currentTime - lastTime < 100) return;
+
+      const deltaX = Math.abs((acceleration.x || 0) - lastX);
+      const deltaY = Math.abs((acceleration.y || 0) - lastY);
+      const deltaZ = Math.abs((acceleration.z || 0) - lastZ);
+
+      // 检测到摇动
+      if (deltaX + deltaY + deltaZ > SHAKE_THRESHOLD) {
+        // 冷却时间检查：2秒内不重复触发（对标微信）
+        if (currentTime - lastShakeTime < SHAKE_COOLDOWN) {
+          return;
+        }
+
+        // 触发震动反馈
+        if (navigator.vibrate) {
+          navigator.vibrate(200); // 震动200ms
+        }
+
+        // 设置摇动状态
+        setIsShaking(true);
+        lastShakeTime = currentTime;
+
+        // 触发切换
+        getRandomPose();
+
+        // 500ms后重置摇动状态
+        setTimeout(() => setIsShaking(false), 500);
+      }
+
+      lastX = acceleration.x || 0;
+      lastY = acceleration.y || 0;
+      lastZ = acceleration.z || 0;
+      lastTime = currentTime;
+    };
+
+    window.addEventListener('devicemotion', handleMotion);
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, [shakeEnabled, getRandomPose, SHAKE_THRESHOLD, SHAKE_COOLDOWN]);
 
   const displayTags = useMemo(() => tags.slice(0, 8), [tags]);
 
@@ -409,6 +484,21 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                 </div>
 
                 <div className="p-4 border-t-2 border-dashed border-[#5D4037]/15 bg-white/50">
+                  {/* 摇一摇开关 */}
+                  <div className="mb-4 bg-gradient-to-r from-[#FFC857]/20 to-[#FFB347]/20 rounded-xl p-3 border-2 border-dashed border-[#FFC857]/40">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className={`text-xl flex-shrink-0 ${shakeEnabled ? 'animate-bounce' : ''}`}>📳</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[#5D4037]">摇一摇切换</p>
+                          <p className="text-xs text-[#5D4037]/60">摇动手机自动换姿势</p>
+                        </div>
+                      </div>
+
+                      <ToggleSwitch enabled={shakeEnabled} onChange={setShakeEnabled} />
+                    </div>
+                  </div>
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
