@@ -13,7 +13,7 @@ interface Pose {
   tags: string[];
   storage_path: string;
   view_count: number;
-  created_at: string;
+  created_at?: string;
 }
 
 export default async function HomePage() {
