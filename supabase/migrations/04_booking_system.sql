@@ -1,9 +1,9 @@
 -- ================================================================================================
 -- 📂 项目：拾光谣 - 预约系统完整实现（优化版）
--- 📝 版本：v2.0_Consolidated
--- 🎯 目标：约拍类型、城市限制、预约管理、档期锁定、取消策略、进行中状态
+-- 📝 版本：v3.0_Consolidated
+-- 🎯 目标：约拍类型、城市限制、预约管理、档期锁定、取消策略、进行中状态、竞态条件防护
 -- 📅 日期：2026-02-05
--- 🔄 合并自：04_booking_system.sql, 09_fix_bookings_updated_at.sql, 10_add_in_progress_status.sql
+-- 🔄 合并自：04_booking_system.sql, 09_fix_bookings_updated_at.sql, 10_add_in_progress_status.sql, 11_fix_booking_race_condition.sql
 -- ================================================================================================
 
 -- ================================================================================================
@@ -138,32 +138,36 @@ COMMENT ON COLUMN public.booking_blackouts.reason IS '锁定原因';
 -- 5. RPC 函数
 -- ================================================================================================
 
--- 检查日期是否可预约
+-- 检查日期是否可预约（带行级锁防止竞态条件）
 CREATE OR REPLACE FUNCTION public.check_date_availability(target_date date)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  is_blacklisted boolean;
+  has_active_booking boolean;
 BEGIN
   -- 检查是否在黑名单中
-  IF EXISTS (
+  SELECT EXISTS(
     SELECT 1 FROM public.booking_blackouts
     WHERE date = target_date
-  ) THEN
+  ) INTO is_blacklisted;
+
+  IF is_blacklisted THEN
     RETURN false;
   END IF;
 
-  -- 检查是否已有确认的预约
-  IF EXISTS (
+  -- 检查是否已有活跃预约（使用 FOR UPDATE 锁定，防止并发插入）
+  SELECT EXISTS(
     SELECT 1 FROM public.bookings
     WHERE booking_date = target_date
-    AND status IN ('confirmed', 'pending', 'in_progress')
-  ) THEN
-    RETURN false;
-  END IF;
+    AND status IN ('pending', 'confirmed', 'in_progress')
+    FOR UPDATE  -- 添加行级锁，防止并发问题
+  ) INTO has_active_booking;
 
-  RETURN true;
+  RETURN NOT has_active_booking;
 END;
 $$;
 
-COMMENT ON FUNCTION public.check_date_availability(date) IS '检查指定日期是否可预约';
+COMMENT ON FUNCTION public.check_date_availability(date) IS '检查指定日期是否可预约（带行级锁防止竞态条件）';
 
 -- 验证城市是否在允许列表中
 CREATE OR REPLACE FUNCTION public.validate_city(p_city_name text)
@@ -399,6 +403,18 @@ END $$;
 SELECT public.auto_complete_expired_bookings();
 
 -- ================================================================================================
+-- 9. 竞态条件防护（唯一索引）
+-- ================================================================================================
+
+-- 创建部分唯一索引：只对 pending、confirmed、in_progress 状态的预约生效
+-- 这样可以允许同一日期有多个 finished 或 cancelled 的预约（历史记录）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_unique_active_date
+ON public.bookings(booking_date)
+WHERE status IN ('pending', 'confirmed', 'in_progress');
+
+COMMENT ON INDEX idx_bookings_unique_active_date IS '确保同一日期只能有一个活跃预约（pending/confirmed/in_progress），防止竞态条件';
+
+-- ================================================================================================
 -- 完成
 -- ================================================================================================
 
@@ -415,4 +431,5 @@ BEGIN
   RAISE NOTICE '🔄 触发器已设置';
   RAISE NOTICE '📅 预约取消策略：只能在预约日期之前取消';
   RAISE NOTICE '💡 状态流转：pending → confirmed → in_progress → finished';
+  RAISE NOTICE '🛡️  竞态条件防护：唯一索引 + 行级锁';
 END $$;

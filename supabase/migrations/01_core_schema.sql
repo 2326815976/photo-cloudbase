@@ -1,9 +1,9 @@
 -- ================================================================================================
 -- 📂 项目：拾光谣 (Time Ballad) - 核心数据库结构
--- 📝 版本：v1.0_Consolidated
+-- 📝 版本：v2.0_Consolidated
 -- 🎯 目标：核心表结构、用户系统、摆姿系统、相册系统、照片系统、版本发布
--- 📅 日期：2026-02-04
--- 🔄 合并自：001, 002, 007, 010
+-- 📅 日期：2026-02-05
+-- 🔄 合并自：001, 002, 007, 010, 09_fix_user_registration.sql, 14_unify_timezone_handling.sql
 -- ================================================================================================
 
 -- [全局配置] 设置UTC时区，与应用层保持一致
@@ -325,16 +325,17 @@ $$;
 -- 8. 自动化 Triggers
 -- ================================================================================================
 
--- 新用户注册 -> 写入 Profiles
+-- 新用户注册 -> 写入 Profiles (修复版：从 user_metadata 读取手机号，设置默认用户名)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, name, nickname, role)
+  INSERT INTO public.profiles (id, email, name, nickname, phone, role)
   VALUES (
     new.id,
     new.email,
-    COALESCE(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
-    COALESCE(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    '拾光者', -- 默认用户名
+    '拾光者', -- 默认昵称
+    new.raw_user_meta_data->>'phone', -- 从 user_metadata 中读取手机号
     'user'
   );
 
@@ -434,4 +435,5 @@ BEGIN
   RAISE NOTICE '📊 已创建：用户系统、统计系统、摆姿系统、相册系统、照片系统、版本发布';
   RAISE NOTICE '🔒 RLS 策略已配置';
   RAISE NOTICE '⚡ 触发器已设置';
+  RAISE NOTICE '🔄 已整合：用户注册修复、UTC时区设置';
 END $$;
