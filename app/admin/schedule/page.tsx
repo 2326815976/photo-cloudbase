@@ -164,7 +164,11 @@ export default function SchedulePage() {
   };
 
   const selectAll = () => {
-    setSelectedIds(blackouts.map(b => b.id));
+    if (selectedIds.length === blackouts.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(blackouts.map(b => b.id));
+    }
   };
 
   const clearSelection = () => {
@@ -234,21 +238,21 @@ export default function SchedulePage() {
           <>
             <button
               onClick={selectAll}
-              className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+              className="px-3 py-1.5 bg-white text-[#5D4037] rounded-full text-xs border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
             >
-              全选 ({selectedIds.length}/{blackouts.length})
+              {selectedIds.length === blackouts.length ? '取消全选' : `全选 (${selectedIds.length}/${blackouts.length})`}
             </button>
             <button
               onClick={handleBatchDelete}
               disabled={selectedIds.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-full text-xs font-medium hover:bg-red-600 transition-colors disabled:opacity-50 whitespace-nowrap"
             >
-              <Trash2 className="w-4 h-4" />
-              删除选中 ({selectedIds.length})
+              <Trash2 className="w-3.5 h-3.5" />
+              删除 ({selectedIds.length})
             </button>
             <button
               onClick={clearSelection}
-              className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+              className="px-3 py-1.5 bg-white text-[#5D4037] rounded-full text-xs border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
             >
               取消
             </button>

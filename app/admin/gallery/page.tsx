@@ -194,7 +194,11 @@ export default function AdminGalleryPage() {
   };
 
   const selectAllPhotos = () => {
-    setSelectedPhotoIds(photos.map(p => p.id));
+    if (selectedPhotoIds.length === photos.length) {
+      setSelectedPhotoIds([]);
+    } else {
+      setSelectedPhotoIds(photos.map(p => p.id));
+    }
   };
 
   const clearPhotoSelection = () => {
@@ -310,56 +314,100 @@ export default function AdminGalleryPage() {
 
   return (
     <div className="space-y-6 pt-6">
-      {/* 页面标题和操作栏 */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
-            照片墙管理 🖼️
-          </h1>
-          <p className="text-sm text-[#5D4037]/60">管理公开展示的照片</p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          {!isSelectionMode ? (
-            <>
-              <button
-                onClick={() => setIsSelectionMode(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
-              >
-                批量删除
-              </button>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
-              >
-                <Plus className="w-5 h-5" />
-                上传照片
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={selectAllPhotos}
-                className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
-              >
-                全选 ({selectedPhotoIds.length}/{photos.length})
-              </button>
-              <button
-                onClick={handleBatchDelete}
-                disabled={selectedPhotoIds.length === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                删除选中 ({selectedPhotoIds.length})
-              </button>
-              <button
-                onClick={clearPhotoSelection}
-                className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
-              >
-                取消
-              </button>
-            </>
-          )}
-        </div>
+      {/* 页面标题 */}
+      <div>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          照片墙管理 🖼️
+        </h1>
+        <p className="text-sm text-[#5D4037]/60">管理公开展示的照片</p>
+      </div>
+
+      {/* 移动端操作按钮 - 放在标题下方 */}
+      <div className="flex gap-2 md:hidden">
+        {!isSelectionMode ? (
+          <>
+            <button
+              onClick={() => setIsSelectionMode(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+            >
+              批量删除
+            </button>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+            >
+              <Plus className="w-5 h-5" />
+              上传照片
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={selectAllPhotos}
+              className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+            >
+              {selectedPhotoIds.length === photos.length ? '取消全选' : `全选 (${selectedPhotoIds.length}/${photos.length})`}
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              disabled={selectedPhotoIds.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              删除 ({selectedPhotoIds.length})
+            </button>
+            <button
+              onClick={clearPhotoSelection}
+              className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+            >
+              取消
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* 桌面端操作按钮 - 保持原位置 */}
+      <div className="hidden md:flex items-center justify-end gap-2">
+        {!isSelectionMode ? (
+          <>
+            <button
+              onClick={() => setIsSelectionMode(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+            >
+              批量删除
+            </button>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+            >
+              <Plus className="w-5 h-5" />
+              上传照片
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={selectAllPhotos}
+              className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+            >
+              {selectedPhotoIds.length === photos.length ? '取消全选' : `全选 (${selectedPhotoIds.length}/${photos.length})`}
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              disabled={selectedPhotoIds.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              删除选中 ({selectedPhotoIds.length})
+            </button>
+            <button
+              onClick={clearPhotoSelection}
+              className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
+            >
+              取消
+            </button>
+          </>
+        )}
       </div>
 
       {/* 照片列表 */}
@@ -374,7 +422,7 @@ export default function AdminGalleryPage() {
           <p className="text-[#5D4037]/60">暂无公开照片</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4">
           <AnimatePresence>
             {photos.map((photo) => (
               <motion.div
@@ -382,7 +430,7 @@ export default function AdminGalleryPage() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all ${
+                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all mb-4 break-inside-avoid ${
                   isSelectionMode
                     ? selectedPhotoIds.includes(photo.id)
                       ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
@@ -392,7 +440,7 @@ export default function AdminGalleryPage() {
                 onClick={() => isSelectionMode && togglePhotoSelection(photo.id)}
                 style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
               >
-                <div className="aspect-[3/4] relative group">
+                <div className="relative group">
                   {isSelectionMode && (
                     <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
                       selectedPhotoIds.includes(photo.id)
@@ -409,7 +457,7 @@ export default function AdminGalleryPage() {
                   <img
                     src={photo.thumbnail_url || photo.preview_url || photo.url}
                     alt="照片"
-                    className="w-full h-full object-cover cursor-pointer"
+                    className="w-full h-auto object-cover cursor-pointer"
                     onClick={(e) => {
                       if (!isSelectionMode) {
                         e.stopPropagation();

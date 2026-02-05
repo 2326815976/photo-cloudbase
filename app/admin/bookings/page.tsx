@@ -58,6 +58,9 @@ export default function BookingsPage() {
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [cancelingBooking, setCancelingBooking] = useState<Booking | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
+  const [isBookingSelectionMode, setIsBookingSelectionMode] = useState(false);
+  const [showBatchDeleteBookingsConfirm, setShowBatchDeleteBookingsConfirm] = useState(false);
 
   // 约拍类型管理状态
   const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
@@ -273,6 +276,58 @@ export default function BookingsPage() {
       default:
         return status;
     }
+  };
+
+  const handleBatchDeleteBookings = async () => {
+    if (selectedBookingIds.length === 0) {
+      setShowToast({ message: '请先选择要删除的预约', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    setShowBatchDeleteBookingsConfirm(true);
+  };
+
+  const confirmBatchDeleteBookings = async () => {
+    setShowBatchDeleteBookingsConfirm(false);
+    setActionLoading(true);
+
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .delete()
+        .in('id', selectedBookingIds);
+
+      if (error) throw error;
+
+      setActionLoading(false);
+      setSelectedBookingIds([]);
+      setIsBookingSelectionMode(false);
+      loadBookings();
+      setShowToast({ message: `成功删除 ${selectedBookingIds.length} 个预约`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } catch (error: any) {
+      setActionLoading(false);
+      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const toggleBookingSelection = (id: string) => {
+    setSelectedBookingIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllBookings = () => {
+    const deletableBookings = bookings.filter(b => b.status === 'finished' || b.status === 'cancelled');
+    setSelectedBookingIds(deletableBookings.map(b => b.id));
+  };
+
+  const clearBookingSelection = () => {
+    setSelectedBookingIds([]);
+    setIsBookingSelectionMode(false);
   };
 
   // 约拍类型管理函数
@@ -604,27 +659,64 @@ export default function BookingsPage() {
       {/* 预约列表内容 */}
       {activeTab === 'bookings' && (
         <div className="space-y-6">
-          {/* 筛选器 */}
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {[
-              { key: 'all', label: '全部' },
-              { key: 'pending', label: '待确认' },
-              { key: 'confirmed', label: '已确认' },
-              { key: 'finished', label: '已完成' },
-              { key: 'cancelled', label: '已取消' },
-            ].map((item) => (
+          {/* 筛选器和批量操作 */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {[
+                { key: 'all', label: '全部' },
+                { key: 'pending', label: '待确认' },
+                { key: 'confirmed', label: '已确认' },
+                { key: 'finished', label: '已完成' },
+                { key: 'cancelled', label: '已取消' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setFilter(item.key as any)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                    filter === item.key
+                      ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
+                      : 'bg-white text-[#5D4037]/60 border border-[#5D4037]/10 hover:bg-[#5D4037]/5'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 批量删除按钮 */}
+            {(filter === 'finished' || filter === 'cancelled') && !isBookingSelectionMode && (
               <button
-                key={item.key}
-                onClick={() => setFilter(item.key as any)}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                  filter === item.key
-                    ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
-                    : 'bg-white text-[#5D4037]/60 border border-[#5D4037]/10 hover:bg-[#5D4037]/5'
-                }`}
+                onClick={() => setIsBookingSelectionMode(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
               >
-                {item.label}
+                批量删除
               </button>
-            ))}
+            )}
+
+            {isBookingSelectionMode && (
+              <div className="flex gap-2">
+                <button
+                  onClick={selectAllBookings}
+                  className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
+                >
+                  全选 ({selectedBookingIds.length}/{bookings.filter(b => b.status === 'finished' || b.status === 'cancelled').length})
+                </button>
+                <button
+                  onClick={handleBatchDeleteBookings}
+                  disabled={selectedBookingIds.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除 ({selectedBookingIds.length})
+                </button>
+                <button
+                  onClick={clearBookingSelection}
+                  className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
+                >
+                  取消
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 预约列表 */}
@@ -641,17 +733,41 @@ export default function BookingsPage() {
           ) : (
             <div className="space-y-4">
               <AnimatePresence>
-                {bookings.map((booking) => (
+                {bookings.map((booking) => {
+                  const isDeletable = booking.status === 'finished' || booking.status === 'cancelled';
+                  const isSelected = selectedBookingIds.includes(booking.id);
+
+                  return (
                   <motion.div
                     key={booking.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
-                    className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10 hover:shadow-md transition-shadow"
+                    className={`bg-white rounded-2xl p-6 shadow-sm border transition-all ${
+                      isBookingSelectionMode && isDeletable
+                        ? isSelected
+                          ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md cursor-pointer'
+                          : 'border-[#5D4037]/10 hover:border-[#FFC857]/50 cursor-pointer'
+                        : 'border-[#5D4037]/10 hover:shadow-md'
+                    }`}
+                    onClick={() => isBookingSelectionMode && isDeletable && toggleBookingSelection(booking.id)}
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center">
+                        {isBookingSelectionMode && isDeletable && (
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                            isSelected
+                              ? 'bg-[#FFC857] border-[#FFC857]'
+                              : 'bg-white border-[#5D4037]/30'
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                        )}
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center flex-shrink-0">
                           <User className="w-6 h-6 text-white" />
                         </div>
                         <div>
@@ -666,19 +782,19 @@ export default function BookingsPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-4">
                       <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <Calendar className="w-4 h-4 text-[#FFC857]" />
+                        <Calendar className="w-4 h-4 text-[#FFC857] flex-shrink-0" />
                         <span>{booking.booking_date}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <MapPin className="w-4 h-4 text-[#FFC857]" />
-                        <span className="line-clamp-1">{booking.location}</span>
+                      <div className="flex items-start gap-2 text-sm text-[#5D4037]/80">
+                        <MapPin className="w-4 h-4 text-[#FFC857] flex-shrink-0 mt-0.5" />
+                        <span className="break-words">{booking.location}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <Phone className="w-4 h-4 text-[#FFC857]" />
+                        <Phone className="w-4 h-4 text-[#FFC857] flex-shrink-0" />
                         <span>{booking.phone}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <MessageSquare className="w-4 h-4 text-[#FFC857]" />
+                        <MessageSquare className="w-4 h-4 text-[#FFC857] flex-shrink-0" />
                         <span>{booking.wechat}</span>
                       </div>
                     </div>
@@ -735,7 +851,8 @@ export default function BookingsPage() {
                       </div>
                     )}
                   </motion.div>
-                ))}
+                  );
+                })}
               </AnimatePresence>
             </div>
           )}
@@ -1119,6 +1236,59 @@ export default function BookingsPage() {
                 </button>
                 <button
                   onClick={confirmDeleteType}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '删除中...' : '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 批量删除预约确认对话框 */}
+      <AnimatePresence>
+        {showBatchDeleteBookingsConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !actionLoading && setShowBatchDeleteBookingsConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除预约</h3>
+                <p className="text-sm text-[#5D4037]/80 mb-4">
+                  确定要删除选中的 <span className="font-bold text-red-600">{selectedBookingIds.length}</span> 个预约吗？
+                </p>
+                <div className="bg-red-50 rounded-xl p-4">
+                  <p className="text-sm text-red-800">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    此操作不可撤销！
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBatchDeleteBookingsConfirm(false)}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmBatchDeleteBookings}
                   disabled={actionLoading}
                   className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
                 >

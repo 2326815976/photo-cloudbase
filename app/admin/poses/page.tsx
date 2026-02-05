@@ -327,7 +327,11 @@ export default function PosesPage() {
   };
 
   const selectAllPoses = () => {
-    setSelectedPoseIds(poses.map(p => p.id));
+    if (selectedPoseIds.length === poses.length) {
+      setSelectedPoseIds([]);
+    } else {
+      setSelectedPoseIds(poses.map(p => p.id));
+    }
   };
 
   const clearPoseSelection = () => {
@@ -565,7 +569,11 @@ export default function PosesPage() {
   };
 
   const selectAllTags = () => {
-    setSelectedTagIds(tags.map(t => t.id));
+    if (selectedTagIds.length === tags.length) {
+      setSelectedTagIds([]);
+    } else {
+      setSelectedTagIds(tags.map(t => t.id));
+    }
   };
 
   const clearTagSelection = () => {
@@ -635,12 +643,12 @@ export default function PosesPage() {
           <div className="flex items-center justify-between gap-4">
             {/* 标签筛选 */}
             <div className="flex-1 flex items-center gap-2 overflow-x-auto pb-2">
-              <Tag className="w-5 h-5 text-[#5D4037]/60 flex-shrink-0" />
+              <Tag className="w-4 h-4 text-[#5D4037]/60 flex-shrink-0" />
               {tags.map((tag) => (
                 <button
                   key={tag.id}
                   onClick={() => toggleTagFilter(tag.name)}
-                  className={`px-3 py-1 rounded-full text-sm whitespace-nowrap transition-all ${
+                  className={`px-2.5 py-1 rounded-full text-xs whitespace-nowrap transition-all flex-shrink-0 ${
                     selectedTags.includes(tag.name)
                       ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
                       : 'bg-white text-[#5D4037]/60 border border-[#5D4037]/10 hover:bg-[#5D4037]/5'
@@ -662,7 +670,7 @@ export default function PosesPage() {
                   </button>
                   <button
                     onClick={openAddModal}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow whitespace-nowrap"
                   >
                     <Plus className="w-4 h-4" />
                     新增摆姿
@@ -674,7 +682,7 @@ export default function PosesPage() {
                     onClick={selectAllPoses}
                     className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
                   >
-                    全选 ({selectedPoseIds.length}/{poses.length})
+                    {selectedPoseIds.length === poses.length ? '取消全选' : `全选 (${selectedPoseIds.length}/${poses.length})`}
                   </button>
                   <button
                     onClick={handleBatchDelete}
@@ -860,7 +868,7 @@ export default function PosesPage() {
                   onClick={selectAllTags}
                   className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
                 >
-                  全选 ({selectedTagIds.length}/{tags.length})
+                  {selectedTagIds.length === tags.length ? '取消全选' : `全选 (${selectedTagIds.length}/${tags.length})`}
                 </button>
                 <button
                   onClick={handleBatchDeleteTags}

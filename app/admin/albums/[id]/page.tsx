@@ -579,7 +579,7 @@ export default function AlbumDetailPage() {
           <p className="text-[#5D4037]/60">暂无照片</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4">
           <AnimatePresence>
             {filteredPhotos.map((photo) => (
               <motion.div
@@ -587,7 +587,7 @@ export default function AlbumDetailPage() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all ${
+                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all mb-4 break-inside-avoid ${
                   isSelectionMode
                     ? selectedPhotoIds.includes(photo.id)
                       ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
@@ -603,7 +603,7 @@ export default function AlbumDetailPage() {
                 }}
                 style={{ cursor: isSelectionMode ? 'pointer' : 'pointer' }}
               >
-                <div className="aspect-[3/4] relative">
+                <div className="relative">
                   {isSelectionMode && (
                     <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
                       selectedPhotoIds.includes(photo.id)
@@ -623,11 +623,11 @@ export default function AlbumDetailPage() {
                       <img
                         src={url}
                         alt=""
-                        className="w-full h-full object-cover"
+                        className="w-full h-auto object-cover"
                         onError={(e) => console.error(`❌ 照片 ${photo.id} 加载失败:`, e)}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                      <div className="w-full aspect-[3/4] flex items-center justify-center bg-gray-100">
                         <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
                       </div>
                     );
@@ -638,10 +638,10 @@ export default function AlbumDetailPage() {
                         e.stopPropagation();
                         handleDeletePhoto(photo.id, photo.url);
                       }}
-                      className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full opacity-0 hover:opacity-100 md:opacity-70 md:hover:opacity-100 transition-opacity flex items-center justify-center active:scale-95"
+                      className="absolute top-2 right-2 w-10 h-10 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center justify-center shadow-md"
                       aria-label="删除照片"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   )}
                 </div>
