@@ -52,6 +52,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [shakeEnabled, setShakeEnabled] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
+  const lastShakeTimeRef = useRef(0);
 
   const HISTORY_SIZE = 5;
   const SHAKE_THRESHOLD = 15;
@@ -186,7 +187,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
     let lastX = 0, lastY = 0, lastZ = 0;
     let lastTime = 0;
-    let lastShakeTime = 0;
 
     const handleMotion = (event: DeviceMotionEvent) => {
       const acceleration = event.accelerationIncludingGravity;
@@ -203,8 +203,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
       // 检测到摇动
       if (deltaX + deltaY + deltaZ > SHAKE_THRESHOLD) {
-        // 冷却时间检查：2秒内不重复触发（对标微信）
-        if (currentTime - lastShakeTime < SHAKE_COOLDOWN) {
+        // 冷却时间检查：3秒内不重复触发
+        if (currentTime - lastShakeTimeRef.current < SHAKE_COOLDOWN) {
           return;
         }
 
@@ -215,7 +215,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
         // 设置摇动状态
         setIsShaking(true);
-        lastShakeTime = currentTime;
+        lastShakeTimeRef.current = currentTime;
 
         // 触发切换
         getRandomPose();

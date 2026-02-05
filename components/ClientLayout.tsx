@@ -14,6 +14,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith('/admin');
 
+  // 生产环境禁用 console 日志
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_APP_URL === 'production') {
+      const noop = () => {};
+      console.log = noop;
+      console.warn = noop;
+      console.error = noop;
+      console.info = noop;
+      console.debug = noop;
+    }
+  }, []);
+
   // 记录用户活跃日志（延迟执行，确保首屏优先）
   useEffect(() => {
     const timer = setTimeout(() => {
