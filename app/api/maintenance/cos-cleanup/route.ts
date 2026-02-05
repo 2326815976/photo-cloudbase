@@ -44,14 +44,25 @@ export async function POST(request: Request) {
 
     console.log(`[COS清理] 开始处理 ${deletions.length} 个文件`);
 
-    // 初始化COS SDK
-    const cos = new COS({
-      SecretId: process.env.COS_SECRET_ID,
-      SecretKey: process.env.COS_SECRET_KEY,
-    });
-
+    // 验证环境变量
     const bucket = process.env.COS_BUCKET;
     const region = process.env.COS_REGION;
+    const secretId = process.env.COS_SECRET_ID;
+    const secretKey = process.env.COS_SECRET_KEY;
+
+    if (!bucket || !region || !secretId || !secretKey) {
+      console.error('[COS清理] COS环境变量未配置');
+      return NextResponse.json({
+        error: 'COS环境变量未配置',
+        details: `缺少: ${!bucket ? 'COS_BUCKET ' : ''}${!region ? 'COS_REGION ' : ''}${!secretId ? 'COS_SECRET_ID ' : ''}${!secretKey ? 'COS_SECRET_KEY' : ''}`
+      }, { status: 500 });
+    }
+
+    // 初始化COS SDK
+    const cos = new COS({
+      SecretId: secretId,
+      SecretKey: secretKey,
+    });
 
     const successIds: string[] = [];
     const failedIds: string[] = [];
