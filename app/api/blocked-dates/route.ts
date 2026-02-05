@@ -1,12 +1,13 @@
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0; // 禁用缓存，实时获取最新数据
+export const revalidate = 0; // 禁用缓存,实时获取最新数据
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    // 使用管理员客户端绕过RLS策略,查询所有用户的预约记录
+    const supabase = createAdminClient();
 
     // 格式化日期为本地时间 YYYY-MM-DD（避免UTC时区问题）
     const formatLocalDate = (date: Date) => {

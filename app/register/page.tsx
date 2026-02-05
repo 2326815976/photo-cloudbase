@@ -31,10 +31,10 @@ export default function RegisterPage() {
     // 强制重新渲染 Turnstile 组件
     setTurnstileKey(Date.now());
 
-    // 固定3秒后隐藏加载动画
+    // 固定2秒后隐藏加载动画
     const timer = setTimeout(() => {
       setTurnstileLoading(false);
-    }, 3000);
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, []);

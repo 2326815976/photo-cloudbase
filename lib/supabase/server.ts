@@ -1,8 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import {
   getSupabaseUrlFromEnv,
   getSupabaseAnonKeyFromEnv,
+  getSupabaseServiceRoleKeyFromEnv,
 } from "./env";
 
 export async function createClient() {
@@ -29,6 +31,23 @@ export async function createClient() {
           // Ignore if called from Server Component
         }
       },
+    },
+  });
+}
+
+// 管理员客户端，绕过RLS策略
+export function createAdminClient() {
+  const supabaseUrl = getSupabaseUrlFromEnv();
+  const supabaseServiceRoleKey = getSupabaseServiceRoleKeyFromEnv();
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error("Missing Supabase admin environment variables");
+  }
+
+  return createSupabaseClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
     },
   });
 }

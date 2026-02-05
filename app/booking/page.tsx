@@ -140,11 +140,14 @@ export default function BookingPage() {
 
   const loadBlockedDates = async () => {
     try {
+      console.log('[前端] 开始加载不可用日期...');
       const response = await fetch('/api/blocked-dates');
       const data = await response.json();
+      console.log('[前端] API返回的不可用日期:', data.dates);
+      console.log('[前端] 不可用日期数量:', data.dates?.length || 0);
       setBlockedDates(data.dates || []);
     } catch (error) {
-      console.error('Failed to load blocked dates:', error);
+      console.error('[前端] 加载不可用日期失败:', error);
       setBlockedDates([]);
     }
   };

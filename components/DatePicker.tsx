@@ -25,6 +25,12 @@ export default function DatePicker({
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // 调试日志：监控blockedDates变化
+  useEffect(() => {
+    console.log('[DatePicker] 收到的blockedDates:', blockedDates);
+    console.log('[DatePicker] blockedDates数量:', blockedDates?.length || 0);
+  }, [blockedDates]);
+
   // 解析日期字符串为本地时间（避免UTC时区问题）
   const parseLocalDate = (dateStr: string) => {
     const [year, month, day] = dateStr.split('-').map(Number);
@@ -76,7 +82,19 @@ export default function DatePicker({
   // 判断日期是否可选
   const isDateSelectable = (date: Date) => {
     const dateStr = formatDate(date);
-    return date >= min && date <= max && !blockedDates.includes(dateStr);
+    const isInRange = date >= min && date <= max;
+    const isBlocked = blockedDates.includes(dateStr);
+
+    // 调试日志：检查特定日期
+    if (dateStr === '2026-02-08') {
+      console.log('[DatePicker] 检查2026-02-08:');
+      console.log('  - 日期字符串:', dateStr);
+      console.log('  - 在范围内:', isInRange);
+      console.log('  - 被锁定:', isBlocked);
+      console.log('  - blockedDates包含:', blockedDates);
+    }
+
+    return isInRange && !isBlocked;
   };
 
   // 判断日期是否在当前月份
