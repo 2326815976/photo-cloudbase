@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Phone, Lock, ArrowLeft } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 // 动态导入 Turnstile 组件，延迟加载，不在首页加载时执行
 const Turnstile = dynamic(
@@ -20,11 +21,13 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [turnstileKey, setTurnstileKey] = useState(0);
+  const [turnstileLoading, setTurnstileLoading] = useState(true);
 
   // 每次进入页面时强制刷新 Turnstile（清除缓存的 token）
   useEffect(() => {
     // 清空旧的 token
     setTurnstileToken('');
+    setTurnstileLoading(true);
     // 强制重新渲染 Turnstile 组件
     setTurnstileKey(Date.now());
   }, []);
@@ -75,9 +78,26 @@ export default function RegisterPage() {
         return;
       }
 
-      // 注册成功，跳转到登录页面
+      // 注册成功，自动登录
+      const supabase = createClient();
+      const email = `${phone}@slogan.app`;
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) {
+        // 登录失败，跳转到登录页面
+        setTurnstileToken('');
+        router.push('/login');
+        return;
+      }
+
+      // 登录成功，跳转到个人资料页面
       setTurnstileToken('');
-      router.push('/login');
+      router.push('/profile');
+      router.refresh();
     } catch (err) {
       console.error('注册错误:', err);
       setError('网络错误，请重试');
@@ -148,25 +168,43 @@ export default function RegisterPage() {
           </div>
 
           {/* Turnstile 验证 */}
-          <div className="w-full flex justify-center">
+          <div className="w-full flex justify-center min-h-[65px] relative">
+            {turnstileLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded-lg">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-8 h-8 border-3 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm text-[#5D4037]/60">加载人机验证中...</span>
+                </div>
+              </div>
+            )}
             <Turnstile
               key={turnstileKey}
               siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
               onSuccess={(token) => {
                 setTurnstileToken(token);
+                setTurnstileLoading(false);
                 setError('');
               }}
               onError={(errorCode) => {
                 console.error('Turnstile 错误:', errorCode);
+                setTurnstileLoading(false);
                 setError('人机验证失败，请刷新重试');
               }}
               onTimeout={() => {
                 console.error('Turnstile 超时');
+                setTurnstileLoading(false);
                 setError('验证超时，请重试');
               }}
               onExpire={() => {
                 console.error('Turnstile 过期');
                 setTurnstileToken('');
+                setTurnstileLoading(true);
+              }}
+              onBeforeInteractive={() => {
+                setTurnstileLoading(true);
+              }}
+              onAfterInteractive={() => {
+                setTurnstileLoading(false);
               }}
               options={{
                 theme: 'light',
@@ -174,7 +212,7 @@ export default function RegisterPage() {
                 retry: 'auto',
                 retryInterval: 8000,
                 refreshExpired: 'auto',
-                language: 'zh-cn', // 修复：使用小写 zh-cn 而不是 zh-CN
+                language: 'zh-cn',
                 execution: 'render',
                 appearance: 'always',
               }}

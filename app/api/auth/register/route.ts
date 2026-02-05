@@ -84,23 +84,30 @@ export async function POST(request: NextRequest) {
     });
 
     if (signUpError) {
-      // 处理常见错误
-      if (signUpError.message.includes('already registered')) {
-        return NextResponse.json(
-          { error: '该手机号已注册，请直接登录' },
-          { status: 400 }
-        );
+      // 处理常见错误并翻译为中文
+      let errorMessage = '注册失败，请重试';
+
+      if (signUpError.message.includes('already registered') || signUpError.message.includes('User already registered')) {
+        errorMessage = '该手机号已注册，请直接登录';
+      } else if (signUpError.message.includes('Password should be at least')) {
+        errorMessage = '密码至少需要 6 位';
+      } else if (signUpError.message.includes('Invalid email')) {
+        errorMessage = '手机号格式不正确';
+      } else if (signUpError.message.includes('Unable to validate email')) {
+        errorMessage = '无法验证手机号，请重试';
+      } else if (signUpError.message.includes('Database error')) {
+        errorMessage = '数据库错误，请稍后重试';
       }
 
       return NextResponse.json(
-        { error: signUpError.message || '注册失败，请重试' },
+        { error: errorMessage },
         { status: 400 }
       );
     }
 
-    // 6. 创建用户扩展信息表（同时写入 profiles 和 user_profiles 表）
+    // 6. 创建用户扩展信息表（user_profiles 表）
+    // 注意：profiles 表由数据库触发器自动创建
     if (authData.user) {
-      // 写入 user_profiles 表（手机号注册系统）
       const { error: userProfileError } = await supabaseAdmin
         .from('user_profiles')
         .insert({
@@ -113,21 +120,6 @@ export async function POST(request: NextRequest) {
 
       if (userProfileError) {
         console.error('创建 user_profiles 失败:', userProfileError);
-      }
-
-      // 写入 profiles 表（用户资料系统）
-      const { error: profileError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          id: authData.user.id,
-          email,
-          name: '拾光者', // 默认用户名
-          phone,
-          role: 'user',
-        });
-
-      if (profileError) {
-        console.error('创建 profiles 失败:', profileError);
       }
     }
 
