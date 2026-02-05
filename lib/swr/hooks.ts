@@ -41,7 +41,7 @@ export function useAlbums() {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('albums')
-      .select('*')
+      .select('id, access_key, title, cover_url, recipient_name, expires_at, created_at')
       .order('created_at', { ascending: false });
 
     if (error) throw error;

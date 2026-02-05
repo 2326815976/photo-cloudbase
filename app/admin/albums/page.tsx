@@ -50,7 +50,7 @@ export default function AlbumsPage() {
 
     const { data, error } = await supabase
       .from('albums')
-      .select('*')
+      .select('id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, donation_qr_code_url, expires_at, created_at')
       .order('created_at', { ascending: false });
 
     if (!error && data) {

@@ -137,11 +137,22 @@ export default function BookingsPage() {
       console.log('🔍 Profile 查询错误:', profileError);
     }
 
-    // 分步查询：先查询预约，再手动关联用户信息
+    // 优化查询：只选择需要的字段
     let query = supabase
       .from('bookings')
       .select(`
-        *,
+        id,
+        user_id,
+        type_id,
+        booking_date,
+        location,
+        city_name,
+        phone,
+        wechat,
+        notes,
+        status,
+        created_at,
+        updated_at,
         booking_types(name)
       `)
       .order('booking_date', { ascending: false });

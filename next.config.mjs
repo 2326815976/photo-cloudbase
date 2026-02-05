@@ -36,17 +36,21 @@ const nextConfig = {
     // 生产环境移除console日志
     if (!dev) {
       config.optimization.minimizer = config.optimization.minimizer || [];
-      const TerserPlugin = require('terser-webpack-plugin');
 
-      config.optimization.minimizer.push(
-        new TerserPlugin({
-          terserOptions: {
-            compress: {
-              drop_console: true, // 移除所有console.*
-            },
-          },
-        })
+      // 使用 Next.js 内置的 Terser 配置
+      const existingTerser = config.optimization.minimizer.find(
+        (plugin) => plugin.constructor.name === 'TerserPlugin'
       );
+
+      if (existingTerser && existingTerser.options) {
+        existingTerser.options.terserOptions = {
+          ...existingTerser.options.terserOptions,
+          compress: {
+            ...existingTerser.options.terserOptions?.compress,
+            drop_console: true,
+          },
+        };
+      }
     }
 
     return config;

@@ -24,10 +24,10 @@ export async function GET() {
       return NextResponse.json({ error: '需要管理员权限' }, { status: 403 });
     }
 
-    // 查询所有锁定日期
+    // 查询所有锁定日期(只选择需要的字段)
     const { data, error } = await supabase
       .from('booking_blackouts')
-      .select('*')
+      .select('id, date, reason, created_at')
       .order('date', { ascending: false });
 
     if (error) {
