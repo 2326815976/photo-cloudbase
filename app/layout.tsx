@@ -1,22 +1,15 @@
 import type { Metadata } from "next";
-import { Ma_Shan_Zheng, ZCOOL_KuaiLe } from "next/font/google";
+import { Ma_Shan_Zheng } from "next/font/google";
 import "./globals.css";
 import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
 
-// 优化手写体字体加载 - 自托管，消除外部请求
+// 优化手写体字体加载 - 仅加载必需的手写体
 const maShanZheng = Ma_Shan_Zheng({
   weight: "400",
   subsets: ["latin"],
   display: "swap",
   variable: "--font-ma-shan-zheng",
-});
-
-const zcoolKuaiLe = ZCOOL_KuaiLe({
-  weight: "400",
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-zcool-kuaile",
 });
 
 export const metadata: Metadata = {
@@ -34,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className={`${maShanZheng.variable} ${zcoolKuaiLe.variable}`}>
+    <html lang="zh-CN" className={maShanZheng.variable}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
         <link rel="manifest" href="/manifest.json" />

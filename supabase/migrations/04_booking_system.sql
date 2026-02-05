@@ -1,9 +1,9 @@
 -- ================================================================================================
--- 📂 项目：拾光谣 - 预约系统完整实现
--- 📝 版本：v1.0_Consolidated
--- 🎯 目标：约拍类型、城市限制、预约管理、档期锁定、取消策略
--- 📅 日期：2026-02-04
--- 🔄 合并自：006, 012, 013
+-- 📂 项目：拾光谣 - 预约系统完整实现（优化版）
+-- 📝 版本：v2.0_Consolidated
+-- 🎯 目标：约拍类型、城市限制、预约管理、档期锁定、取消策略、进行中状态
+-- 📅 日期：2026-02-05
+-- 🔄 合并自：04_booking_system.sql, 09_fix_bookings_updated_at.sql, 10_add_in_progress_status.sql
 -- ================================================================================================
 
 -- ================================================================================================
@@ -72,7 +72,7 @@ COMMENT ON COLUMN public.allowed_cities.latitude IS '城市中心纬度';
 COMMENT ON COLUMN public.allowed_cities.longitude IS '城市中心经度';
 
 -- ================================================================================================
--- 3. 预约表
+-- 3. 预约表（包含 updated_at 字段和 in_progress 状态）
 -- ================================================================================================
 
 CREATE TABLE IF NOT EXISTS public.bookings (
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   phone text NOT NULL,
   wechat text NOT NULL,
   notes text,
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'finished', 'cancelled')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'in_progress', 'finished', 'cancelled')),
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
@@ -114,7 +114,8 @@ COMMENT ON COLUMN public.bookings.city_name IS '约拍城市';
 COMMENT ON COLUMN public.bookings.phone IS '手机号（必填）';
 COMMENT ON COLUMN public.bookings.wechat IS '微信号（必填）';
 COMMENT ON COLUMN public.bookings.notes IS '备注（选填）';
-COMMENT ON COLUMN public.bookings.status IS '预约状态：pending-待确认, confirmed-已确认, finished-已完成, cancelled-已取消';
+COMMENT ON COLUMN public.bookings.status IS '预约状态：pending-待确认, confirmed-已确认, in_progress-进行中, finished-已完成, cancelled-已取消';
+COMMENT ON COLUMN public.bookings.updated_at IS '最后更新时间';
 
 -- ================================================================================================
 -- 4. 档期锁定表
@@ -153,7 +154,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM public.bookings
     WHERE booking_date = target_date
-    AND status IN ('confirmed', 'pending')
+    AND status IN ('confirmed', 'pending', 'in_progress')
   ) THEN
     RETURN false;
   END IF;
@@ -184,7 +185,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   UPDATE public.bookings
   SET status = 'finished'
-  WHERE status IN ('pending', 'confirmed')
+  WHERE status IN ('pending', 'confirmed', 'in_progress')
     AND booking_date < CURRENT_DATE;
 END;
 $$;
@@ -407,10 +408,11 @@ BEGIN
   RAISE NOTICE '📋 已创建表：';
   RAISE NOTICE '  - booking_types（约拍类型）';
   RAISE NOTICE '  - allowed_cities（城市限制）';
-  RAISE NOTICE '  - bookings（预约信息）';
+  RAISE NOTICE '  - bookings（预约信息，包含 updated_at 和 in_progress 状态）';
   RAISE NOTICE '  - booking_blackouts（档期锁定）';
   RAISE NOTICE '🔒 RLS 策略已配置';
   RAISE NOTICE '⚡ RPC 函数已创建';
   RAISE NOTICE '🔄 触发器已设置';
   RAISE NOTICE '📅 预约取消策略：只能在预约日期之前取消';
+  RAISE NOTICE '💡 状态流转：pending → confirmed → in_progress → finished';
 END $$;

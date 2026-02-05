@@ -1,19 +1,20 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { MotionConfig } from 'framer-motion';
 import BottomNav from './BottomNav';
 import { createClient } from '@/lib/supabase/client';
 import SWRProvider from './providers/SWRProvider';
 import { prefetchByRoute } from '@/lib/swr/prefetch';
-import VersionChecker from './VersionChecker';
+
+const VersionChecker = lazy(() => import('./VersionChecker'));
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith('/admin');
 
-  // 记录用户活跃日志（防抖处理）
+  // 记录用户活跃日志（延迟执行，确保首屏优先）
   useEffect(() => {
     const timer = setTimeout(() => {
       const logActivity = async () => {
@@ -26,19 +27,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       };
 
       logActivity();
-    }, 2000); // 2秒防抖，避免频繁切换时重复调用
+    }, 5000); // 延迟5秒，确保首屏加载完成
 
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  // 启用预加载机制，首页加载完成后再预加载其他页面
+  // 延迟预加载机制，首屏加载完成后再预加载其他页面
   useEffect(() => {
     if (!isAdminRoute && pathname) {
-      // 首页立即预加载，其他页面延迟预加载
-      const delay = pathname === '/' ? 0 : 1500;
+      // 所有页面延迟3秒预加载，确保首屏优先
       const timer = setTimeout(() => {
         prefetchByRoute(pathname);
-      }, delay);
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [pathname, isAdminRoute]);
@@ -62,7 +62,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <BottomNav />
           </main>
         </div>
-        <VersionChecker />
+        <Suspense fallback={null}>
+          <VersionChecker />
+        </Suspense>
       </MotionConfig>
     </SWRProvider>
   );
