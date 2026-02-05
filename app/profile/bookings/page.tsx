@@ -73,7 +73,8 @@ export default function BookingsPage() {
       const { data, error } = await supabase
         .from('bookings')
         .select(`
-          *,
+          id, booking_date, location, city_name, phone, wechat,
+          notes, status, created_at, updated_at,
           booking_types(name)
         `)
         .eq('user_id', user.id)
