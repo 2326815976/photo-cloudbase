@@ -241,10 +241,15 @@ export default function BookingPage() {
     const userCity = normalizeCity(formData.cityName);
     const isCityAllowed = allowedCities.some(city => {
       const allowedCity = normalizeCity(city.city_name);
-      return userCity === allowedCity ||
-             formData.cityName === city.city_name ||
-             userCity.includes(allowedCity) ||
-             allowedCity.includes(userCity);
+      // 优先精确匹配，避免误匹配（如"北京"匹配"北京市"）
+      if (userCity === allowedCity || formData.cityName === city.city_name) {
+        return true;
+      }
+      // 降级到包含匹配，但要求匹配长度足够（避免"海"匹配"上海"）
+      if (userCity.length >= 2 && allowedCity.length >= 2) {
+        return userCity.includes(allowedCity) || allowedCity.includes(userCity);
+      }
+      return false;
     });
 
     if (!isCityAllowed) {
@@ -252,13 +257,6 @@ export default function BookingPage() {
       setIsSubmitting(false);
       return;
     }
-
-    // 使用用户选择的日期，如果没有选择则默认为明天
-    const bookingDate = selectedDate || (() => {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow.toISOString().split('T')[0];
-    })();
 
     // 验证日期是否被选择
     if (!selectedDate) {
@@ -269,7 +267,7 @@ export default function BookingPage() {
 
     // 🔒 安全验证：调用数据库函数检查日期是否可预约（包括锁定日期和已有预约检查）
     const { data: isAvailable, error: availabilityError } = await supabase
-      .rpc('check_date_availability', { target_date: bookingDate });
+      .rpc('check_date_availability', { target_date: selectedDate });
 
     if (availabilityError) {
       console.error('Date availability check error:', availabilityError);
@@ -289,7 +287,7 @@ export default function BookingPage() {
       .insert({
         user_id: user.id,
         type_id: formData.typeId,
-        booking_date: bookingDate,
+        booking_date: selectedDate,
         location: formData.location,
         latitude: formData.latitude,
         longitude: formData.longitude,

@@ -1,14 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkIPRateLimit, recordIPAttempt, getClientIP } from '@/lib/security/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    // 0. 获取客户端IP并检查频率限制
+    const clientIP = getClientIP(request);
+    const userAgent = request.headers.get('user-agent') || undefined;
+
+    const rateLimitCheck = await checkIPRateLimit(clientIP);
+    if (!rateLimitCheck.allowed) {
+      // BUG修复：不记录被限制的请求，避免数据膨胀
+      return NextResponse.json(
+        {
+          error: rateLimitCheck.reason || '请求过于频繁，请稍后重试',
+          retryAfter: rateLimitCheck.retryAfter
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimitCheck.retryAfter || 3600)
+          }
+        }
+      );
+    }
+
     const { phone, password, turnstileToken } = await request.json();
 
     // 1. 验证必填字段
     if (!phone || !password || !turnstileToken) {
+      // BUG修复：记录验证失败的尝试
+      await recordIPAttempt(clientIP, false, userAgent);
       return NextResponse.json(
         { error: '请填写完整信息' },
         { status: 400 }
@@ -17,6 +41,8 @@ export async function POST(request: NextRequest) {
 
     // 2. 验证手机号格式
     if (!/^1[3-9]\d{9}$/.test(phone)) {
+      // BUG修复：记录验证失败的尝试
+      await recordIPAttempt(clientIP, false, userAgent);
       return NextResponse.json(
         { error: '手机号格式不正确' },
         { status: 400 }
@@ -25,6 +51,8 @@ export async function POST(request: NextRequest) {
 
     // 3. 验证密码强度
     if (password.length < 6) {
+      // BUG修复：记录验证失败的尝试
+      await recordIPAttempt(clientIP, false, userAgent);
       return NextResponse.json(
         { error: '密码至少需要 6 位' },
         { status: 400 }
@@ -48,6 +76,8 @@ export async function POST(request: NextRequest) {
       const turnstileData = await turnstileResponse.json();
 
       if (!turnstileData.success) {
+        // BUG修复：记录验证失败的尝试
+        await recordIPAttempt(clientIP, false, userAgent);
         return NextResponse.json(
           { error: '人机验证失败，请重试' },
           { status: 400 }
@@ -84,6 +114,9 @@ export async function POST(request: NextRequest) {
     });
 
     if (signUpError) {
+      // 记录失败的注册尝试
+      await recordIPAttempt(clientIP, false, userAgent);
+
       // 处理常见错误并翻译为中文
       let errorMessage = '注册失败，请重试';
 
@@ -123,6 +156,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 记录成功的注册尝试
+    await recordIPAttempt(clientIP, true, userAgent);
+
     return NextResponse.json({
       success: true,
       message: '注册成功',
@@ -133,6 +169,16 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('注册错误:', error);
+
+    // 记录异常情况下的尝试
+    try {
+      const clientIP = getClientIP(request);
+      const userAgent = request.headers.get('user-agent') || undefined;
+      await recordIPAttempt(clientIP, false, userAgent);
+    } catch (recordError) {
+      console.error('记录IP尝试失败:', recordError);
+    }
+
     return NextResponse.json(
       { error: '服务器错误，请稍后重试' },
       { status: 500 }

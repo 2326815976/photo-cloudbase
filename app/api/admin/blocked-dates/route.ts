@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { getTodayUTC } from '@/lib/utils/date-helpers';
 
 export const dynamic = 'force-dynamic'; // 不缓存
 
@@ -24,10 +25,14 @@ export async function GET() {
       return NextResponse.json({ error: '需要管理员权限' }, { status: 403 });
     }
 
+    // 使用UTC时间获取今天的日期，只查询今天及以后的锁定日期
+    const today = getTodayUTC();
+
     // 查询所有锁定日期(只选择需要的字段)
     const { data, error } = await supabase
       .from('booking_blackouts')
       .select('id, date, reason, created_at')
+      .gte('date', today)
       .order('date', { ascending: false });
 
     if (error) {
@@ -67,8 +72,27 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { date, reason } = body;
 
+    // 输入验证
     if (!date) {
       return NextResponse.json({ error: '日期不能为空' }, { status: 400 });
+    }
+
+    // 验证日期格式 (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date)) {
+      return NextResponse.json({ error: '日期格式错误，应为 YYYY-MM-DD' }, { status: 400 });
+    }
+
+    // 验证日期是否有效
+    const dateObj = new Date(date + 'T00:00:00Z');
+    if (isNaN(dateObj.getTime())) {
+      return NextResponse.json({ error: '无效的日期' }, { status: 400 });
+    }
+
+    // 验证日期不能是过去的日期
+    const today = getTodayUTC();
+    if (date < today) {
+      return NextResponse.json({ error: '不能锁定过去的日期' }, { status: 400 });
     }
 
     // 插入锁定日期

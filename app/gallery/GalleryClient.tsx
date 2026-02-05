@@ -58,12 +58,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setAllPhotos(prev => {
         const existingIds = new Set(prev.map(p => p.id));
         const newPhotos = data.photos.filter((p: Photo) => !existingIds.has(p.id));
-        return [...prev, ...newPhotos];
+        const updatedPhotos = [...prev, ...newPhotos];
+        // 修复边界条件：当新加载的照片数量少于pageSize时，说明没有更多照片了
+        setHasMore(data.photos.length >= pageSize && updatedPhotos.length < data.total);
+        return updatedPhotos;
       });
-      setHasMore(allPhotos.length + data.photos.length < data.total);
       setIsLoadingMore(false);
     }
-  }, [data, page]);
+  }, [data, page, pageSize]);
 
   // 预加载图片
   useEffect(() => {

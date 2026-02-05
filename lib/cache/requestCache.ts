@@ -62,4 +62,7 @@ export function cleanExpiredCache(): void {
 // 定期清理过期缓存（每分钟）
 if (typeof window !== 'undefined') {
   setInterval(cleanExpiredCache, 60 * 1000);
+} else {
+  // 服务端也需要定期清理，避免内存泄漏
+  setInterval(cleanExpiredCache, 60 * 1000);
 }
