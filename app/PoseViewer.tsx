@@ -55,7 +55,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
   const HISTORY_SIZE = 5;
   const SHAKE_THRESHOLD = 15;
-  const SHAKE_COOLDOWN = 2000; // 2秒冷却时间，对标微信
+  const SHAKE_COOLDOWN = 3000; // 3秒冷却时间，避免切换过于频繁
 
   // 隐藏启动画面
   useEffect(() => {

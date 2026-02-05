@@ -49,8 +49,4 @@
 
     <!-- Install APK permission (Android 8.0+) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-
-    <!-- Shake detection feature -->
-    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
-    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>
