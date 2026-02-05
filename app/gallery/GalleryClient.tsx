@@ -38,6 +38,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [lastTouchDistance, setLastTouchDistance] = useState(0);
   const [page, setPage] = useState(initialPage);
   const [allPhotos, setAllPhotos] = useState<Photo[]>(initialPhotos);
   const [hasMore, setHasMore] = useState(initialTotal > initialPhotos.length);
@@ -384,6 +385,59 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               setPosition({ x: 0, y: 0 });
             }}
             className="fixed inset-0 bg-black z-[60] flex items-center justify-center"
+            onTouchStart={(e) => {
+              if (e.touches.length === 1) {
+                // 单指拖拽
+                setIsDragging(true);
+                setDragStart({
+                  x: e.touches[0].clientX - position.x,
+                  y: e.touches[0].clientY - position.y
+                });
+              } else if (e.touches.length === 2) {
+                // 双指缩放
+                setIsDragging(false);
+                const distance = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                setLastTouchDistance(distance);
+              }
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length === 1 && isDragging) {
+                // 单指拖拽
+                setPosition({
+                  x: e.touches[0].clientX - dragStart.x,
+                  y: e.touches[0].clientY - dragStart.y
+                });
+              } else if (e.touches.length === 2) {
+                // 双指缩放
+                e.preventDefault();
+                const distance = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                if (lastTouchDistance > 0) {
+                  const delta = (distance - lastTouchDistance) * 0.01;
+                  setScale(prev => Math.max(1, Math.min(3, prev + delta)));
+                }
+                setLastTouchDistance(distance);
+              }
+            }}
+            onTouchEnd={(e) => {
+              if (e.touches.length === 0) {
+                setIsDragging(false);
+                setLastTouchDistance(0);
+              } else if (e.touches.length === 1) {
+                // 从双指变为单指，重新开始拖拽
+                setLastTouchDistance(0);
+                setIsDragging(true);
+                setDragStart({
+                  x: e.touches[0].clientX - position.x,
+                  y: e.touches[0].clientY - position.y
+                });
+              }
+            }}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -403,6 +457,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               >
                 <X className="w-6 h-6 text-white" />
               </button>
+
+              {/* 缩放提示 */}
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+                <p className="text-white text-xs">双指缩放</p>
+              </div>
+
+              {/* 缩放比例显示 */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+                <span className="text-white text-sm font-medium">
+                  {Math.round(scale * 100)}%
+                </span>
+              </div>
 
               {/* 高清预览图 - 支持缩放和拖拽 */}
               <img
