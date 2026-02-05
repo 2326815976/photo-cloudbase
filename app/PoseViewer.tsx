@@ -46,7 +46,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [showPreview, setShowPreview] = useState(false);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
-  const [cacheKey, setCacheKey] = useState<string>('');
+  const [cacheKey, setCacheKey] = useState<string>('__initial__');  // 使用特殊初始值，强制第一次点击时重新加载
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
 
   const HISTORY_SIZE = 5;

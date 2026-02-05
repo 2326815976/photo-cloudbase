@@ -57,7 +57,7 @@ export default function DatePicker({
     });
   };
 
-  // 生成月份日历
+  // 生成月份日历（只显示5行，35天）
   const generateCalendar = (year: number, month: number) => {
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
@@ -65,7 +65,7 @@ export default function DatePicker({
     startDate.setDate(startDate.getDate() - firstDay.getDay());
 
     const days = [];
-    for (let i = 0; i < 42; i++) {
+    for (let i = 0; i < 35; i++) {  // 改为35天（5行 x 7天）
       const date = new Date(startDate);
       date.setDate(date.getDate() + i);
       days.push(date);
