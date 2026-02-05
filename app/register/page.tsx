@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
@@ -22,15 +22,24 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [turnstileKey, setTurnstileKey] = useState(0);
   const [turnstileLoading, setTurnstileLoading] = useState(true);
+  const loadStartTimeRef = useRef<number>(0);
 
   // 每次进入页面时强制刷新 Turnstile（清除缓存的 token）
   useEffect(() => {
     // 清空旧的 token
     setTurnstileToken('');
     setTurnstileLoading(true);
+    loadStartTimeRef.current = Date.now();
     // 强制重新渲染 Turnstile 组件
     setTurnstileKey(Date.now());
   }, []);
+
+  // 延迟隐藏加载动画，确保至少显示2秒
+  const hideLoadingWithDelay = () => {
+    const elapsed = Date.now() - loadStartTimeRef.current;
+    const remaining = Math.max(0, 2000 - elapsed);
+    setTimeout(() => setTurnstileLoading(false), remaining);
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,29 +191,31 @@ export default function RegisterPage() {
               siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
               onSuccess={(token) => {
                 setTurnstileToken(token);
-                setTurnstileLoading(false);
+                hideLoadingWithDelay();
                 setError('');
               }}
               onError={(errorCode) => {
                 console.error('Turnstile 错误:', errorCode);
-                setTurnstileLoading(false);
+                hideLoadingWithDelay();
                 setError('人机验证失败，请刷新重试');
               }}
               onTimeout={() => {
                 console.error('Turnstile 超时');
-                setTurnstileLoading(false);
+                hideLoadingWithDelay();
                 setError('验证超时，请重试');
               }}
               onExpire={() => {
                 console.error('Turnstile 过期');
                 setTurnstileToken('');
                 setTurnstileLoading(true);
+                loadStartTimeRef.current = Date.now();
               }}
               onBeforeInteractive={() => {
                 setTurnstileLoading(true);
+                loadStartTimeRef.current = Date.now();
               }}
               onAfterInteractive={() => {
-                setTurnstileLoading(false);
+                hideLoadingWithDelay();
               }}
               options={{
                 theme: 'light',
