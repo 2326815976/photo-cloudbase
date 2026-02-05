@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 300; // 缓存5分钟
+export const revalidate = 0; // 禁用缓存，实时获取最新数据
 
 export async function GET() {
   try {
@@ -58,6 +58,12 @@ export async function GET() {
     bookingData?.forEach(item => blockedDates.add(item.booking_date));
 
     const dates = Array.from(blockedDates).sort();
+
+    // 调试日志
+    console.log('[blocked-dates API] 返回的不可用日期:', dates);
+    console.log('[blocked-dates API] 锁定日期数量:', blackoutData?.length || 0);
+    console.log('[blocked-dates API] 已预约日期数量:', bookingData?.length || 0);
+
     return NextResponse.json({ dates });
   } catch (error) {
     console.error('Unexpected error:', error);
