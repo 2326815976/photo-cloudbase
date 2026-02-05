@@ -6,8 +6,8 @@
 -- 🔄 合并自：001, 002, 007, 010
 -- ================================================================================================
 
--- [全局配置] 强制设置上海时区，防止日期偏差
-ALTER DATABASE postgres SET timezone TO 'Asia/Shanghai';
+-- [全局配置] 设置UTC时区，与应用层保持一致
+ALTER DATABASE postgres SET timezone TO 'UTC';
 
 -- 初始化 UUID 生成扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

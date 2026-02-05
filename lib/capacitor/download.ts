@@ -61,6 +61,11 @@ export async function downloadMultipleFiles(
   const results: string[] = [];
 
   for (let i = 0; i < urls.length; i++) {
+    // 添加500ms间隔，防止浏览器阻止批量下载
+    if (i > 0) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     const url = urls[i];
     const extension = url.split('.').pop() || 'jpg';
     const filename = `${filenamePrefix}_${i + 1}.${extension}`;

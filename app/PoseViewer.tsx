@@ -63,6 +63,11 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     }
   }, [initialTags.length]);
 
+  // 标签变化时清空历史记录，避免新标签的摆姿被错误过滤
+  useEffect(() => {
+    setRecentPoseIds([]);
+  }, [selectedTagsKey]);
+
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
       if (prev.includes(tagName)) {
