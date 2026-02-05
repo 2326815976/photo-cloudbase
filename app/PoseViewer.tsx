@@ -79,11 +79,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const getRandomPose = useCallback(async () => {
     if (isAnimating) return;
 
+    const supabase = createClient();
+    if (!supabase) return;
+
     setIsAnimating(true);
 
     try {
-      const supabase = createClient();
-      if (!supabase) return;
 
       const currentCacheKey = selectedTagsKey;
       let poses: Pose[] = [];
