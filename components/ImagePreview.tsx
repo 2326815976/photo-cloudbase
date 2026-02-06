@@ -34,6 +34,7 @@ export default function ImagePreview({
 }: ImagePreviewProps) {
   const [index, setIndex] = useState(currentIndex);
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [baseSize, setBaseSize] = useState({ width: 0, height: 0 });
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [isWechat, setIsWechat] = useState(false);
   const [longPressProgress, setLongPressProgress] = useState(0);
@@ -71,7 +72,7 @@ export default function ImagePreview({
     return Math.min(1, scaleX, scaleY);
   }, [containerSize, imageDimensions]);
 
-  const getBaseSize = useCallback(() => {
+  const getFallbackBaseSize = useCallback(() => {
     const fitScale = getFitScale();
     return {
       width: imageDimensions.width * fitScale,
@@ -86,7 +87,6 @@ export default function ImagePreview({
   const getMaxScale = useCallback(() => 6, []);
 
   const getBounds = useCallback((currentScale: number) => {
-    const baseSize = getBaseSize();
     if (!baseSize.width || !containerSize.width) return null;
 
     const imgWidth = baseSize.width * currentScale;
@@ -95,7 +95,28 @@ export default function ImagePreview({
     const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
 
     return { maxX, maxY };
-  }, [getBaseSize, containerSize]);
+  }, [baseSize, containerSize]);
+
+  const updateBaseSize = useCallback(() => {
+    const fallback = getFallbackBaseSize();
+    if (!imageRef.current) {
+      if (fallback.width > 0 && fallback.height > 0) {
+        setBaseSize(fallback);
+      }
+      return;
+    }
+
+    const rect = imageRef.current.getBoundingClientRect();
+    const currentScale = Math.max(getMinScale(), scale.get() || 1);
+    const width = rect.width / currentScale;
+    const height = rect.height / currentScale;
+
+    if (width > 0 && height > 0) {
+      setBaseSize({ width, height });
+    } else if (fallback.width > 0 && fallback.height > 0) {
+      setBaseSize(fallback);
+    }
+  }, [getFallbackBaseSize, getMinScale, scale]);
 
   // 检测微信环境
   useEffect(() => {
@@ -144,6 +165,11 @@ export default function ImagePreview({
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => updateBaseSize());
+    return () => cancelAnimationFrame(raf);
+  }, [containerSize, imageDimensions, updateBaseSize]);
+
   // 同步外部索引
   useEffect(() => {
     if (currentIndex !== index) {
@@ -176,6 +202,8 @@ export default function ImagePreview({
     y.set(0);
     offsetX.set(0);
     setIsZoomed(false);
+
+    requestAnimationFrame(() => updateBaseSize());
   };
 
   // 切换图片
@@ -213,11 +241,19 @@ export default function ImagePreview({
         const centerY = rect.height / 2;
         const offsetXVal = (centerX - tapX) * (targetScale / currentScale - 1);
         const offsetYVal = (centerY - tapY) * (targetScale / currentScale - 1);
-        animate(x, offsetXVal, springConfig);
-        animate(y, offsetYVal, springConfig);
+        const bounds = getBounds(targetScale);
+        if (bounds) {
+          const clampedX = Math.max(-bounds.maxX, Math.min(bounds.maxX, offsetXVal));
+          const clampedY = Math.max(-bounds.maxY, Math.min(bounds.maxY, offsetYVal));
+          animate(x, clampedX, springConfig);
+          animate(y, clampedY, springConfig);
+        } else {
+          animate(x, offsetXVal, springConfig);
+          animate(y, offsetYVal, springConfig);
+        }
       }
     }
-  }, [scale, x, y, getMinScale, getMaxScale]);
+  }, [scale, x, y, getMinScale, getMaxScale, getBounds]);
 
   // 长按下载
   const startLongPress = useCallback(() => {

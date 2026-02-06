@@ -46,6 +46,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [recentPoseIds, setRecentPoseIds] = useState<number[]>(initialPose?.id ? [initialPose.id] : []);
   const [isAnimating, setIsAnimating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [lastTouchDistance, setLastTouchDistance] = useState(0);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
   const [cacheKey, setCacheKey] = useState<string>('__initial__');
@@ -407,7 +413,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                 </button>
 
                 <div className="p-4 pb-3">
-                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
+                  <div
+                    className="relative bg-white rounded-lg overflow-hidden shadow-inner cursor-pointer"
+                    onClick={() => setShowFullscreen(true)}
+                  >
                     <SimpleImage
                       src={currentPose.image_url}
                       alt="预览"
@@ -428,6 +437,142 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               </div>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* 全屏高清预览弹窗 */}
+      <AnimatePresence>
+        {showFullscreen && currentPose && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              setShowFullscreen(false);
+              setScale(1);
+              setPosition({ x: 0, y: 0 });
+            }}
+            className="fixed inset-0 bg-black z-[60] flex items-center justify-center"
+            onTouchStart={(e) => {
+              if (e.touches.length === 1) {
+                setIsDragging(true);
+                setDragStart({
+                  x: e.touches[0].clientX - position.x,
+                  y: e.touches[0].clientY - position.y
+                });
+              } else if (e.touches.length === 2) {
+                setIsDragging(false);
+                const distance = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                setLastTouchDistance(distance);
+              }
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length === 1 && isDragging) {
+                setPosition({
+                  x: e.touches[0].clientX - dragStart.x,
+                  y: e.touches[0].clientY - dragStart.y
+                });
+              } else if (e.touches.length === 2) {
+                e.preventDefault();
+                const distance = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                if (lastTouchDistance > 0) {
+                  const delta = (distance - lastTouchDistance) * 0.01;
+                  setScale(prev => Math.max(1, Math.min(3, prev + delta)));
+                }
+                setLastTouchDistance(distance);
+              }
+            }}
+            onTouchEnd={(e) => {
+              if (e.touches.length === 0) {
+                setIsDragging(false);
+                setLastTouchDistance(0);
+              } else if (e.touches.length === 1) {
+                setLastTouchDistance(0);
+                setIsDragging(true);
+                setDragStart({
+                  x: e.touches[0].clientX - position.x,
+                  y: e.touches[0].clientY - position.y
+                });
+              }
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full h-full flex items-center justify-center overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => {
+                  setShowFullscreen(false);
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                }}
+                className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
+              >
+                <X className="w-6 h-6 text-white" />
+              </button>
+
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+                <p className="text-white text-xs">双指缩放</p>
+              </div>
+
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+                <span className="text-white text-sm font-medium">
+                  {Math.round(scale * 100)}%
+                </span>
+              </div>
+
+              <img
+                src={currentPose.image_url}
+                alt="全屏预览"
+                className="max-w-full max-h-full object-contain cursor-move select-none"
+                style={{
+                  transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+                  transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+                }}
+                onMouseDown={(e) => {
+                  setIsDragging(true);
+                  setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+                }}
+                onMouseMove={(e) => {
+                  if (isDragging) {
+                    setPosition({
+                      x: e.clientX - dragStart.x,
+                      y: e.clientY - dragStart.y
+                    });
+                  }
+                }}
+                onMouseUp={() => setIsDragging(false)}
+                onMouseLeave={() => setIsDragging(false)}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                  const newScale = Math.min(Math.max(1, scale + delta), 3);
+                  setScale(newScale);
+                  if (newScale === 1) {
+                    setPosition({ x: 0, y: 0 });
+                  }
+                }}
+                onDoubleClick={() => {
+                  if (scale === 1) {
+                    setScale(2);
+                  } else {
+                    setScale(1);
+                    setPosition({ x: 0, y: 0 });
+                  }
+                }}
+                draggable={false}
+              />
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
