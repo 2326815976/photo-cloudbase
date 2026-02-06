@@ -371,7 +371,7 @@ export default function AlbumsPage() {
   const copyAccessLink = async (accessKey: string) => {
     const link = `${window.location.origin}/album/${accessKey}`;
     const { setClipboardText } = await import('@/lib/android');
-    const success = await setClipboardText(link);
+    const success = setClipboardText(link);
     if (success) {
       setShowToast({ message: '访问链接已复制到剪贴板！', type: 'success' });
     } else {
@@ -493,7 +493,7 @@ export default function AlbumsPage() {
                         <button
                           onClick={async () => {
                             const { setClipboardText } = await import('@/lib/android');
-                            const success = await setClipboardText(album.access_key);
+                            const success = setClipboardText(album.access_key);
                             if (success) {
                               setShowToast({ message: '密钥已复制', type: 'success' });
                             } else {

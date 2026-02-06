@@ -69,50 +69,44 @@ export async function getClipboardText(): Promise<string> {
 }
 
 /**
- * 写入内容到剪贴板
+ * 写入内容到剪贴板（同步版本，兼容微信浏览器）
  */
-export async function setClipboardText(text: string): Promise<boolean> {
+export function setClipboardText(text: string): boolean {
   if (typeof window === 'undefined') return false;
 
   if (window.AndroidClipboard) {
     // Android原生写入
     window.AndroidClipboard.setClipboardText(text);
     return true;
-  } else {
-    // Web端：优先使用Clipboard API
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch (error) {
-      // 降级方案：使用传统的execCommand方法（兼容微信浏览器）
-      try {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.top = '0';
-        textarea.style.left = '0';
-        textarea.style.width = '1px';
-        textarea.style.height = '1px';
-        textarea.style.padding = '0';
-        textarea.style.border = 'none';
-        textarea.style.outline = 'none';
-        textarea.style.boxShadow = 'none';
-        textarea.style.background = 'transparent';
-        textarea.style.opacity = '0';
+  }
 
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
+  // 优先使用 execCommand（微信浏览器兼容性更好）
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.width = '2em';
+    textarea.style.height = '2em';
+    textarea.style.padding = '0';
+    textarea.style.border = 'none';
+    textarea.style.outline = 'none';
+    textarea.style.boxShadow = 'none';
+    textarea.style.background = 'transparent';
 
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textarea);
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
 
-        return successful;
-      } catch (fallbackError) {
-        console.error('剪贴板写入失败（包括降级方案）:', fallbackError);
-        return false;
-      }
-    }
+    // 必须在同步上下文中执行
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textarea);
+
+    return successful;
+  } catch (error) {
+    console.error('剪贴板写入失败:', error);
+    return false;
   }
 }
 

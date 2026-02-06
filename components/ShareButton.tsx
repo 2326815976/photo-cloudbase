@@ -45,7 +45,7 @@ export default function ShareButton({ photo }: ShareButtonProps) {
 
     // 降级：复制链接（使用统一的剪贴板工具，兼容微信浏览器）
     const { setClipboardText } = await import('@/lib/android');
-    const success = await setClipboardText(window.location.href);
+    const success = setClipboardText(window.location.href);
     vibrate(30); // 触觉反馈
     if (success) {
       setToast({ message: '链接已复制到剪贴板 ✨', type: 'success' });

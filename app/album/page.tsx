@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAlbums } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
 import { getClipboardText } from '@/lib/android';
+import { isWechatBrowser } from '@/lib/wechat';
 
 interface BoundAlbum {
   id: string;
@@ -30,6 +31,12 @@ export default function AlbumLoginPage() {
   const [error, setError] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [isWechat, setIsWechat] = useState(false);
+
+  // 检测微信环境
+  useEffect(() => {
+    setIsWechat(isWechatBrowser());
+  }, []);
 
   // 初始化时检查登录状态并加载绑定相册
   useEffect(() => {
@@ -315,23 +322,25 @@ export default function AlbumLoginPage() {
                       value={accessKey}
                       onChange={(e) => setAccessKey(e.target.value)}
                       disabled={isLoading}
-                      className="w-full px-4 py-3 pr-12 text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50"
+                      className={`w-full px-4 py-3 ${!isWechat ? 'pr-12' : ''} text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50`}
                     />
-                    <motion.button
-                      type="button"
-                      whileTap={{ scale: 0.9 }}
-                      onClick={async () => {
-                        const text = await getClipboardText();
-                        if (text) {
-                          setAccessKey(text.trim().toUpperCase());
-                        }
-                      }}
-                      disabled={isLoading}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#FFC857]/20 hover:bg-[#FFC857]/30 flex items-center justify-center transition-colors disabled:opacity-50"
-                      title="粘贴"
-                    >
-                      <Clipboard className="w-4 h-4 text-[#5D4037]" />
-                    </motion.button>
+                    {!isWechat && (
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.9 }}
+                        onClick={async () => {
+                          const text = await getClipboardText();
+                          if (text) {
+                            setAccessKey(text.trim().toUpperCase());
+                          }
+                        }}
+                        disabled={isLoading}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#FFC857]/20 hover:bg-[#FFC857]/30 flex items-center justify-center transition-colors disabled:opacity-50"
+                        title="粘贴"
+                      >
+                        <Clipboard className="w-4 h-4 text-[#5D4037]" />
+                      </motion.button>
+                    )}
                   </div>
                   {error && (
                     <motion.p
