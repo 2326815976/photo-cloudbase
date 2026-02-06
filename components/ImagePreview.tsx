@@ -262,9 +262,20 @@ export default function ImagePreview({
             }
           }
         } else {
-          // 已缩放：拖拽移动
-          x.set(ox);
-          y.set(oy);
+          // 已缩放：拖拽移动，手动限制边界
+          const imgWidth = imageDimensions.width * currentScale;
+          const imgHeight = imageDimensions.height * currentScale;
+
+          // 计算最大可移动距离
+          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+
+          // 限制在边界内
+          const boundedX = Math.max(-maxX, Math.min(maxX, ox));
+          const boundedY = Math.max(-maxY, Math.min(maxY, oy));
+
+          x.set(boundedX);
+          y.set(boundedY);
         }
       },
 
@@ -361,51 +372,78 @@ export default function ImagePreview({
           <X className="w-6 h-6 text-white" />
         </button>
 
-        {/* 图片序号 */}
-        {showCounter && images.length > 1 && (
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-3 py-1 z-10">
-            <p className="text-white text-xs font-medium">
-              {index + 1} / {images.length}
-            </p>
-          </div>
-        )}
-
         {/* 操作提示 */}
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <div className="flex flex-col items-center gap-1">
-            <p className="text-white/60 text-xs">双指缩放 · 双击还原</p>
-            {!isWechat && enableLongPressDownload && (
-              <p className="text-white/60 text-xs">长按保存</p>
-            )}
-          </div>
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
+          <p className="text-white text-xs">
+            双指缩放 · 长按保存
+          </p>
         </div>
 
-        {/* 缩放比例 */}
+        {/* 图片序号 */}
         {showScale && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
             <span className="text-white text-sm font-medium">{displayScale}%</span>
           </div>
         )}
 
-        {/* 图片容器 */}
-        <motion.img
-          ref={imageRef}
-          key={images[index]}
-          src={images[index]}
-          alt={`图片 ${index + 1}`}
-          className="max-w-full max-h-full object-contain select-none touch-none"
-          style={{
-            scale: scaleSpring,
-            x: isZoomed ? xSpring : offsetXSpring,
-            y: ySpring,
-            cursor: 'grab'
-          }}
-          onLoad={handleImageLoad}
-          onTouchStart={startLongPress}
-          onTouchEnd={cancelLongPress}
-          onTouchMove={cancelLongPress}
-          draggable={false}
-        />
+        {/* 图片容器 - 多图片轮播模式 */}
+        <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+          <motion.div
+            className="flex items-center justify-center"
+            style={{
+              x: isZoomed ? xSpring : offsetXSpring,
+              width: '300%',
+              height: '100%'
+            }}
+          >
+            {/* 前一张图片 */}
+            {index > 0 && (
+              <div className="w-1/3 h-full flex items-center justify-center">
+                <img
+                  src={images[index - 1]}
+                  alt={`图片 ${index}`}
+                  className="max-w-full max-h-full object-contain select-none"
+                  draggable={false}
+                />
+              </div>
+            )}
+            {index === 0 && <div className="w-1/3" />}
+
+            {/* 当前图片 */}
+            <div className="w-1/3 h-full flex items-center justify-center">
+              <motion.img
+                ref={imageRef}
+                key={images[index]}
+                src={images[index]}
+                alt={`图片 ${index + 1}`}
+                className="max-w-full max-h-full object-contain select-none touch-none"
+                style={{
+                  scale: scaleSpring,
+                  y: ySpring,
+                  cursor: 'grab'
+                }}
+                onLoad={handleImageLoad}
+                onTouchStart={startLongPress}
+                onTouchEnd={cancelLongPress}
+                onTouchMove={cancelLongPress}
+                draggable={false}
+              />
+            </div>
+
+            {/* 后一张图片 */}
+            {index < images.length - 1 && (
+              <div className="w-1/3 h-full flex items-center justify-center">
+                <img
+                  src={images[index + 1]}
+                  alt={`图片 ${index + 2}`}
+                  className="max-w-full max-h-full object-contain select-none"
+                  draggable={false}
+                />
+              </div>
+            )}
+            {index === images.length - 1 && <div className="w-1/3" />}
+          </motion.div>
+        </div>
 
         {/* 长按下载进度环 */}
         {!isWechat && enableLongPressDownload && longPressProgress > 0 && (
