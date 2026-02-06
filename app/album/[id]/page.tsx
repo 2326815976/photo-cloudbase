@@ -90,6 +90,7 @@ export default function AlbumDetailPage() {
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
   const [swipeStartX, setSwipeStartX] = useState(0); // 左右滑动起始X坐标
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null); // 滑动方向
 
   // 检测微信浏览器环境
   useEffect(() => {
@@ -1023,8 +1024,8 @@ export default function AlbumDetailPage() {
             className="fullscreen-viewer fixed inset-0 bg-black z-[100] flex items-center justify-center overflow-hidden"
             onWheel={(e) => {
               e.preventDefault();
-              const delta = e.deltaY > 0 ? -0.1 : 0.1;
-              setScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
+              const delta = e.deltaY > 0 ? -0.2 : 0.2;
+              setScale(prev => Math.max(0.5, Math.min(6, prev + delta)));
             }}
             onMouseDown={(e) => {
               if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'IMG') {
@@ -1134,12 +1135,20 @@ export default function AlbumDetailPage() {
 
                   if (deltaX > 100 && currentIndex > 0) {
                     // 右滑：上一张
-                    setFullscreenPhoto(filteredPhotos[currentIndex - 1].id);
+                    setSlideDirection('right');
+                    setTimeout(() => {
+                      setFullscreenPhoto(filteredPhotos[currentIndex - 1].id);
+                      setSlideDirection(null);
+                    }, 50);
                     setSwipeStartX(currentX);
                     setSwipeStartY(currentY);
                   } else if (deltaX < -100 && currentIndex < filteredPhotos.length - 1) {
                     // 左滑：下一张
-                    setFullscreenPhoto(filteredPhotos[currentIndex + 1].id);
+                    setSlideDirection('left');
+                    setTimeout(() => {
+                      setFullscreenPhoto(filteredPhotos[currentIndex + 1].id);
+                      setSlideDirection(null);
+                    }, 50);
                     setSwipeStartX(currentX);
                     setSwipeStartY(currentY);
                   }
@@ -1164,8 +1173,8 @@ export default function AlbumDetailPage() {
                   e.touches[0].clientY - e.touches[1].clientY
                 );
                 if (lastTouchDistance > 0) {
-                  const delta = (distance - lastTouchDistance) * 0.01;
-                  setScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
+                  const delta = (distance - lastTouchDistance) * 0.015;
+                  setScale(prev => Math.max(0.5, Math.min(6, prev + delta)));
                 }
                 setLastTouchDistance(distance);
               }
@@ -1230,14 +1239,19 @@ export default function AlbumDetailPage() {
             </div>
 
             {/* 图片 */}
-            <img
+            <motion.img
+              key={fullscreenPhoto}
+              initial={{ opacity: 0, x: slideDirection === 'left' ? 100 : slideDirection === 'right' ? -100 : 0 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
               src={photos.find(p => p.id === fullscreenPhoto)?.original_url}
               alt="原图"
               className="max-w-full max-h-full object-contain select-none"
               style={{
                 transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
                 cursor: isDragging ? 'grabbing' : 'grab',
-                transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+                transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
               }}
               draggable={false}
             />
