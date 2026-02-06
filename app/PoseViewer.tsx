@@ -507,7 +507,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               className="relative w-full h-full flex items-center justify-center overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
             >
               <button
                 onClick={() => {
