@@ -354,7 +354,7 @@ export default function AlbumLoginPage() {
                     <motion.p
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="text-sm text-red-500 mt-2 text-center"
+                      className="text-sm text-red-500 mt-2 text-center whitespace-nowrap overflow-x-auto"
                     >
                       {error}
                     </motion.p>
@@ -389,10 +389,10 @@ export default function AlbumLoginPage() {
 
               {/* 提示信息 */}
               <div className="mt-6 pt-6 border-t border-[#5D4037]/10">
-                <p className="text-xs text-[#5D4037]/50 text-center mb-2">
+                <p className="text-xs text-[#5D4037]/50 text-center mb-2 whitespace-nowrap overflow-x-auto">
                   💡 提示：{isLoggedIn ? '输入密钥后将自动绑定到您的账号' : '登录后可绑定空间，下次无需输入密钥'}
                 </p>
-                <p className="text-xs text-[#5D4037]/50 text-center">
+                <p className="text-xs text-[#5D4037]/50 text-center whitespace-nowrap overflow-x-auto">
                   密钥由摄影师提供，请妥善保管
                 </p>
               </div>
