@@ -57,17 +57,50 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
                   </h3>
                 </div>
 
-                {/* 批量下载：尝试下载按钮 */}
-                {isBatchDownload && onTryDownload && (
+                {/* 批量下载提示 */}
+                {isBatchDownload && (
                   <div className="mb-6">
-                    <div className="flex items-start gap-3 mb-3">
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                      <p className="text-sm text-[#5D4037] leading-relaxed">
+                        ⚠️ 微信浏览器不支持批量下载。请使用以下方法：
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+
+                {/* 方法1：浏览器打开（批量下载推荐） */}
+                {isBatchDownload && (
+                  <div className="mb-6">
+                    <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
                         1
                       </div>
                       <div className="flex-1">
-                        <h4 className="text-base font-bold text-[#5D4037] mb-2">尝试自动下载</h4>
+                        <h4 className="text-base font-bold text-[#5D4037] mb-2">在浏览器中打开（推荐）</h4>
                         <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
-                          点击下方按钮尝试自动下载。如果被拦截，请使用方法2在浏览器中打开。
+                          点击右上角 <span className="font-bold">「···」</span> 菜单，选择<span className="font-bold text-[#FFC857]">「在浏览器中打开」</span>，即可使用批量下载功能
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-[#5D4037]/50">
+                          <ArrowUpRight className="w-4 h-4" />
+                          <span>支持批量下载和更多功能</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 方法2：图片预览页面（批量下载备选） */}
+                {isBatchDownload && onTryDownload && (
+                  <div className="mb-6">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
+                        2
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-base font-bold text-[#5D4037] mb-2">使用预览页面保存</h4>
+                        <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
+                          打开专门的预览页面，所有图片会以原图展示，您可以逐个<span className="font-bold text-[#FFC857]">长按保存</span>
                         </p>
                         <motion.button
                           whileTap={{ scale: 0.95 }}
@@ -75,65 +108,52 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
                             onTryDownload();
                             onClose();
                           }}
-                          className="w-full px-4 py-2.5 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                          className="w-full px-4 py-2.5 rounded-full text-sm font-medium bg-white text-[#5D4037] border-2 border-[#FFC857] hover:bg-[#FFC857]/10 transition-all flex items-center justify-center gap-2"
                         >
                           <Download className="w-4 h-4" />
-                          尝试下载全部图片
+                          打开预览页面
                         </motion.button>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* 方法1/2：长按保存 */}
+                {/* 单张下载方法 */}
                 {!isBatchDownload && (
-                  <div className="mb-6">
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
-                        1
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-base font-bold text-[#5D4037] mb-2">长按图片保存（推荐）</h4>
-                        <p className="text-sm text-[#5D4037]/70 leading-relaxed">
-                          点击查看原图后，<span className="font-bold text-[#FFC857]">长按图片</span>，在弹出菜单中选择<span className="font-bold">「保存图片」</span>即可保存到相册
-                        </p>
+                  <>
+                    <div className="mb-6">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
+                          1
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-base font-bold text-[#5D4037] mb-2">长按图片保存（推荐）</h4>
+                          <p className="text-sm text-[#5D4037]/70 leading-relaxed">
+                            点击查看原图后，<span className="font-bold text-[#FFC857]">长按图片</span>，在弹出菜单中选择<span className="font-bold">「保存图片」</span>即可保存到相册
+                          </p>
+                        </div>
                       </div>
                     </div>
 
-                    {/* 示例图片（如果提供） */}
-                    {imageUrl && (
-                      <div className="ml-11 bg-white rounded-lg p-3 border border-[#5D4037]/10">
-                        <img
-                          src={imageUrl}
-                          alt="示例"
-                          className="w-full h-auto rounded"
-                        />
-                        <p className="text-xs text-[#5D4037]/50 text-center mt-2">
-                          👆 长按上方图片试试
-                        </p>
+                    <div className="mb-6">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
+                          2
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-base font-bold text-[#5D4037] mb-2">在浏览器中打开</h4>
+                          <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
+                            点击右上角 <span className="font-bold">「···」</span> 菜单，选择<span className="font-bold text-[#FFC857]">「在浏览器中打开」</span>，即可使用下载功能
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-[#5D4037]/50">
+                            <ArrowUpRight className="w-4 h-4" />
+                            <span>支持批量下载和更多功能</span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  </>
                 )}
-
-                {/* 方法2/3：浏览器打开 */}
-                <div className="mb-6">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
-                      {isBatchDownload ? '2' : '2'}
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-base font-bold text-[#5D4037] mb-2">在浏览器中打开{isBatchDownload ? '（推荐）' : ''}</h4>
-                      <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
-                        点击右上角 <span className="font-bold">「···」</span> 菜单，选择<span className="font-bold text-[#FFC857]">「在浏览器中打开」</span>，即可使用{isBatchDownload ? '批量下载' : '下载'}功能
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-[#5D4037]/50">
-                        <ArrowUpRight className="w-4 h-4" />
-                        <span>支持批量下载和更多功能</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
                 {/* 底部提示 */}
                 <div className="bg-[#FFC857]/10 rounded-lg p-3 border border-[#FFC857]/30">

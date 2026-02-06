@@ -236,7 +236,19 @@ export default function AlbumDetailPage() {
   };
 
   const executeBatchDownload = async () => {
-    // 如果有选中照片，下载选中的；否则下载全部
+    // 微信浏览器：跳转到预览页面
+    if (isWechat) {
+      const photosToDownload = selectedPhotos.size > 0
+        ? photos.filter(p => selectedPhotos.has(p.id))
+        : filteredPhotos;
+
+      const urls = photosToDownload.map(p => p.original_url);
+      const urlsParam = encodeURIComponent(JSON.stringify(urls));
+      router.push(`/album/${accessKey}/preview?urls=${urlsParam}`);
+      return;
+    }
+
+    // 非微信浏览器：正常批量下载
     const photosToDownload = selectedPhotos.size > 0
       ? photos.filter(p => selectedPhotos.has(p.id))
       : filteredPhotos;
