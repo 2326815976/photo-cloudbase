@@ -202,28 +202,9 @@ export default function ImagePreview({
   // 手势处理
   useGesture(
     {
-      onDrag: ({ offset: [ox, oy], tap, last, movement: [mx, my], velocity: [vx, vy] }) => {
+      onDrag: ({ offset: [ox, oy], last, movement: [mx, my], velocity: [vx, vy], memo }) => {
         const currentScale = scale.get();
         const minScale = getMinScale();
-
-        // 单击检测（用于退出）
-        if (tap && Math.abs(mx) < 5 && Math.abs(my) < 5) {
-          const now = Date.now();
-          if (now - lastTapTime < 300) {
-            // 双击
-            handleDoubleTap(mx, my);
-            setLastTapTime(0);
-          } else {
-            // 单击退出
-            setLastTapTime(now);
-            setTimeout(() => {
-              if (Date.now() - now >= 300) {
-                onClose();
-              }
-            }, 300);
-          }
-          return;
-        }
 
         if (currentScale <= minScale) {
           // 未缩放：左右滑动切换图片
@@ -246,9 +227,22 @@ export default function ImagePreview({
             }
           }
         } else {
-          // 已缩放：拖拽移动
-          x.set(ox);
-          y.set(oy);
+          // 已缩放：拖拽移动，限制边界
+          const imgWidth = imageDimensions.width * currentScale;
+          const imgHeight = imageDimensions.height * currentScale;
+          const containerWidth = containerSize.width;
+          const containerHeight = containerSize.height;
+
+          // 计算最大可移动距离
+          const maxX = Math.max(0, (imgWidth - containerWidth) / 2);
+          const maxY = Math.max(0, (imgHeight - containerHeight) / 2);
+
+          // 限制在边界内
+          const boundedX = Math.max(-maxX, Math.min(maxX, ox));
+          const boundedY = Math.max(-maxY, Math.min(maxY, oy));
+
+          x.set(boundedX);
+          y.set(boundedY);
         }
       },
 
@@ -299,7 +293,19 @@ export default function ImagePreview({
           if (currentScale <= minScale) {
             return { left: -300, right: 300, top: 0, bottom: 0 };
           }
-          return { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
+
+          // 已缩放：动态计算边界
+          const imgWidth = imageDimensions.width * currentScale;
+          const imgHeight = imageDimensions.height * currentScale;
+          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+
+          return {
+            left: -maxX,
+            right: maxX,
+            top: -maxY,
+            bottom: maxY
+          };
         }
       },
       pinch: {
