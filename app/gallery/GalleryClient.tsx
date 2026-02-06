@@ -39,6 +39,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [lastTouchDistance, setLastTouchDistance] = useState(0);
+  const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
   const [page, setPage] = useState(initialPage);
   const [allPhotos, setAllPhotos] = useState<Photo[]>(initialPhotos);
   const [hasMore, setHasMore] = useState(initialTotal > initialPhotos.length);
@@ -381,10 +382,22 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => {
-              setFullscreenPhoto(null);
-              setScale(1);
-              setPosition({ x: 0, y: 0 });
+            onClick={(e) => {
+              // 延迟单击处理，避免与双击冲突
+              if (clickTimer) {
+                // 检测到双击，清除单击定时器
+                clearTimeout(clickTimer);
+                setClickTimer(null);
+              } else {
+                // 单击，设置300ms延迟
+                const timer = setTimeout(() => {
+                  setFullscreenPhoto(null);
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                  setClickTimer(null);
+                }, 300);
+                setClickTimer(timer);
+              }
             }}
             className="fixed inset-0 bg-black z-[60] flex items-center justify-center"
             onTouchStart={(e) => {

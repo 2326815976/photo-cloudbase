@@ -39,6 +39,7 @@ export default function ImagePreview({
   const [isWechat, setIsWechat] = useState(false);
   const [longPressProgress, setLongPressProgress] = useState(0);
   const [lastTapTime, setLastTapTime] = useState(0);
+  const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -436,6 +437,21 @@ export default function ImagePreview({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
+        onClick={(e) => {
+          // 延迟单击处理，避免与双击冲突
+          if (clickTimer) {
+            // 检测到双击，清除单击定时器
+            clearTimeout(clickTimer);
+            setClickTimer(null);
+          } else {
+            // 单击，设置300ms延迟
+            const timer = setTimeout(() => {
+              onClose();
+              setClickTimer(null);
+            }, 300);
+            setClickTimer(timer);
+          }
+        }}
         className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden"
         style={{ backgroundColor: 'rgba(0, 0, 0, 0.95)' }}
       >
