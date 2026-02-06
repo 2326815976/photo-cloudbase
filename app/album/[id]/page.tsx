@@ -7,6 +7,7 @@ import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart } 
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
+import ImagePreview from '@/components/ImagePreview';
 import { createClient } from '@/lib/supabase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isAndroidApp } from '@/lib/platform';
@@ -74,24 +75,11 @@ export default function AlbumDetailPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [previewMode, setPreviewMode] = useState<'preview' | 'original'>('preview'); // 预览模式
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
-  const [scale, setScale] = useState(1); // 缩放比例
-  const [position, setPosition] = useState({ x: 0, y: 0 }); // 图片位置
-  const [isDragging, setIsDragging] = useState(false); // 是否正在拖拽
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // 拖拽起始位置
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
-  const [lastTouchDistance, setLastTouchDistance] = useState(0); // 双指距离
-  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null); // 长按计时器
-  const [longPressProgress, setLongPressProgress] = useState(0); // 长按进度 0-100
-  const [longPressInterval, setLongPressInterval] = useState<NodeJS.Timeout | null>(null); // 长按进度更新定时器
-  const [lastTap, setLastTap] = useState(0); // 上次点击时间（用于双击检测）
-  const [swipeStartY, setSwipeStartY] = useState(0); // 滑动起始Y坐标
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
-  const [swipeStartX, setSwipeStartX] = useState(0); // 左右滑动起始X坐标
-  const [swipeOffset, setSwipeOffset] = useState(0); // 实时滑动偏移量
-  const [isTransitioning, setIsTransitioning] = useState(false); // 是否在过渡动画中
 
   // 检测微信浏览器环境
   useEffect(() => {
@@ -576,8 +564,6 @@ export default function AlbumDetailPage() {
                   onClick={() => {
                     // 直接进入全屏查看器
                     setFullscreenPhoto(photo.id);
-                    setScale(1);
-                    setPosition({ x: 0, y: 0 });
                   }}
                 >
                   <img
@@ -860,14 +846,10 @@ export default function AlbumDetailPage() {
                             console.error('调用原生图片查看器失败:', error);
                             // 降级到Web查看器
                             setFullscreenPhoto(selectedPhoto);
-                            setScale(1);
-                            setPosition({ x: 0, y: 0 });
                           }
                         } else {
                           // Web环境使用原有的全屏查看器
                           setFullscreenPhoto(selectedPhoto);
-                          setScale(1);
-                          setPosition({ x: 0, y: 0 });
                         }
                       }}
                       className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#FFC857] text-[#5D4037] transition-colors"
@@ -1015,292 +997,17 @@ export default function AlbumDetailPage() {
         )}
       </AnimatePresence>
 
-      {/* 全屏原图查看器 */}
-      <AnimatePresence>
-        {fullscreenPhoto && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fullscreen-viewer fixed inset-0 bg-black z-[100] flex items-center justify-center overflow-hidden"
-            onWheel={(e) => {
-              e.preventDefault();
-              const delta = e.deltaY > 0 ? -0.2 : 0.2;
-              setScale(prev => Math.max(0.5, Math.min(6, prev + delta)));
-            }}
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'IMG') {
-                setIsDragging(true);
-                setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-              }
-            }}
-            onMouseMove={(e) => {
-              if (isDragging) {
-                setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-              }
-            }}
-            onMouseUp={() => setIsDragging(false)}
-            onMouseLeave={() => setIsDragging(false)}
-            onTouchStart={(e) => {
-              if (e.touches.length === 1) {
-                const now = Date.now();
-                const timeSinceLastTap = now - lastTap;
-
-                // 双击检测（300ms内）
-                if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
-                  // 双击放大/缩小
-                  if (scale > 1) {
-                    setScale(1);
-                    setPosition({ x: 0, y: 0 });
-                  } else {
-                    setScale(2);
-                  }
-                  setLastTap(0);
-                  return;
-                }
-                setLastTap(now);
-
-                // 记录滑动起始位置
-                setSwipeStartY(e.touches[0].clientY);
-                setSwipeStartX(e.touches[0].clientX);
-
-                // 微信浏览器：禁用自定义长按下载，使用原生长按保存
-                if (!isWechat) {
-                  // 单指：开始长按计时和进度更新
-                  setLongPressProgress(0);
-                  const progressInterval = setInterval(() => {
-                    setLongPressProgress(prev => Math.min(prev + 12.5, 100));
-                  }, 100);
-                  setLongPressInterval(progressInterval);
-
-                  const timer = setTimeout(() => {
-                    clearInterval(progressInterval);
-                    setLongPressProgress(0);
-                    const photo = photos.find(p => p.id === fullscreenPhoto);
-                    if (photo) {
-                      downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
-                      setToast({ message: '原图保存成功 📸', type: 'success' });
-                      setTimeout(() => setToast(null), 3000);
-                    }
-                  }, 800);
-                  setLongPressTimer(timer);
-                }
-
-                // 单指拖拽
-                setIsDragging(true);
-                setDragStart({
-                  x: e.touches[0].clientX - position.x,
-                  y: e.touches[0].clientY - position.y
-                });
-              } else if (e.touches.length === 2) {
-                // 双指：取消长按，开始缩放
-                if (longPressTimer) {
-                  clearTimeout(longPressTimer);
-                  setLongPressTimer(null);
-                }
-                if (longPressInterval) {
-                  clearInterval(longPressInterval);
-                  setLongPressInterval(null);
-                }
-                setLongPressProgress(0);
-                setIsDragging(false);
-                const distance = Math.hypot(
-                  e.touches[0].clientX - e.touches[1].clientX,
-                  e.touches[0].clientY - e.touches[1].clientY
-                );
-                setLastTouchDistance(distance);
-              }
-            }}
-            onTouchMove={(e) => {
-              // 取消长按
-              if (longPressTimer) {
-                clearTimeout(longPressTimer);
-                setLongPressTimer(null);
-              }
-              if (longPressInterval) {
-                clearInterval(longPressInterval);
-                setLongPressInterval(null);
-              }
-              setLongPressProgress(0);
-
-              if (e.touches.length === 1 && isDragging) {
-                const currentY = e.touches[0].clientY;
-                const currentX = e.touches[0].clientX;
-                const deltaY = currentY - swipeStartY;
-                const deltaX = currentX - swipeStartX;
-
-                // 判断滑动方向：横向滑动切换图片，纵向滑动关闭
-                if (Math.abs(deltaX) > Math.abs(deltaY) && scale === 1) {
-                  // 左右滑动：实时更新偏移量，跟随手指
-                  setSwipeOffset(deltaX);
-                } else if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY > 100 && scale === 1) {
-                  // 向下滑动关闭
-                  setFullscreenPhoto(null);
-                  setScale(1);
-                  setPosition({ x: 0, y: 0 });
-                  setSwipeOffset(0);
-                  return;
-                } else if (scale > 1) {
-                  // 缩放状态下拖拽
-                  setPosition({
-                    x: e.touches[0].clientX - dragStart.x,
-                    y: e.touches[0].clientY - dragStart.y
-                  });
-                }
-              } else if (e.touches.length === 2) {
-                // 双指缩放
-                e.preventDefault();
-                const distance = Math.hypot(
-                  e.touches[0].clientX - e.touches[1].clientX,
-                  e.touches[0].clientY - e.touches[1].clientY
-                );
-                if (lastTouchDistance > 0) {
-                  const delta = (distance - lastTouchDistance) * 0.02;
-                  const newScale = Math.max(0.5, Math.min(6, scale + delta));
-                  setScale(newScale);
-                }
-                setLastTouchDistance(distance);
-              }
-            }}
-            onTouchEnd={(e) => {
-              // 清除长按计时器和进度
-              if (longPressTimer) {
-                clearTimeout(longPressTimer);
-                setLongPressTimer(null);
-              }
-              if (longPressInterval) {
-                clearInterval(longPressInterval);
-                setLongPressInterval(null);
-              }
-              setLongPressProgress(0);
-
-              if (e.touches.length === 0) {
-                setIsDragging(false);
-                setLastTouchDistance(0);
-
-                // 判断是否切换图片
-                if (scale === 1 && Math.abs(swipeOffset) > 0) {
-                  const currentIndex = filteredPhotos.findIndex(p => p.id === fullscreenPhoto);
-                  const threshold = 80; // 切换阈值
-
-                  setIsTransitioning(true);
-
-                  if (swipeOffset > threshold && currentIndex > 0) {
-                    // 右滑：上一张
-                    setFullscreenPhoto(filteredPhotos[currentIndex - 1].id);
-                    setSwipeOffset(0);
-                    setTimeout(() => {
-                      setIsTransitioning(false);
-                      setScale(1);
-                      setPosition({ x: 0, y: 0 });
-                    }, 300);
-                  } else if (swipeOffset < -threshold && currentIndex < filteredPhotos.length - 1) {
-                    // 左滑：下一张
-                    setFullscreenPhoto(filteredPhotos[currentIndex + 1].id);
-                    setSwipeOffset(0);
-                    setTimeout(() => {
-                      setIsTransitioning(false);
-                      setScale(1);
-                      setPosition({ x: 0, y: 0 });
-                    }, 300);
-                  } else {
-                    // 回弹
-                    setSwipeOffset(0);
-                    setTimeout(() => setIsTransitioning(false), 300);
-                  }
-                }
-              } else if (e.touches.length === 1) {
-                // 从双指变为单指，重新开始拖拽
-                setLastTouchDistance(0);
-                setIsDragging(true);
-                setDragStart({
-                  x: e.touches[0].clientX - position.x,
-                  y: e.touches[0].clientY - position.y
-                });
-              }
-            }}
-          >
-            {/* 关闭按钮 */}
-            <button
-              onClick={() => {
-                setFullscreenPhoto(null);
-                setScale(1);
-                setPosition({ x: 0, y: 0 });
-              }}
-              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
-            >
-              <X className="w-6 h-6 text-white" />
-            </button>
-
-            {/* 缩放提示 */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-              <p className="text-white text-xs">
-                {isWechat ? '左右滑动切换 · 长按保存' : '左右滑动切换 · 长按下载'}
-              </p>
-            </div>
-
-            {/* 图片序号显示 */}
-            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-3 py-1 z-10">
-              <p className="text-white text-xs font-medium">
-                {filteredPhotos.findIndex(p => p.id === fullscreenPhoto) + 1} / {filteredPhotos.length}
-              </p>
-            </div>
-
-            {/* 缩放比例显示 */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-              <span className="text-white text-sm font-medium">
-                {Math.round(scale * 100)}%
-              </span>
-            </div>
-
-            {/* 图片 */}
-            <img
-              key={fullscreenPhoto}
-              src={photos.find(p => p.id === fullscreenPhoto)?.original_url}
-              alt="原图"
-              className="max-w-full max-h-full object-contain select-none"
-              style={{
-                transform: `translate(calc(${position.x}px + ${swipeOffset}px), ${position.y}px) scale(${scale})`,
-                cursor: isDragging ? 'grabbing' : 'grab',
-                transition: isTransitioning ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' : 'none'
-              }}
-              draggable={false}
-            />
-
-            {/* 长按下载进度环（微信浏览器中不显示） */}
-            {!isWechat && longPressProgress > 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="relative w-20 h-20">
-                  <svg className="w-full h-full transform -rotate-90">
-                    <circle
-                      cx="40"
-                      cy="40"
-                      r="36"
-                      stroke="rgba(255, 255, 255, 0.2)"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <circle
-                      cx="40"
-                      cy="40"
-                      r="36"
-                      stroke="#FFC857"
-                      strokeWidth="4"
-                      fill="none"
-                      strokeDasharray={`${2 * Math.PI * 36}`}
-                      strokeDashoffset={`${2 * Math.PI * 36 * (1 - longPressProgress / 100)}`}
-                      style={{ transition: 'stroke-dashoffset 0.1s linear' }}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Download className="w-8 h-8 text-white" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ImagePreview 组件 */}
+      <ImagePreview
+        images={filteredPhotos.map(p => p.original_url)}
+        currentIndex={filteredPhotos.findIndex(p => p.id === fullscreenPhoto)}
+        isOpen={!!fullscreenPhoto}
+        onClose={() => setFullscreenPhoto(null)}
+        onIndexChange={(index) => setFullscreenPhoto(filteredPhotos[index]?.id || null)}
+        showCounter={true}
+        showScale={true}
+        enableLongPressDownload={!isWechat}
+      />
 
       {/* 赞赏弹窗 */}
       {albumData.album.donation_qr_code_url && (
