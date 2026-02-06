@@ -450,7 +450,7 @@ export default function ImagePreview({
         {/* 操作提示 */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
           <p className="text-white text-xs">
-            双指缩放 · 长按保存
+            双指缩放 · 双击还原
           </p>
         </div>
 

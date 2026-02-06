@@ -315,7 +315,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
                 <div
                   className="relative flex-1 bg-white overflow-hidden cursor-pointer rounded-sm"
-                  onClick={() => setShowPreview(true)}
+                  onClick={() => setShowFullscreen(true)}
                   style={{ contain: 'layout style paint' }}
                 >
                   <SimpleImage
