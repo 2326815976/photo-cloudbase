@@ -71,9 +71,9 @@ export default function ImagePreview({
     return Math.min(scaleX, scaleY);
   }, [containerSize, imageDimensions]);
 
-  // 计算最大缩放比例（3倍）
+  // 计算最大缩放比例（6倍，即600%）
   const getMaxScale = useCallback(() => {
-    return getMinScale() * 3;
+    return getMinScale() * 6;
   }, [getMinScale]);
 
   // 检测微信环境
@@ -150,11 +150,17 @@ export default function ImagePreview({
     if (newIndex < 0 || newIndex >= images.length) return;
     if (newIndex === index) return;
 
-    setIndex(newIndex);
-    onIndexChange?.(newIndex);
-    setImageDimensions({ width: 0, height: 0 });
-    resetImageState();
-  }, [images.length, index, onIndexChange, resetImageState]);
+    // 先动画到目标位置
+    const direction = newIndex > index ? -1 : 1;
+    animate(offsetX, direction * containerSize.width, { ...springConfig, duration: 0.3 }).then(() => {
+      // 动画完成后切换图片并重置位置
+      setIndex(newIndex);
+      onIndexChange?.(newIndex);
+      setImageDimensions({ width: 0, height: 0 });
+      offsetX.set(0);
+      resetImageState();
+    });
+  }, [images.length, index, onIndexChange, resetImageState, offsetX, containerSize.width]);
 
   // 双击还原
   const handleDoubleTap = useCallback((tapX: number, tapY: number) => {
@@ -262,20 +268,25 @@ export default function ImagePreview({
             }
           }
         } else {
-          // 已缩放：拖拽移动，手动限制边界
-          const imgWidth = imageDimensions.width * currentScale;
-          const imgHeight = imageDimensions.height * currentScale;
+          // 已缩放：拖拽移动
+          x.set(ox);
+          y.set(oy);
 
-          // 计算最大可移动距离
-          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
-          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+          // 拖拽结束时检查并修正边界
+          if (last) {
+            const imgWidth = imageDimensions.width * currentScale;
+            const imgHeight = imageDimensions.height * currentScale;
+            const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+            const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
 
-          // 限制在边界内
-          const boundedX = Math.max(-maxX, Math.min(maxX, ox));
-          const boundedY = Math.max(-maxY, Math.min(maxY, oy));
+            const finalX = Math.max(-maxX, Math.min(maxX, ox));
+            const finalY = Math.max(-maxY, Math.min(maxY, oy));
 
-          x.set(boundedX);
-          y.set(boundedY);
+            if (finalX !== ox || finalY !== oy) {
+              animate(x, finalX, springConfig);
+              animate(y, finalY, springConfig);
+            }
+          }
         }
       },
 
