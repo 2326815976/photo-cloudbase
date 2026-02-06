@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence, useSpring, useMotionValue, useTransform, animate } from 'framer-motion';
+import { motion, AnimatePresence, useSpring, useMotionValue, animate } from 'framer-motion';
 import { useGesture } from '@use-gesture/react';
 import { X, Download } from 'lucide-react';
 import { isWechatBrowser } from '@/lib/wechat';
@@ -61,20 +61,41 @@ export default function ImagePreview({
   const [displayScale, setDisplayScale] = useState(100);
   const [isZoomed, setIsZoomed] = useState(false);
 
-  // 计算最小缩放比例（contain 模式）
-  const getMinScale = useCallback(() => {
+  // 计算图片在容器内的适配尺寸（contain 模式）
+  const getFitScale = useCallback(() => {
     if (!containerSize.width || !imageDimensions.width) return 1;
 
     const scaleX = containerSize.width / imageDimensions.width;
     const scaleY = containerSize.height / imageDimensions.height;
 
-    return Math.min(scaleX, scaleY);
+    return Math.min(1, scaleX, scaleY);
   }, [containerSize, imageDimensions]);
 
-  // 计算最大缩放比例（6倍，即600%）
-  const getMaxScale = useCallback(() => {
-    return getMinScale() * 6;
-  }, [getMinScale]);
+  const getBaseSize = useCallback(() => {
+    const fitScale = getFitScale();
+    return {
+      width: imageDimensions.width * fitScale,
+      height: imageDimensions.height * fitScale
+    };
+  }, [getFitScale, imageDimensions]);
+
+  // 最小缩放比例：以适配尺寸为 1
+  const getMinScale = useCallback(() => 1, []);
+
+  // 最大缩放比例（6倍，即600%）
+  const getMaxScale = useCallback(() => 6, []);
+
+  const getBounds = useCallback((currentScale: number) => {
+    const baseSize = getBaseSize();
+    if (!baseSize.width || !containerSize.width) return null;
+
+    const imgWidth = baseSize.width * currentScale;
+    const imgHeight = baseSize.height * currentScale;
+    const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+    const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+
+    return { maxX, maxY };
+  }, [getBaseSize, containerSize]);
 
   // 检测微信环境
   useEffect(() => {
@@ -87,27 +108,23 @@ export default function ImagePreview({
       const minScale = getMinScale();
       if (minScale > 0) {
         setDisplayScale(Math.round((latest / minScale) * 100));
-        setIsZoomed(latest > minScale);
+        setIsZoomed(latest > minScale + 0.01);
 
         // 缩放时实时校准位移，确保不超出边界
-        if (imageDimensions.width > 0 && containerSize.width > 0) {
-          const imgWidth = imageDimensions.width * latest;
-          const imgHeight = imageDimensions.height * latest;
-          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
-          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+        const bounds = getBounds(latest);
+        if (!bounds) return;
 
-          const currentX = x.get();
-          const currentY = y.get();
-          const clampedX = Math.max(-maxX, Math.min(maxX, currentX));
-          const clampedY = Math.max(-maxY, Math.min(maxY, currentY));
+        const currentX = x.get();
+        const currentY = y.get();
+        const clampedX = Math.max(-bounds.maxX, Math.min(bounds.maxX, currentX));
+        const clampedY = Math.max(-bounds.maxY, Math.min(bounds.maxY, currentY));
 
-          if (clampedX !== currentX) x.set(clampedX);
-          if (clampedY !== currentY) y.set(clampedY);
-        }
+        if (clampedX !== currentX) x.set(clampedX);
+        if (clampedY !== currentY) y.set(clampedY);
       }
     });
     return unsubscribe;
-  }, [scale, getMinScale, imageDimensions, containerSize, x, y]);
+  }, [scale, getMinScale, getBounds, x, y]);
 
   // 监听容器尺寸变化
   useEffect(() => {
@@ -154,11 +171,11 @@ export default function ImagePreview({
     });
 
     // 初始化为最小比例
-    const minScale = getMinScale();
-    scale.set(minScale);
+    scale.set(getMinScale());
     x.set(0);
     y.set(0);
     offsetX.set(0);
+    setIsZoomed(false);
   };
 
   // 切换图片
@@ -289,14 +306,16 @@ export default function ImagePreview({
           }
         } else {
           // 已缩放：拖拽移动，实时限制边界
-          const imgWidth = imageDimensions.width * currentScale;
-          const imgHeight = imageDimensions.height * currentScale;
-          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
-          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+          const bounds = getBounds(currentScale);
+          if (!bounds) {
+            x.set(ox);
+            y.set(oy);
+            return;
+          }
 
           // 实时限制位移在边界内
-          const limitedX = Math.max(-maxX, Math.min(maxX, ox));
-          const limitedY = Math.max(-maxY, Math.min(maxY, oy));
+          const limitedX = Math.max(-bounds.maxX, Math.min(bounds.maxX, ox));
+          const limitedY = Math.max(-bounds.maxY, Math.min(bounds.maxY, oy));
 
           x.set(limitedX);
           y.set(limitedY);
@@ -321,15 +340,13 @@ export default function ImagePreview({
           }
 
           // 缩放后校准位移，确保不超出边界
-          const imgWidth = imageDimensions.width * finalScale;
-          const imgHeight = imageDimensions.height * finalScale;
-          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
-          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+          const bounds = getBounds(finalScale);
+          if (!bounds) return;
 
           const currentX = x.get();
           const currentY = y.get();
-          const clampedX = Math.max(-maxX, Math.min(maxX, currentX));
-          const clampedY = Math.max(-maxY, Math.min(maxY, currentY));
+          const clampedX = Math.max(-bounds.maxX, Math.min(bounds.maxX, currentX));
+          const clampedY = Math.max(-bounds.maxY, Math.min(bounds.maxY, currentY));
 
           if (clampedX !== currentX || clampedY !== currentY) {
             animate(x, clampedX, springConfig);
