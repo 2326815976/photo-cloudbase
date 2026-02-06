@@ -459,7 +459,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               className="relative w-full h-full flex items-center justify-center overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
             >
               {/* 关闭按钮 */}
               <button
