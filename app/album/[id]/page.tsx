@@ -89,6 +89,7 @@ export default function AlbumDetailPage() {
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
+  const [swipeStartX, setSwipeStartX] = useState(0); // 左右滑动起始X坐标
 
   // 检测微信浏览器环境
   useEffect(() => {
@@ -236,18 +237,6 @@ export default function AlbumDetailPage() {
   };
 
   const executeBatchDownload = async () => {
-    // 微信浏览器：跳转到预览页面
-    if (isWechat) {
-      const photosToDownload = selectedPhotos.size > 0
-        ? photos.filter(p => selectedPhotos.has(p.id))
-        : filteredPhotos;
-
-      const urls = photosToDownload.map(p => p.original_url);
-      const urlsParam = encodeURIComponent(JSON.stringify(urls));
-      router.push(`/album/${accessKey}/preview?urls=${urlsParam}`);
-      return;
-    }
-
     // 非微信浏览器：正常批量下载
     const photosToDownload = selectedPhotos.size > 0
       ? photos.filter(p => selectedPhotos.has(p.id))
@@ -1071,6 +1060,7 @@ export default function AlbumDetailPage() {
 
                 // 记录滑动起始位置
                 setSwipeStartY(e.touches[0].clientY);
+                setSwipeStartX(e.touches[0].clientX);
 
                 // 微信浏览器：禁用自定义长按下载，使用原生长按保存
                 if (!isWechat) {
@@ -1133,21 +1123,39 @@ export default function AlbumDetailPage() {
 
               if (e.touches.length === 1 && isDragging) {
                 const currentY = e.touches[0].clientY;
+                const currentX = e.touches[0].clientX;
                 const deltaY = currentY - swipeStartY;
+                const deltaX = currentX - swipeStartX;
 
-                // 向下滑动超过100px且缩放为1时关闭
-                if (deltaY > 100 && scale === 1) {
+                // 判断滑动方向：横向滑动切换图片，纵向滑动关闭
+                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50 && scale === 1) {
+                  // 左右滑动切换图片
+                  const currentIndex = filteredPhotos.findIndex(p => p.id === fullscreenPhoto);
+
+                  if (deltaX > 100 && currentIndex > 0) {
+                    // 右滑：上一张
+                    setFullscreenPhoto(filteredPhotos[currentIndex - 1].id);
+                    setSwipeStartX(currentX);
+                    setSwipeStartY(currentY);
+                  } else if (deltaX < -100 && currentIndex < filteredPhotos.length - 1) {
+                    // 左滑：下一张
+                    setFullscreenPhoto(filteredPhotos[currentIndex + 1].id);
+                    setSwipeStartX(currentX);
+                    setSwipeStartY(currentY);
+                  }
+                } else if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY > 100 && scale === 1) {
+                  // 向下滑动关闭
                   setFullscreenPhoto(null);
                   setScale(1);
                   setPosition({ x: 0, y: 0 });
                   return;
+                } else if (scale > 1) {
+                  // 缩放状态下拖拽
+                  setPosition({
+                    x: e.touches[0].clientX - dragStart.x,
+                    y: e.touches[0].clientY - dragStart.y
+                  });
                 }
-
-                // 单指拖拽
-                setPosition({
-                  x: e.touches[0].clientX - dragStart.x,
-                  y: e.touches[0].clientY - dragStart.y
-                });
               } else if (e.touches.length === 2) {
                 // 双指缩放
                 e.preventDefault();

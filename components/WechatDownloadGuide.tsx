@@ -69,12 +69,29 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
                 )}
 
 
-                {/* 方法1：浏览器打开（批量下载推荐） */}
+                {/* 批量下载方法 */}
                 {isBatchDownload && (
                   <div className="mb-6">
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
                         1
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-base font-bold text-[#5D4037] mb-2">点击图片查看并保存</h4>
+                        <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
+                          点击任意图片进入全屏查看，可以<span className="font-bold text-[#FFC857]">左右滑动</span>浏览所有原图，<span className="font-bold text-[#FFC857]">长按图片</span>保存到相册
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 方法2：浏览器打开 */}
+                {isBatchDownload && (
+                  <div className="mb-6">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
+                        2
                       </div>
                       <div className="flex-1">
                         <h4 className="text-base font-bold text-[#5D4037] mb-2">在浏览器中打开（推荐）</h4>
@@ -90,33 +107,6 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
                   </div>
                 )}
 
-                {/* 方法2：图片预览页面（批量下载备选） */}
-                {isBatchDownload && onTryDownload && (
-                  <div className="mb-6">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
-                        2
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-base font-bold text-[#5D4037] mb-2">使用预览页面保存</h4>
-                        <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
-                          打开专门的预览页面，所有图片会以原图展示，您可以逐个<span className="font-bold text-[#FFC857]">长按保存</span>
-                        </p>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            onTryDownload();
-                            onClose();
-                          }}
-                          className="w-full px-4 py-2.5 rounded-full text-sm font-medium bg-white text-[#5D4037] border-2 border-[#FFC857] hover:bg-[#FFC857]/10 transition-all flex items-center justify-center gap-2"
-                        >
-                          <Download className="w-4 h-4" />
-                          打开预览页面
-                        </motion.button>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {/* 单张下载方法 */}
                 {!isBatchDownload && (
