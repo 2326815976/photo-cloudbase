@@ -582,7 +582,12 @@ export default function AlbumDetailPage() {
                 {/* 图片区域 */}
                 <div
                   className="relative cursor-pointer"
-                  onClick={() => setSelectedPhoto(photo.id)}
+                  onClick={() => {
+                    // 直接进入全屏查看器
+                    setFullscreenPhoto(photo.id);
+                    setScale(1);
+                    setPosition({ x: 0, y: 0 });
+                  }}
                 >
                   <img
                     src={photo.thumbnail_url}
