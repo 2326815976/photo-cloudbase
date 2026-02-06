@@ -1211,7 +1211,14 @@ export default function AlbumDetailPage() {
             {/* 缩放提示 */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
               <p className="text-white text-xs">
-                {isWechat ? '双指缩放 · 长按保存' : '双指缩放 · 长按下载'}
+                {isWechat ? '左右滑动切换 · 长按保存' : '左右滑动切换 · 长按下载'}
+              </p>
+            </div>
+
+            {/* 图片序号显示 */}
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-3 py-1 z-10">
+              <p className="text-white text-xs font-medium">
+                {filteredPhotos.findIndex(p => p.id === fullscreenPhoto) + 1} / {filteredPhotos.length}
               </p>
             </div>
 
