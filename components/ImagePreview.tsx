@@ -150,17 +150,12 @@ export default function ImagePreview({
     if (newIndex < 0 || newIndex >= images.length) return;
     if (newIndex === index) return;
 
-    // 先动画到目标位置
-    const direction = newIndex > index ? -1 : 1;
-    animate(offsetX, direction * containerSize.width, { ...springConfig, duration: 0.3 }).then(() => {
-      // 动画完成后切换图片并重置位置
-      setIndex(newIndex);
-      onIndexChange?.(newIndex);
-      setImageDimensions({ width: 0, height: 0 });
-      offsetX.set(0);
-      resetImageState();
-    });
-  }, [images.length, index, onIndexChange, resetImageState, offsetX, containerSize.width]);
+    // 直接切换图片，依靠 AnimatePresence 处理过渡动画
+    setIndex(newIndex);
+    onIndexChange?.(newIndex);
+    setImageDimensions({ width: 0, height: 0 });
+    resetImageState();
+  }, [images.length, index, onIndexChange, resetImageState]);
 
   // 双击还原
   const handleDoubleTap = useCallback((tapX: number, tapY: number) => {
@@ -300,10 +295,29 @@ export default function ImagePreview({
 
         if (last) {
           // 回弹到合法范围
+          let finalScale = s;
           if (s < minScale) {
+            finalScale = minScale;
             animate(scale, minScale, springConfig);
           } else if (s > maxScale) {
+            finalScale = maxScale;
             animate(scale, maxScale, springConfig);
+          }
+
+          // 缩放后校准位移，确保不超出边界
+          const imgWidth = imageDimensions.width * finalScale;
+          const imgHeight = imageDimensions.height * finalScale;
+          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+
+          const currentX = x.get();
+          const currentY = y.get();
+          const clampedX = Math.max(-maxX, Math.min(maxX, currentX));
+          const clampedY = Math.max(-maxY, Math.min(maxY, currentY));
+
+          if (clampedX !== currentX || clampedY !== currentY) {
+            animate(x, clampedX, springConfig);
+            animate(y, clampedY, springConfig);
           }
         }
       },
@@ -409,24 +423,30 @@ export default function ImagePreview({
         )}
 
         {/* 图片容器 */}
-        <motion.img
-          ref={imageRef}
-          key={images[index]}
-          src={images[index]}
-          alt={`图片 ${index + 1}`}
-          className="max-w-full max-h-full object-contain select-none touch-none"
-          style={{
-            scale: scaleSpring,
-            x: isZoomed ? xSpring : offsetXSpring,
-            y: ySpring,
-            cursor: 'grab'
-          }}
-          onLoad={handleImageLoad}
-          onTouchStart={startLongPress}
-          onTouchEnd={cancelLongPress}
-          onTouchMove={cancelLongPress}
-          draggable={false}
-        />
+        <AnimatePresence mode="wait">
+          <motion.img
+            ref={imageRef}
+            key={images[index]}
+            src={images[index]}
+            alt={`图片 ${index + 1}`}
+            className="max-w-full max-h-full object-contain select-none touch-none"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              scale: scaleSpring,
+              x: isZoomed ? xSpring : offsetXSpring,
+              y: ySpring,
+              cursor: 'grab'
+            }}
+            onLoad={handleImageLoad}
+            onTouchStart={startLongPress}
+            onTouchEnd={cancelLongPress}
+            onTouchMove={cancelLongPress}
+            draggable={false}
+          />
+        </AnimatePresence>
 
         {/* 长按下载进度环 */}
         {!isWechat && enableLongPressDownload && longPressProgress > 0 && (
