@@ -11,26 +11,40 @@ export function isAndroid(): boolean {
 }
 
 /**
- * 下载照片（Android原生）
+ * 下载照片（支持Android原生、微信浏览器、Web）
  * @param url 照片URL
  * @param filename 文件名（可选，默认从URL提取）
  */
-export function downloadPhoto(url: string, filename?: string): void {
+export async function downloadPhoto(url: string, filename?: string): Promise<void> {
   if (typeof window === 'undefined') return;
 
+  const finalFilename = filename || url.split('/').pop() || 'photo.jpg';
+
+  // 1. Android原生下载
   if (window.AndroidPhotoDownload) {
-    // Android原生下载
-    const finalFilename = filename || url.split('/').pop() || 'photo.jpg';
     window.AndroidPhotoDownload.downloadPhoto(url, finalFilename);
-  } else {
-    // Web端降级：使用浏览器下载
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename || 'photo.jpg';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    return;
   }
+
+  // 2. 微信浏览器：使用Canvas转换下载
+  const { isWechatBrowser, downloadImageInWechat } = await import('./wechat');
+  if (isWechatBrowser()) {
+    try {
+      await downloadImageInWechat(url, finalFilename);
+      return;
+    } catch (error) {
+      console.error('微信浏览器下载失败，尝试传统方式:', error);
+      // 降级到传统方式
+    }
+  }
+
+  // 3. Web端降级：使用浏览器下载
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = finalFilename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 /**

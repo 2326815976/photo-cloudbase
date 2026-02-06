@@ -6,9 +6,11 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
+import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import { createClient } from '@/lib/supabase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isAndroidApp } from '@/lib/platform';
+import { isWechatBrowser } from '@/lib/wechat';
 
 interface Folder {
   id: string;
@@ -85,6 +87,13 @@ export default function AlbumDetailPage() {
   const [lastTap, setLastTap] = useState(0); // 上次点击时间（用于双击检测）
   const [swipeStartY, setSwipeStartY] = useState(0); // 滑动起始Y坐标
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
+  const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
+  const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
+
+  // 检测微信浏览器环境
+  useEffect(() => {
+    setIsWechat(isWechatBrowser());
+  }, []);
 
   // 加载相册数据
   useEffect(() => {
@@ -217,6 +226,12 @@ export default function AlbumDetailPage() {
   };
 
   const handleBatchDownload = async () => {
+    // 微信浏览器环境：显示引导弹窗
+    if (isWechat) {
+      setShowWechatGuide(true);
+      return;
+    }
+
     // 如果有选中照片，下载选中的；否则下载全部
     const photosToDownload = selectedPhotos.size > 0
       ? photos.filter(p => selectedPhotos.has(p.id))
@@ -225,7 +240,7 @@ export default function AlbumDetailPage() {
     for (const photo of photosToDownload) {
       try {
         // 使用Android原生下载（自动降级到Web下载）
-        downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
+        await downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
         vibrate(30); // 触觉反馈
 
         // 添加延迟避免浏览器阻止多个下载
@@ -850,14 +865,22 @@ export default function AlbumDetailPage() {
 
                     <motion.button
                       whileTap={{ scale: 0.95 }}
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
+
+                        // 微信浏览器环境：显示引导弹窗
+                        if (isWechat) {
+                          const photo = photos.find(p => p.id === selectedPhoto);
+                          setShowWechatGuide(true);
+                          return;
+                        }
+
                         const photo = photos.find(p => p.id === selectedPhoto);
                         if (!photo) return;
 
                         try {
                           // 使用Android原生下载（自动降级到Web下载）
-                          downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
+                          await downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
                           setToast({ message: '原图保存成功 📸', type: 'success' });
                           setTimeout(() => setToast(null), 3000);
                         } catch (error) {
@@ -1028,24 +1051,27 @@ export default function AlbumDetailPage() {
                 // 记录滑动起始位置
                 setSwipeStartY(e.touches[0].clientY);
 
-                // 单指：开始长按计时和进度更新
-                setLongPressProgress(0);
-                const progressInterval = setInterval(() => {
-                  setLongPressProgress(prev => Math.min(prev + 12.5, 100));
-                }, 100);
-                setLongPressInterval(progressInterval);
-
-                const timer = setTimeout(() => {
-                  clearInterval(progressInterval);
+                // 微信浏览器：禁用自定义长按下载，使用原生长按保存
+                if (!isWechat) {
+                  // 单指：开始长按计时和进度更新
                   setLongPressProgress(0);
-                  const photo = photos.find(p => p.id === fullscreenPhoto);
-                  if (photo) {
-                    downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
-                    setToast({ message: '原图保存成功 📸', type: 'success' });
-                    setTimeout(() => setToast(null), 3000);
-                  }
-                }, 800);
-                setLongPressTimer(timer);
+                  const progressInterval = setInterval(() => {
+                    setLongPressProgress(prev => Math.min(prev + 12.5, 100));
+                  }, 100);
+                  setLongPressInterval(progressInterval);
+
+                  const timer = setTimeout(() => {
+                    clearInterval(progressInterval);
+                    setLongPressProgress(0);
+                    const photo = photos.find(p => p.id === fullscreenPhoto);
+                    if (photo) {
+                      downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
+                      setToast({ message: '原图保存成功 📸', type: 'success' });
+                      setTimeout(() => setToast(null), 3000);
+                    }
+                  }, 800);
+                  setLongPressTimer(timer);
+                }
 
                 // 单指拖拽
                 setIsDragging(true);
@@ -1155,7 +1181,9 @@ export default function AlbumDetailPage() {
 
             {/* 缩放提示 */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-              <p className="text-white text-xs">双指缩放 · 长按下载</p>
+              <p className="text-white text-xs">
+                {isWechat ? '双指缩放 · 长按保存' : '双指缩放 · 长按下载'}
+              </p>
             </div>
 
             {/* 缩放比例显示 */}
@@ -1178,8 +1206,8 @@ export default function AlbumDetailPage() {
               draggable={false}
             />
 
-            {/* 长按下载进度环 */}
-            {longPressProgress > 0 && (
+            {/* 长按下载进度环（微信浏览器中不显示） */}
+            {!isWechat && longPressProgress > 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="relative w-20 h-20">
                   <svg className="w-full h-full transform -rotate-90">
@@ -1221,6 +1249,13 @@ export default function AlbumDetailPage() {
           qrCodeUrl={albumData.album.donation_qr_code_url}
         />
       )}
+
+      {/* 微信下载引导弹窗 */}
+      <WechatDownloadGuide
+        isOpen={showWechatGuide}
+        onClose={() => setShowWechatGuide(false)}
+        imageUrl={selectedPhoto ? photos.find(p => p.id === selectedPhoto)?.preview_url : undefined}
+      />
 
       {/* Toast 提示 */}
       <AnimatePresence>
