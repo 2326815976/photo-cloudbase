@@ -365,27 +365,6 @@ export default function ImagePreview({
           const currentScale = scale.get();
           const minScale = getMinScale();
           return currentScale <= minScale ? [offsetX.get(), 0] : [x.get(), y.get()];
-        },
-        bounds: (state) => {
-          const currentScale = scale.get();
-          const minScale = getMinScale();
-
-          if (currentScale <= minScale) {
-            return { left: -300, right: 300, top: 0, bottom: 0 };
-          }
-
-          // 已缩放：动态计算边界
-          const imgWidth = imageDimensions.width * currentScale;
-          const imgHeight = imageDimensions.height * currentScale;
-          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
-          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
-
-          return {
-            left: -maxX,
-            right: maxX,
-            top: -maxY,
-            bottom: maxY
-          };
         }
       },
       pinch: {
