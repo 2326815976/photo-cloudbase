@@ -329,9 +329,17 @@ export default function AlbumLoginPage() {
                         type="button"
                         whileTap={{ scale: 0.9 }}
                         onClick={async () => {
-                          const text = await getClipboardText();
-                          if (text) {
-                            setAccessKey(text.trim().toUpperCase());
+                          try {
+                            const text = await getClipboardText();
+                            if (text) {
+                              setAccessKey(text.trim().toUpperCase());
+                              setError('');
+                            } else {
+                              // 提示用户可以手动粘贴
+                              setError('💡 提示：您也可以直接在输入框中长按粘贴');
+                            }
+                          } catch (err) {
+                            setError('📋 无法读取剪贴板，请手动粘贴或授权剪贴板权限');
                           }
                         }}
                         disabled={isLoading}
