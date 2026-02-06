@@ -7,13 +7,15 @@ interface WechatDownloadGuideProps {
   isOpen: boolean;
   onClose: () => void;
   imageUrl?: string;
+  isBatchDownload?: boolean;
+  onTryDownload?: () => void;
 }
 
 /**
  * 微信浏览器下载引导组件
  * 提示用户长按保存图片或在浏览器中打开
  */
-export default function WechatDownloadGuide({ isOpen, onClose, imageUrl }: WechatDownloadGuideProps) {
+export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatchDownload, onTryDownload }: WechatDownloadGuideProps) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -55,45 +57,75 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl }: Wecha
                   </h3>
                 </div>
 
-                {/* 方法1：长按保存 */}
-                <div className="mb-6">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
-                      1
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-base font-bold text-[#5D4037] mb-2">长按图片保存（推荐）</h4>
-                      <p className="text-sm text-[#5D4037]/70 leading-relaxed">
-                        点击查看原图后，<span className="font-bold text-[#FFC857]">长按图片</span>，在弹出菜单中选择<span className="font-bold">「保存图片」</span>即可保存到相册
-                      </p>
+                {/* 批量下载：尝试下载按钮 */}
+                {isBatchDownload && onTryDownload && (
+                  <div className="mb-6">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
+                        1
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-base font-bold text-[#5D4037] mb-2">尝试自动下载</h4>
+                        <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
+                          点击下方按钮尝试自动下载。如果被拦截，请使用方法2在浏览器中打开。
+                        </p>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            onTryDownload();
+                            onClose();
+                          }}
+                          className="w-full px-4 py-2.5 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                        >
+                          <Download className="w-4 h-4" />
+                          尝试下载全部图片
+                        </motion.button>
+                      </div>
                     </div>
                   </div>
+                )}
 
-                  {/* 示例图片（如果提供） */}
-                  {imageUrl && (
-                    <div className="ml-11 bg-white rounded-lg p-3 border border-[#5D4037]/10">
-                      <img
-                        src={imageUrl}
-                        alt="示例"
-                        className="w-full h-auto rounded"
-                      />
-                      <p className="text-xs text-[#5D4037]/50 text-center mt-2">
-                        👆 长按上方图片试试
-                      </p>
+                {/* 方法1/2：长按保存 */}
+                {!isBatchDownload && (
+                  <div className="mb-6">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
+                        1
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-base font-bold text-[#5D4037] mb-2">长按图片保存（推荐）</h4>
+                        <p className="text-sm text-[#5D4037]/70 leading-relaxed">
+                          点击查看原图后，<span className="font-bold text-[#FFC857]">长按图片</span>，在弹出菜单中选择<span className="font-bold">「保存图片」</span>即可保存到相册
+                        </p>
+                      </div>
                     </div>
-                  )}
-                </div>
 
-                {/* 方法2：浏览器打开 */}
+                    {/* 示例图片（如果提供） */}
+                    {imageUrl && (
+                      <div className="ml-11 bg-white rounded-lg p-3 border border-[#5D4037]/10">
+                        <img
+                          src={imageUrl}
+                          alt="示例"
+                          className="w-full h-auto rounded"
+                        />
+                        <p className="text-xs text-[#5D4037]/50 text-center mt-2">
+                          👆 长按上方图片试试
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 方法2/3：浏览器打开 */}
                 <div className="mb-6">
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 w-8 h-8 bg-[#FFC857] rounded-full flex items-center justify-center text-[#5D4037] font-bold text-sm">
-                      2
+                      {isBatchDownload ? '2' : '2'}
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-base font-bold text-[#5D4037] mb-2">在浏览器中打开</h4>
+                      <h4 className="text-base font-bold text-[#5D4037] mb-2">在浏览器中打开{isBatchDownload ? '（推荐）' : ''}</h4>
                       <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-3">
-                        点击右上角 <span className="font-bold">「···」</span> 菜单，选择<span className="font-bold text-[#FFC857]">「在浏览器中打开」</span>，即可使用批量下载功能
+                        点击右上角 <span className="font-bold">「···」</span> 菜单，选择<span className="font-bold text-[#FFC857]">「在浏览器中打开」</span>，即可使用{isBatchDownload ? '批量下载' : '下载'}功能
                       </p>
                       <div className="flex items-center gap-2 text-xs text-[#5D4037]/50">
                         <ArrowUpRight className="w-4 h-4" />

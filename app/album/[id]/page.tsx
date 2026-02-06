@@ -232,6 +232,10 @@ export default function AlbumDetailPage() {
       return;
     }
 
+    await executeBatchDownload();
+  };
+
+  const executeBatchDownload = async () => {
     // 如果有选中照片，下载选中的；否则下载全部
     const photosToDownload = selectedPhotos.size > 0
       ? photos.filter(p => selectedPhotos.has(p.id))
@@ -1255,6 +1259,8 @@ export default function AlbumDetailPage() {
         isOpen={showWechatGuide}
         onClose={() => setShowWechatGuide(false)}
         imageUrl={selectedPhoto ? photos.find(p => p.id === selectedPhoto)?.preview_url : undefined}
+        isBatchDownload={selectedPhotos.size > 0 || !selectedPhoto}
+        onTryDownload={executeBatchDownload}
       />
 
       {/* Toast 提示 */}
