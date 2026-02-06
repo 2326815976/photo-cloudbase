@@ -49,6 +49,7 @@ export async function downloadPhoto(url: string, filename?: string): Promise<voi
 
 /**
  * 读取剪贴板内容
+ * 注意：微信浏览器不支持读取剪贴板，会返回空字符串
  */
 export async function getClipboardText(): Promise<string> {
   if (typeof window === 'undefined') return '';
@@ -57,11 +58,11 @@ export async function getClipboardText(): Promise<string> {
     // Android原生读取
     return window.AndroidClipboard.getClipboardText();
   } else {
-    // Web端降级：使用Clipboard API
+    // Web端：尝试使用Clipboard API
     try {
       return await navigator.clipboard.readText();
     } catch (error) {
-      // 静默失败，不打印错误（浏览器安全限制是正常情况）
+      // 静默失败（浏览器安全限制是正常情况，特别是微信浏览器）
       return '';
     }
   }
@@ -78,13 +79,39 @@ export async function setClipboardText(text: string): Promise<boolean> {
     window.AndroidClipboard.setClipboardText(text);
     return true;
   } else {
-    // Web端降级：使用Clipboard API
+    // Web端：优先使用Clipboard API
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch (error) {
-      console.error('写入剪贴板失败:', error);
-      return false;
+      // 降级方案：使用传统的execCommand方法（兼容微信浏览器）
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.top = '0';
+        textarea.style.left = '0';
+        textarea.style.width = '1px';
+        textarea.style.height = '1px';
+        textarea.style.padding = '0';
+        textarea.style.border = 'none';
+        textarea.style.outline = 'none';
+        textarea.style.boxShadow = 'none';
+        textarea.style.background = 'transparent';
+        textarea.style.opacity = '0';
+
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+
+        return successful;
+      } catch (fallbackError) {
+        console.error('剪贴板写入失败（包括降级方案）:', fallbackError);
+        return false;
+      }
     }
   }
 }

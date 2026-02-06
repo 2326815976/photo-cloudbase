@@ -368,10 +368,15 @@ export default function AlbumsPage() {
     }
   };
 
-  const copyAccessLink = (accessKey: string) => {
+  const copyAccessLink = async (accessKey: string) => {
     const link = `${window.location.origin}/album/${accessKey}`;
-    navigator.clipboard.writeText(link);
-    setShowToast({ message: '访问链接已复制到剪贴板！', type: 'success' });
+    const { setClipboardText } = await import('@/lib/android');
+    const success = await setClipboardText(link);
+    if (success) {
+      setShowToast({ message: '访问链接已复制到剪贴板！', type: 'success' });
+    } else {
+      setShowToast({ message: '复制失败，请重试', type: 'error' });
+    }
     setTimeout(() => setShowToast(null), 3000);
   };
 
@@ -486,9 +491,14 @@ export default function AlbumsPage() {
                           {album.access_key}
                         </code>
                         <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(album.access_key);
-                            setShowToast({ message: '密钥已复制', type: 'success' });
+                          onClick={async () => {
+                            const { setClipboardText } = await import('@/lib/android');
+                            const success = await setClipboardText(album.access_key);
+                            if (success) {
+                              setShowToast({ message: '密钥已复制', type: 'success' });
+                            } else {
+                              setShowToast({ message: '复制失败，请重试', type: 'error' });
+                            }
                             setTimeout(() => setShowToast(null), 3000);
                           }}
                           className="w-12 h-12 rounded-lg bg-white hover:bg-[#FFC857] text-[#5D4037] hover:text-white transition-all flex items-center justify-center shadow-sm"
