@@ -81,17 +81,33 @@ export default function ImagePreview({
     setIsWechat(isWechatBrowser());
   }, []);
 
-  // 实时更新缩放比例显示和缩放状态
+  // 实时更新缩放比例显示和缩放状态，并校准位移
   useEffect(() => {
     const unsubscribe = scale.on('change', (latest) => {
       const minScale = getMinScale();
       if (minScale > 0) {
         setDisplayScale(Math.round((latest / minScale) * 100));
         setIsZoomed(latest > minScale);
+
+        // 缩放时实时校准位移，确保不超出边界
+        if (imageDimensions.width > 0 && containerSize.width > 0) {
+          const imgWidth = imageDimensions.width * latest;
+          const imgHeight = imageDimensions.height * latest;
+          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+
+          const currentX = x.get();
+          const currentY = y.get();
+          const clampedX = Math.max(-maxX, Math.min(maxX, currentX));
+          const clampedY = Math.max(-maxY, Math.min(maxY, currentY));
+
+          if (clampedX !== currentX) x.set(clampedX);
+          if (clampedY !== currentY) y.set(clampedY);
+        }
       }
     });
     return unsubscribe;
-  }, [scale, getMinScale]);
+  }, [scale, getMinScale, imageDimensions, containerSize, x, y]);
 
   // 监听容器尺寸变化
   useEffect(() => {
