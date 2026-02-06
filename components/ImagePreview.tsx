@@ -489,36 +489,19 @@ export default function ImagePreview({
               cursor: 'grab'
             }}
             onLoad={handleImageLoad}
-            onTouchStart={startLongPress}
-            onTouchEnd={cancelLongPress}
-            onTouchMove={cancelLongPress}
             draggable={false}
           />
         </AnimatePresence>
 
-        {/* 长按下载进度环 */}
-        {!isWechat && enableLongPressDownload && longPressProgress > 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-            <div className="relative w-20 h-20">
-              <svg className="w-full h-full transform -rotate-90">
-                <circle cx="40" cy="40" r="36" stroke="rgba(255, 255, 255, 0.2)" strokeWidth="4" fill="none" />
-                <circle
-                  cx="40"
-                  cy="40"
-                  r="36"
-                  stroke="#FFC857"
-                  strokeWidth="4"
-                  fill="none"
-                  strokeDasharray={`${2 * Math.PI * 36}`}
-                  strokeDashoffset={`${2 * Math.PI * 36 * (1 - longPressProgress / 100)}`}
-                  style={{ transition: 'stroke-dashoffset 0.1s linear' }}
-                />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Download className="w-8 h-8 text-white" />
-              </div>
-            </div>
-          </div>
+        {/* 下载原图按钮 */}
+        {!isWechat && enableLongPressDownload && (
+          <button
+            onClick={() => downloadPhoto(images[index], `photo_${index + 1}.jpg`)}
+            className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/20 transition-colors z-10 flex items-center gap-2"
+          >
+            <Download className="w-4 h-4 text-white" />
+            <span className="text-white text-sm">下载原图</span>
+          </button>
         )}
       </motion.div>
     </AnimatePresence>
