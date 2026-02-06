@@ -249,10 +249,19 @@ export default function ImagePreview({
 
         if (currentScale <= minScale) {
           // 未缩放：左右滑动切换图片
-          offsetX.set(ox);
+          // 边界弹性：首张向左滑、末张向右滑时限制
+          let limitedOx = ox;
+          if (index === 0 && ox > 0) {
+            // 首张向左滑，添加阻尼效果
+            limitedOx = ox * 0.3;
+          } else if (index === images.length - 1 && ox < 0) {
+            // 末张向右滑，添加阻尼效果
+            limitedOx = ox * 0.3;
+          }
+          offsetX.set(limitedOx);
 
           if (last) {
-            const threshold = 80;
+            const threshold = containerSize.width / 3;
             const shouldChange = Math.abs(ox) > threshold || Math.abs(vx) > 0.5;
 
             if (shouldChange) {
@@ -268,25 +277,18 @@ export default function ImagePreview({
             }
           }
         } else {
-          // 已缩放：拖拽移动
-          x.set(ox);
-          y.set(oy);
+          // 已缩放：拖拽移动，实时限制边界
+          const imgWidth = imageDimensions.width * currentScale;
+          const imgHeight = imageDimensions.height * currentScale;
+          const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
+          const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
 
-          // 拖拽结束时检查并修正边界
-          if (last) {
-            const imgWidth = imageDimensions.width * currentScale;
-            const imgHeight = imageDimensions.height * currentScale;
-            const maxX = Math.max(0, (imgWidth - containerSize.width) / 2);
-            const maxY = Math.max(0, (imgHeight - containerSize.height) / 2);
+          // 实时限制位移在边界内
+          const limitedX = Math.max(-maxX, Math.min(maxX, ox));
+          const limitedY = Math.max(-maxY, Math.min(maxY, oy));
 
-            const finalX = Math.max(-maxX, Math.min(maxX, ox));
-            const finalY = Math.max(-maxY, Math.min(maxY, oy));
-
-            if (finalX !== ox || finalY !== oy) {
-              animate(x, finalX, springConfig);
-              animate(y, finalY, springConfig);
-            }
-          }
+          x.set(limitedX);
+          y.set(limitedY);
         }
       },
 
