@@ -57,6 +57,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [cacheKey, setCacheKey] = useState<string>('__initial__');
   const [shakeEnabled, setShakeEnabled] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
+  const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
   const lastShakeTimeRef = useRef(0);
 
@@ -447,10 +448,22 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => {
-              setShowFullscreen(false);
-              setScale(1);
-              setPosition({ x: 0, y: 0 });
+            onClick={(e) => {
+              // 延迟单击处理，避免与双击冲突
+              if (clickTimer) {
+                // 检测到双击，清除单击定时器
+                clearTimeout(clickTimer);
+                setClickTimer(null);
+              } else {
+                // 单击，设置300ms延迟
+                const timer = setTimeout(() => {
+                  setShowFullscreen(false);
+                  setScale(1);
+                  setPosition({ x: 0, y: 0 });
+                  setClickTimer(null);
+                }, 300);
+                setClickTimer(timer);
+              }
             }}
             className="fixed inset-0 bg-black z-[60] flex items-center justify-center"
             onTouchStart={(e) => {

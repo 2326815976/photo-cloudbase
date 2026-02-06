@@ -329,14 +329,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 {/* 便利贴胶带效果 */}
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
 
-                {/* 关闭按钮 */}
-                <button
-                  onClick={() => setPreviewPhoto(null)}
-                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
-                >
-                  <X className="w-5 h-5 text-[#5D4037]" />
-                </button>
-
                 {/* 图片容器 */}
                 <div className="p-4 pb-3">
                   <div
@@ -354,7 +346,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                 {/* 信息区域 */}
                 <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
-                  <div className="flex items-center justify-center gap-6 text-[#5D4037]">
+                  <div className="flex items-center justify-center gap-6 text-[#5D4037] mb-3">
                     <div className="flex items-center gap-2">
                       <Eye className="w-4 h-4" />
                       <span className="text-sm font-medium">{previewPhoto.view_count} 次浏览</span>
@@ -367,6 +359,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       <span className="text-sm font-medium">{previewPhoto.like_count} 次点赞</span>
                     </button>
                   </div>
+
+                  {/* 关闭按钮 */}
+                  <button
+                    onClick={() => setPreviewPhoto(null)}
+                    className="w-full py-2.5 rounded-lg bg-[#5D4037]/10 hover:bg-[#5D4037]/20 active:bg-[#5D4037]/30 transition-colors text-[#5D4037] font-medium text-sm"
+                  >
+                    关闭
+                  </button>
                 </div>
               </div>
             </motion.div>
