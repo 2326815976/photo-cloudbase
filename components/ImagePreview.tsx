@@ -55,6 +55,11 @@ export default function ImagePreview({
   const scaleSpring = useSpring(scale, springConfig);
   const xSpring = useSpring(x, springConfig);
   const ySpring = useSpring(y, springConfig);
+  const offsetXSpring = useSpring(offsetX, springConfig);
+
+  // 实时计算缩放比例显示
+  const [displayScale, setDisplayScale] = useState(100);
+  const [isZoomed, setIsZoomed] = useState(false);
 
   // 计算最小缩放比例（contain 模式）
   const getMinScale = useCallback(() => {
@@ -75,6 +80,18 @@ export default function ImagePreview({
   useEffect(() => {
     setIsWechat(isWechatBrowser());
   }, []);
+
+  // 实时更新缩放比例显示和缩放状态
+  useEffect(() => {
+    const unsubscribe = scale.on('change', (latest) => {
+      const minScale = getMinScale();
+      if (minScale > 0) {
+        setDisplayScale(Math.round((latest / minScale) * 100));
+        setIsZoomed(latest > minScale);
+      }
+    });
+    return unsubscribe;
+  }, [scale, getMinScale]);
 
   // 监听容器尺寸变化
   useEffect(() => {
@@ -109,6 +126,7 @@ export default function ImagePreview({
     animate(x, 0, springConfig);
     animate(y, 0, springConfig);
     animate(offsetX, 0, springConfig);
+    setIsZoomed(false);
   }, [getMinScale, scale, x, y, offsetX]);
 
   // 图片加载完成
@@ -202,6 +220,23 @@ export default function ImagePreview({
   // 手势处理
   useGesture(
     {
+      onClick: ({ event }) => {
+        const now = Date.now();
+        const timeSinceLastTap = now - lastTapTime;
+
+        if (timeSinceLastTap < 300) {
+          // 双击检测
+          const rect = imageRef.current?.getBoundingClientRect();
+          if (rect) {
+            const tapX = (event as MouseEvent).clientX - rect.left;
+            const tapY = (event as MouseEvent).clientY - rect.top;
+            handleDoubleTap(tapX, tapY);
+          }
+        }
+
+        setLastTapTime(now);
+      },
+
       onDrag: ({ offset: [ox, oy], last, movement: [mx, my], velocity: [vx, vy], memo }) => {
         const currentScale = scale.get();
         const minScale = getMinScale();
@@ -227,22 +262,9 @@ export default function ImagePreview({
             }
           }
         } else {
-          // 已缩放：拖拽移动，限制边界
-          const imgWidth = imageDimensions.width * currentScale;
-          const imgHeight = imageDimensions.height * currentScale;
-          const containerWidth = containerSize.width;
-          const containerHeight = containerSize.height;
-
-          // 计算最大可移动距离
-          const maxX = Math.max(0, (imgWidth - containerWidth) / 2);
-          const maxY = Math.max(0, (imgHeight - containerHeight) / 2);
-
-          // 限制在边界内
-          const boundedX = Math.max(-maxX, Math.min(maxX, ox));
-          const boundedY = Math.max(-maxY, Math.min(maxY, oy));
-
-          x.set(boundedX);
-          y.set(boundedY);
+          // 已缩放：拖拽移动
+          x.set(ox);
+          y.set(oy);
         }
       },
 
@@ -285,7 +307,11 @@ export default function ImagePreview({
     {
       target: imageRef,
       drag: {
-        from: () => [x.get(), y.get()],
+        from: () => {
+          const currentScale = scale.get();
+          const minScale = getMinScale();
+          return currentScale <= minScale ? [offsetX.get(), 0] : [x.get(), y.get()];
+        },
         bounds: (state) => {
           const currentScale = scale.get();
           const minScale = getMinScale();
@@ -317,8 +343,6 @@ export default function ImagePreview({
 
   if (!isOpen) return null;
 
-  const currentScale = Math.round(scale.get() * 100);
-
   return (
     <AnimatePresence>
       <motion.div
@@ -346,10 +370,20 @@ export default function ImagePreview({
           </div>
         )}
 
+        {/* 操作提示 */}
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-white/60 text-xs">双指缩放 · 双击还原</p>
+            {!isWechat && enableLongPressDownload && (
+              <p className="text-white/60 text-xs">长按保存</p>
+            )}
+          </div>
+        </div>
+
         {/* 缩放比例 */}
         {showScale && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-            <span className="text-white text-sm font-medium">{currentScale}%</span>
+            <span className="text-white text-sm font-medium">{displayScale}%</span>
           </div>
         )}
 
@@ -362,7 +396,7 @@ export default function ImagePreview({
           className="max-w-full max-h-full object-contain select-none touch-none"
           style={{
             scale: scaleSpring,
-            x: offsetX.get() !== 0 ? offsetX : xSpring,
+            x: isZoomed ? xSpring : offsetXSpring,
             y: ySpring,
             cursor: 'grab'
           }}
