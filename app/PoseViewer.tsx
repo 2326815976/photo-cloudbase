@@ -139,14 +139,14 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
       // 无标签查询不使用缓存（每次都重新随机）
       if (selectedTags.length === 0) {
-        // 无标签随机：使用随机键索引法
+        // 无标签随机：使用随机键索引法，获取多条记录以支持去重
         const r = Math.random();
         let { data } = await supabase
           .from('poses')
           .select('id, image_url, tags, view_count, rand_key')
           .gte('rand_key', r)
           .order('rand_key')
-          .limit(1);
+          .limit(20);
 
         // 兜底：如果没有结果，从头开始查
         if (!data || data.length === 0) {
@@ -154,7 +154,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
             .order('rand_key')
-            .limit(1);
+            .limit(20);
           data = fallback;
         }
 
