@@ -143,11 +143,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       }
     };
 
-    // 延迟预加载：首屏渲染完成后 2 秒再触发，避免影响首屏速度
+    // 在首屏所有资源完全加载后预加载
+    // 延迟 2 秒确保标签加载完成（1000ms + 850ms网络延迟 + 150ms缓冲）
     if (preloadedPoses.length < PRELOAD_THRESHOLD && selectedTags.length === 0) {
       const timer = setTimeout(() => {
         preloadPoses();
-      }, 2000); // 延迟 2 秒
+      }, 2000); // 确保首屏完全稳定后再预加载
 
       return () => clearTimeout(timer);
     }
