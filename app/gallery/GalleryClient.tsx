@@ -53,19 +53,26 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const photos = allPhotos;
   const total = data?.total || initialTotal;
 
-  // 当 SWR 数据更新时，追加新照片
+  // 当 SWR 数据更新时，刷新或追加照片
   useEffect(() => {
-    if (data?.photos && page > 1) {
-      setAllPhotos(prev => {
-        const existingIds = new Set(prev.map(p => p.id));
-        const newPhotos = data.photos.filter((p: Photo) => !existingIds.has(p.id));
-        const updatedPhotos = [...prev, ...newPhotos];
-        // 修复边界条件：当新加载的照片数量少于pageSize时，说明没有更多照片了
-        setHasMore(data.photos.length >= pageSize && updatedPhotos.length < data.total);
-        return updatedPhotos;
-      });
+    if (!data?.photos) return;
+
+    if (page === 1) {
+      setAllPhotos(data.photos);
+      setHasMore(data.photos.length >= pageSize && data.photos.length < data.total);
       setIsLoadingMore(false);
+      return;
     }
+
+    setAllPhotos(prev => {
+      const existingIds = new Set(prev.map(p => p.id));
+      const newPhotos = data.photos.filter((p: Photo) => !existingIds.has(p.id));
+      const updatedPhotos = [...prev, ...newPhotos];
+      // 修复边界条件：当新加载的照片数量少于pageSize时，说明没有更多照片了
+      setHasMore(data.photos.length >= pageSize && updatedPhotos.length < data.total);
+      return updatedPhotos;
+    });
+    setIsLoadingMore(false);
   }, [data, page, pageSize]);
 
   // 预加载图片

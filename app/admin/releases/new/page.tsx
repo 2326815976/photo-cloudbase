@@ -29,26 +29,37 @@ export default function NewReleasePage() {
       return;
     }
 
+    const maxFileSize = 100 * 1024 * 1024;
+    if (file.size > maxFileSize) {
+      setShowToast({ message: '安装包大小超过 100MB 限制', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     setUploading(true);
 
     try {
-      // 上传文件到Supabase Storage
+      // 上传文件到Supabase Storage（APK专用桶）
       const supabase = createClient();
       const filename = `${Date.now()}_${file.name}`;
       const filePath = `releases/${filename}`;
+      const contentType = platform === 'Android'
+        ? (file.type || 'application/vnd.android.package-archive')
+        : file.type;
 
       const { error: uploadError } = await supabase.storage
-        .from('releases')
+        .from('apk-releases')
         .upload(filePath, file, {
           cacheControl: '31536000', // 缓存1年
           upsert: false,
+          contentType,
         });
 
       if (uploadError) throw uploadError;
 
       // 获取公开访问URL
       const { data: { publicUrl } } = supabase.storage
-        .from('releases')
+        .from('apk-releases')
         .getPublicUrl(filePath);
 
       // 保存到数据库

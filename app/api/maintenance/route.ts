@@ -8,7 +8,9 @@ export async function POST(request: NextRequest) {
     const expectedToken = process.env.MAINTENANCE_TOKEN;
     const supabase = await createClient();
 
-    if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+    const tokenValid = expectedToken && authHeader === `Bearer ${expectedToken}`;
+
+    if (!tokenValid) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         return NextResponse.json(

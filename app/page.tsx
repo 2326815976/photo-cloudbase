@@ -25,6 +25,7 @@ export default async function HomePage() {
     console.log('[服务端] 开始查询数据...');
     const startTime = Date.now();
 
+    const prefetchCount = 6;
     const randomSeed = Math.random();
     const [posesResult, tagsResult] = await Promise.all([
       supabase
@@ -32,7 +33,7 @@ export default async function HomePage() {
         .select('id, image_url, tags, storage_path, view_count, rand_key')
         .gte('rand_key', randomSeed)
         .order('rand_key')
-        .limit(1),
+        .limit(prefetchCount),
       supabase.from('pose_tags').select('id, name, usage_count').order('usage_count', { ascending: false }).limit(20)
     ]);
 
@@ -49,13 +50,16 @@ export default async function HomePage() {
     }
 
     let posesData = posesResult.data || [];
-    if (posesData.length === 0) {
+    if (posesData.length < prefetchCount) {
       const { data: fallbackData } = await supabase
         .from('poses')
         .select('id, image_url, tags, storage_path, view_count, rand_key')
         .order('rand_key')
-        .limit(1);
-      posesData = fallbackData || [];
+        .limit(prefetchCount);
+
+      const combined = [...posesData, ...(fallbackData || [])];
+      const uniqueMap = new Map(combined.map((pose) => [pose.id, pose]));
+      posesData = Array.from(uniqueMap.values());
     }
 
     const normalizedPoses = posesData.map((pose) => ({

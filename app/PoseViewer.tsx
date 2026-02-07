@@ -69,12 +69,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const lastShakeTimeRef = useRef(0);
 
   // 预加载缓存池（用于无标签查询的即时响应）
-  const [preloadedPoses, setPreloadedPoses] = useState<Pose[]>([]);
+  const [preloadedPoses, setPreloadedPoses] = useState<Pose[]>(initialPoses);
   const isPreloadingRef = useRef(false);
+  const preloadedImageIdsRef = useRef<Set<number>>(new Set());
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   const HISTORY_SIZE = 20;
   const PRELOAD_POOL_SIZE = 100; // 预加载池大小
   const PRELOAD_THRESHOLD = 30;  // 当缓存池少于30条时触发补充
+  const PRELOAD_IMAGE_COUNT = 2; // 预加载下一批图片，提升首点后的切换速度
   const SHAKE_THRESHOLD = 15;
   const SHAKE_COOLDOWN = 2000; // 2秒冷却时间
 
@@ -150,16 +153,38 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       }
     };
 
-    // 在首屏所有资源完全加载后预加载
-    // 延迟 2 秒确保标签加载完成（1000ms + 850ms网络延迟 + 150ms缓冲）
+    // 首次交互后再预加载，优先保证首屏加载速度
+    if (!hasInteracted) return;
     if (preloadedPoses.length < PRELOAD_THRESHOLD && selectedTags.length === 0) {
-      const timer = setTimeout(() => {
-        preloadPoses();
-      }, 2000); // 确保首屏完全稳定后再预加载
+      const schedule = (window as any).requestIdleCallback
+        ? (cb: () => void) => (window as any).requestIdleCallback(cb)
+        : (cb: () => void) => setTimeout(cb, 0);
 
-      return () => clearTimeout(timer);
+      const cancel = (window as any).cancelIdleCallback
+        ? (id: number) => (window as any).cancelIdleCallback(id)
+        : (id: number) => clearTimeout(id);
+
+      const taskId = schedule(() => preloadPoses());
+      return () => cancel(taskId);
     }
-  }, [preloadedPoses.length, selectedTags.length, PRELOAD_POOL_SIZE, PRELOAD_THRESHOLD]);
+  }, [hasInteracted, preloadedPoses.length, selectedTags.length, PRELOAD_POOL_SIZE, PRELOAD_THRESHOLD]);
+
+  // 预加载下一批摆姿图片，避免首次切换时等待图片加载
+  useEffect(() => {
+    if (!hasInteracted || selectedTags.length > 0 || preloadedPoses.length === 0) return;
+
+    let loaded = 0;
+    for (const pose of preloadedPoses) {
+      if (loaded >= PRELOAD_IMAGE_COUNT) break;
+      if (pose.id === currentPose?.id) continue;
+      if (preloadedImageIdsRef.current.has(pose.id)) continue;
+
+      const img = new Image();
+      img.src = pose.image_url;
+      preloadedImageIdsRef.current.add(pose.id);
+      loaded += 1;
+    }
+  }, [hasInteracted, preloadedPoses, selectedTags.length, currentPose?.id]);
 
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
@@ -176,6 +201,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
   const getRandomPose = useCallback(async () => {
     if (isAnimating) return;
+
+    if (!hasInteracted) {
+      setHasInteracted(true);
+    }
 
     const supabase = createClient();
     if (!supabase) return;
@@ -358,7 +387,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     } finally {
       setIsAnimating(false);
     }
-  }, [isAnimating, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, HISTORY_SIZE]);
+  }, [isAnimating, hasInteracted, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, HISTORY_SIZE]);
 
   // 摇一摇检测 - 必须在getRandomPose定义之后
   useEffect(() => {

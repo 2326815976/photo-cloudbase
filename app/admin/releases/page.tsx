@@ -54,25 +54,60 @@ export default function ReleasesPage() {
     setActionLoading(true);
     const supabase = createClient();
 
-    // 从URL中提取COS存储路径并删除文件
-    if (deletingRelease.download_url) {
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
-      const key = extractKeyFromURL(deletingRelease.download_url);
-      if (key) {
-        try {
-          const response = await fetch('/api/delete', {
-            method: 'DELETE',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ key }),
-          });
+    const getStoragePath = (url: string, bucket: string) => {
+      try {
+        const urlObj = new URL(url);
+        const marker = `/storage/v1/object/public/${bucket}/`;
+        const index = urlObj.pathname.indexOf(marker);
+        if (index === -1) return null;
+        return urlObj.pathname.substring(index + marker.length);
+      } catch {
+        return null;
+      }
+    };
 
-          if (!response.ok) {
-            throw new Error('删除COS文件失败');
+    // 优先删除 Supabase Storage（APK存储桶）
+    if (deletingRelease.download_url) {
+      const storagePath = getStoragePath(deletingRelease.download_url, 'apk-releases');
+      if (storagePath) {
+        const { error: storageError } = await supabase.storage
+          .from('apk-releases')
+          .remove([storagePath]);
+
+        if (storageError) {
+          console.error('删除Storage文件失败:', storageError);
+        }
+      } else {
+        const legacyPath = getStoragePath(deletingRelease.download_url, 'releases');
+        if (legacyPath) {
+          const { error: legacyError } = await supabase.storage
+            .from('releases')
+            .remove([legacyPath]);
+
+          if (legacyError) {
+            console.error('删除Storage文件失败:', legacyError);
           }
-        } catch (error) {
-          console.error('删除COS文件失败:', error);
+        } else {
+          // 兼容旧数据：COS URL
+          const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
+          const key = extractKeyFromURL(deletingRelease.download_url);
+          if (key) {
+            try {
+              const response = await fetch('/api/delete', {
+                method: 'DELETE',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ key }),
+              });
+
+              if (!response.ok) {
+                throw new Error('删除COS文件失败');
+              }
+            } catch (error) {
+              console.error('删除COS文件失败:', error);
+            }
+          }
         }
       }
     }
