@@ -80,7 +80,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     return () => clearTimeout(timer);
   }, []);
 
-  // 客户端加载tags
+  // 客户端加载tags（延迟加载完整标签列表）
   useEffect(() => {
     if (initialTags.length === 0) {
       const loadTags = async () => {
@@ -89,6 +89,18 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         if (data) setTags(data);
       };
       loadTags();
+    } else if (initialTags.length >= 20) {
+      // 首屏已加载 20 个热门标签，延迟加载完整列表
+      const loadAllTags = async () => {
+        const supabase = createClient();
+        const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
+        if (data && data.length > initialTags.length) {
+          setTags(data); // 更新为完整列表
+        }
+      };
+
+      // 首屏渲染后 1 秒再加载完整标签
+      setTimeout(loadAllTags, 1000);
     }
   }, [initialTags.length]);
 
@@ -127,15 +139,18 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         poses = cachedPoses;
       } else {
         if (selectedTags.length === 0) {
-          const { data } = await supabase.from('poses').select('*').limit(50);
+          const { data } = await supabase.from('poses').select('id, image_url, tags, view_count').limit(50);
           if (data) poses = data;
         } else {
+          // 有标签：先查询 50 条
           const { data: allMatches } = await supabase
             .from('poses')
-            .select('*')
-            .overlaps('tags', selectedTags);
+            .select('id, image_url, tags, view_count')
+            .overlaps('tags', selectedTags)
+            .limit(50);
 
           if (allMatches && allMatches.length > 0) {
+            // 精确匹配逻辑
             if (selectedTags.length === 1) {
               let filtered = allMatches.filter((p: any) => p.tags.length === 1 && p.tags.includes(selectedTags[0]));
               if (filtered.length === 0) {
@@ -156,6 +171,24 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               poses = filtered.length > 0 ? filtered : allMatches;
             } else {
               poses = allMatches;
+            }
+
+            // 兜底策略：如果精确匹配结果太少（< 5 条），放宽到所有匹配
+            if (poses.length < 5 && poses.length < allMatches.length) {
+              console.log('[兜底] 精确匹配结果不足，使用所有匹配结果');
+              poses = allMatches;
+            }
+          } else {
+            // 兜底策略：如果 50 条都没有匹配，再查询更多（最多 200 条）
+            console.log('[兜底] 前 50 条无匹配，扩大查询范围');
+            const { data: moreMatches } = await supabase
+              .from('poses')
+              .select('id, image_url, tags, view_count')
+              .overlaps('tags', selectedTags)
+              .limit(200);
+
+            if (moreMatches && moreMatches.length > 0) {
+              poses = moreMatches;
             }
           }
         }
