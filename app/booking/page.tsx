@@ -8,6 +8,7 @@ import MapPicker from '@/components/MapPicker';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
 import { createClient } from '@/lib/supabase/client';
+import { getDateAfterDaysUTC8 } from '@/lib/utils/date-helpers';
 
 interface BookingType {
   id: number;
@@ -165,7 +166,7 @@ export default function BookingPage() {
           booking_types(name)
         `)
         .eq('user_id', user.id)
-        .in('status', ['pending', 'confirmed'])
+        .in('status', ['pending', 'confirmed', 'in_progress'])
         .single();
 
       if (!error && data) {
@@ -303,7 +304,11 @@ export default function BookingPage() {
     setIsSubmitting(false);
 
     if (error) {
-      setError(error.message);
+      if ((error as any)?.code === '23505') {
+        setError('您已有进行中的预约，请先取消或等待完成');
+      } else {
+        setError(error.message);
+      }
     } else {
       setShowSuccess(true);
       setTimeout(() => {
@@ -525,14 +530,7 @@ export default function BookingPage() {
                       <DatePicker
                         value={selectedDate}
                         onChange={setSelectedDate}
-                        minDate={(() => {
-                          const tomorrow = new Date();
-                          tomorrow.setDate(tomorrow.getDate() + 1);
-                          const year = tomorrow.getFullYear();
-                          const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-                          const day = String(tomorrow.getDate()).padStart(2, '0');
-                          return `${year}-${month}-${day}`;
-                        })()}
+                        minDate={getDateAfterDaysUTC8(1)}
                         blockedDates={blockedDates}
                         placeholder="请选择约拍日期（最早明天）..."
                       />

@@ -18,11 +18,13 @@ DECLARE
   deleted_folders int := 0;
   deleted_albums int := 0;
 BEGIN
-  -- 删除过期且未公开的照片
+  -- 删除过期且未公开的照片（基于相册有效期）
   WITH deleted AS (
-    DELETE FROM public.album_photos
-    WHERE created_at < now() - interval '7 days'
-    AND is_public = false
+    DELETE FROM public.album_photos p
+    USING public.albums a
+    WHERE p.album_id = a.id
+      AND p.is_public = false
+      AND COALESCE(a.expires_at, a.created_at + interval '7 days') < now()
     RETURNING id
   )
   SELECT count(*) INTO deleted_photos FROM deleted;
@@ -43,11 +45,11 @@ BEGIN
   -- 删除过期的空相册
   WITH deleted AS (
     DELETE FROM public.albums
-    WHERE expires_at < now()
-    AND id NOT IN (
-      SELECT DISTINCT album_id
-      FROM public.album_photos
-    )
+    WHERE COALESCE(expires_at, created_at + interval '7 days') < now()
+      AND id NOT IN (
+        SELECT DISTINCT album_id
+        FROM public.album_photos
+      )
     RETURNING id
   )
   SELECT count(*) INTO deleted_albums FROM deleted;
@@ -88,12 +90,25 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   UPDATE public.bookings
   SET status = 'finished'
-  WHERE status IN ('pending', 'confirmed')
+  WHERE status IN ('pending', 'confirmed', 'in_progress')
     AND booking_date < CURRENT_DATE;
 END;
 $$;
 
 COMMENT ON FUNCTION public.auto_complete_expired_bookings() IS '自动将过期的预约（预约日期已过）标记为已完成';
+
+-- 自动将当天预约标记为进行中
+CREATE OR REPLACE FUNCTION public.auto_start_today_bookings()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE public.bookings
+  SET status = 'in_progress'
+  WHERE status = 'confirmed'
+    AND booking_date = CURRENT_DATE;
+END;
+$$;
+
+COMMENT ON FUNCTION public.auto_start_today_bookings() IS '自动将当天预约（已确认）标记为进行中';
 
 -- ================================================================================================
 -- 4. 综合维护函数
@@ -111,6 +126,9 @@ BEGIN
 
   -- 清理旧浏览记录
   PERFORM public.cleanup_old_photo_views();
+
+  -- 自动开始当天预约
+  PERFORM public.auto_start_today_bookings();
 
   -- 自动完成过期预约
   PERFORM public.auto_complete_expired_bookings();
@@ -175,6 +193,7 @@ BEGIN
   RAISE NOTICE '🔄 已创建函数：';
   RAISE NOTICE '   - cleanup_expired_data()：清理过期数据';
   RAISE NOTICE '   - cleanup_old_photo_views()：清理旧浏览记录';
+  RAISE NOTICE '   - auto_start_today_bookings()：自动将当天预约置为进行中';
   RAISE NOTICE '   - auto_complete_expired_bookings()：自动完成过期预约';
   RAISE NOTICE '   - run_maintenance_tasks()：执行所有维护任务';
   RAISE NOTICE '💡 建议：';

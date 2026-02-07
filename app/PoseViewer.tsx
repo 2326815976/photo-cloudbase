@@ -31,6 +31,7 @@ interface Pose {
   storage_path: string;
   view_count: number;
   created_at?: string;
+  rand_key?: number;
 }
 
 interface PoseViewerProps {
@@ -38,6 +39,12 @@ interface PoseViewerProps {
   initialPose: Pose | null;
   initialPoses: Pose[];
 }
+
+const normalizePoses = (poses: Pose[]) =>
+  poses.map((pose) => ({
+    ...pose,
+    tags: Array.isArray(pose.tags) ? pose.tags : [],
+  }));
 
 export default function PoseViewer({ initialTags, initialPose, initialPoses }: PoseViewerProps) {
   const [tags, setTags] = useState<PoseTag[]>(initialTags);
@@ -134,7 +141,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           .limit(PRELOAD_POOL_SIZE);
 
         if (data && data.length > 0) {
-          setPreloadedPoses(data);
+          setPreloadedPoses(normalizePoses(data));
         }
       } catch (error) {
         console.error('预加载失败:', error);
@@ -202,9 +209,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               .limit(PRELOAD_POOL_SIZE)
               .then(({ data }: { data: Pose[] | null }) => {
                 if (data && data.length > 0) {
+                  const normalized = normalizePoses(data);
                   setPreloadedPoses(prev => {
                     // 合并并去重
-                    const combined = [...prev, ...data];
+                    const combined = [...prev, ...normalized];
                     const uniqueMap = new Map(combined.map(p => [p.id, p]));
                     return Array.from(uniqueMap.values());
                   });
@@ -237,7 +245,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             data = Array.from(uniqueMap.values());
           }
 
-          if (data) poses = data;
+          if (data) poses = normalizePoses(data);
         }
       } else if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
         // 有标签查询使用缓存
@@ -252,20 +260,21 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             .overlaps('tags', selectedTags)
             .limit(100);
 
-          if (candidates && candidates.length > 0) {
+          const normalizedCandidates = normalizePoses(candidates || []);
+          if (normalizedCandidates.length > 0) {
             // 第二段：在候选集中用随机键随机
             const r = Math.random();
-            const filtered = candidates.filter((p: any) => p.rand_key >= r);
+            const filtered = normalizedCandidates.filter((p: any) => p.rand_key >= r);
 
-            let allMatches = candidates;
+            let allMatches = normalizedCandidates;
             if (filtered.length > 0) {
               // 按 rand_key 排序取第一个
               filtered.sort((a: any, b: any) => a.rand_key - b.rand_key);
-              allMatches = [filtered[0], ...candidates.filter((p: any) => p.id !== filtered[0].id)];
+              allMatches = [filtered[0], ...normalizedCandidates.filter((p: any) => p.id !== filtered[0].id)];
             } else {
               // 兜底：从候选集中随机选一个
-              const randomIndex = Math.floor(Math.random() * candidates.length);
-              allMatches = [candidates[randomIndex], ...candidates.filter((p: any, i: number) => i !== randomIndex)];
+              const randomIndex = Math.floor(Math.random() * normalizedCandidates.length);
+              allMatches = [normalizedCandidates[randomIndex], ...normalizedCandidates.filter((p: any, i: number) => i !== randomIndex)];
             }
 
             // 保留原有的精确匹配逻辑
@@ -308,9 +317,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               .overlaps('tags', selectedTags)
               .limit(200);
 
-            if (moreMatches && moreMatches.length > 0) {
-              const randomIndex = Math.floor(Math.random() * moreMatches.length);
-              poses = [moreMatches[randomIndex]];
+            const normalizedMoreMatches = normalizePoses(moreMatches || []);
+            if (normalizedMoreMatches.length > 0) {
+              const randomIndex = Math.floor(Math.random() * normalizedMoreMatches.length);
+              poses = [normalizedMoreMatches[randomIndex]];
             }
           }
 
@@ -332,9 +342,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         setRecentPoseIds(prev => [selectedPose.id, ...prev].slice(0, HISTORY_SIZE));
 
         supabase
-          .from('poses')
-          .update({ view_count: selectedPose.view_count + 1 })
-          .eq('id', selectedPose.id)
+          .rpc('increment_pose_view', { p_pose_id: selectedPose.id })
           .then(() => {})
           .catch((err: any) => console.error('更新浏览次数失败:', err));
 

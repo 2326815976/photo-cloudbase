@@ -60,11 +60,12 @@ export default function AlbumDetailPage() {
   const router = useRouter();
   const params = useParams();
   const accessKey = params.id as string;
+  const welcomeStorageKey = useMemo(() => `album_welcome_seen_${accessKey.toUpperCase()}`, [accessKey]);
   const shouldReduceMotion = useReducedMotion();
 
   const [loading, setLoading] = useState(true);
   const [albumData, setAlbumData] = useState<AlbumData | null>(null);
-  const [showWelcomeLetter, setShowWelcomeLetter] = useState(true);
+  const [showWelcomeLetter, setShowWelcomeLetter] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
@@ -130,8 +131,9 @@ export default function AlbumDetailPage() {
     setPhotos(data.photos);
     setLoading(false);
 
-    // 根据管理员设置决定是否显示欢迎信（默认显示）
-    setShowWelcomeLetter(data.album.enable_welcome_letter !== false);
+    // 根据管理员设置决定是否显示欢迎信（仅首次打开显示）
+    const hasSeenWelcome = typeof window !== 'undefined' && localStorage.getItem(welcomeStorageKey);
+    setShowWelcomeLetter(data.album.enable_welcome_letter !== false && !hasSeenWelcome);
 
     // 预加载前10张照片的preview图片
     if (data.photos && data.photos.length > 0) {
@@ -139,6 +141,17 @@ export default function AlbumDetailPage() {
         const img = new Image();
         img.src = photo.preview_url;
       });
+    }
+  };
+
+  const handleWelcomeClose = () => {
+    setShowWelcomeLetter(false);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(welcomeStorageKey, '1');
+      } catch {
+        // 忽略存储异常（如隐私模式）
+      }
     }
   };
 
@@ -262,33 +275,21 @@ export default function AlbumDetailPage() {
       const photo = photos.find(p => p.id === photoId);
       if (!photo) continue;
 
-      // 从URL中提取COS存储路径
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
+      // 删除COS中的所有版本文件（基于 accessKey + photoId 服务端校验）
+      try {
+        const response = await fetch('/api/batch-delete', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ accessKey, photoIds: [photoId] }),
+        });
 
-      // 收集需要删除的文件路径
-      const filesToDelete = [
-        extractKeyFromURL(photo.thumbnail_url),
-        extractKeyFromURL(photo.preview_url),
-        extractKeyFromURL(photo.original_url)
-      ].filter(Boolean) as string[];
-
-      // 删除COS中的所有版本文件
-      if (filesToDelete.length > 0) {
-        try {
-          const response = await fetch('/api/batch-delete', {
-            method: 'DELETE',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ keys: filesToDelete }),
-          });
-
-          if (!response.ok) {
-            throw new Error('删除COS文件失败');
-          }
-        } catch (error) {
-          console.error('删除COS文件失败:', error);
+        if (!response.ok) {
+          throw new Error('删除COS文件失败');
         }
+      } catch (error) {
+        console.error('删除COS文件失败:', error);
       }
 
       // 删除数据库记录
@@ -765,7 +766,7 @@ export default function AlbumDetailPage() {
       {/* 拆信交互 */}
       <LetterOpeningModal
         isOpen={showWelcomeLetter}
-        onClose={() => setShowWelcomeLetter(false)}
+        onClose={handleWelcomeClose}
         letterContent={albumData.album.welcome_letter || '欢迎来到专属空间 ✨'}
         recipientName={albumData.album.recipient_name}
       />

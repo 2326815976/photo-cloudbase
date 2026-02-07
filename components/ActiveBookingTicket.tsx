@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from 'framer-motion';
 import { Calendar, MapPin, Camera, X, MessageCircle } from 'lucide-react';
+import { getTodayUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
 
 interface ActiveBookingTicketProps {
   booking: {
@@ -19,26 +20,26 @@ interface ActiveBookingTicketProps {
 
 export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: ActiveBookingTicketProps) {
   const shouldReduceMotion = useReducedMotion();
+  const statusText = booking.status === 'pending'
+    ? '等待确认中'
+    : booking.status === 'in_progress'
+      ? '进行中'
+      : '已确认';
 
-  // 格式化日期
+  // 格式化日期（UTC）
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
+    const date = parseDateUTC8(dateStr);
     return date.toLocaleDateString('zh-CN', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-      weekday: 'long'
+      weekday: 'long',
+      timeZone: 'Asia/Shanghai'
     });
   };
 
-  // 检查是否是预约当天
-  const isBookingDay = () => {
-    const bookingDate = new Date(booking.date);
-    const today = new Date();
-    return bookingDate.toDateString() === today.toDateString();
-  };
-
-  const canCancel = !isBookingDay();
+  const today = getTodayUTC8();
+  const canCancel = (booking.status === 'pending' || booking.status === 'confirmed') && booking.date > today;
 
   return (
     <motion.div
@@ -66,7 +67,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
               约拍确认票
             </h2>
             <p className="text-sm text-[#5D4037]/60">
-              {booking.status === 'pending' ? '等待确认中' : '已确认'}
+              {statusText}
             </p>
           </div>
 

@@ -1,37 +1,45 @@
 /**
  * 日期处理工具函数
- * 统一使用UTC时间，避免时区问题
+ * 统一使用 UTC+8 时间（Asia/Shanghai）
  */
 
-/**
- * 将Date对象格式化为YYYY-MM-DD格式（UTC时间）
- * @param date Date对象
- * @returns YYYY-MM-DD格式的日期字符串
- */
-export function formatDateUTC(date: Date): string {
+const UTC8_OFFSET_MINUTES = 8 * 60;
+const UTC8_OFFSET_MS = UTC8_OFFSET_MINUTES * 60 * 1000;
+
+const formatUTCParts = (date: Date): string => {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+/**
+ * 将Date对象格式化为YYYY-MM-DD格式（UTC+8）
+ * @param date Date对象
+ * @returns YYYY-MM-DD格式的日期字符串
+ */
+export function formatDateUTC8(date: Date): string {
+  const shifted = new Date(date.getTime() + UTC8_OFFSET_MS);
+  return formatUTCParts(shifted);
 }
 
 /**
- * 获取今天的日期（UTC）
+ * 获取今天的日期（UTC+8）
  * @returns YYYY-MM-DD格式的今天日期
  */
-export function getTodayUTC(): string {
-  return formatDateUTC(new Date());
+export function getTodayUTC8(): string {
+  return formatDateUTC8(new Date());
 }
 
 /**
- * 获取N天后的日期（UTC）
+ * 获取N天后的日期（UTC+8）
  * @param days 天数
  * @returns YYYY-MM-DD格式的日期
  */
-export function getDateAfterDaysUTC(days: number): string {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() + days);
-  return formatDateUTC(date);
+export function getDateAfterDaysUTC8(days: number): string {
+  const shifted = new Date(Date.now() + UTC8_OFFSET_MS);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return formatUTCParts(shifted);
 }
 
 /**
@@ -58,13 +66,14 @@ export function isDateInRange(date: string, startDate: string, endDate: string):
 }
 
 /**
- * 解析YYYY-MM-DD格式的日期字符串为Date对象（UTC）
+ * 解析YYYY-MM-DD格式的日期字符串为Date对象（UTC+8）
  * @param dateStr YYYY-MM-DD格式的日期字符串
  * @returns Date对象
  */
-export function parseDateUTC(dateStr: string): Date {
+export function parseDateUTC8(dateStr: string): Date {
   const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
+  const utcMillis = Date.UTC(year, month - 1, day);
+  return new Date(utcMillis - UTC8_OFFSET_MS);
 }
 
 /**
@@ -74,8 +83,8 @@ export function parseDateUTC(dateStr: string): Date {
  * @returns 天数差（date2 - date1）
  */
 export function getDaysDifference(date1: string, date2: string): number {
-  const d1 = parseDateUTC(date1);
-  const d2 = parseDateUTC(date2);
+  const d1 = parseDateUTC8(date1);
+  const d2 = parseDateUTC8(date2);
   const diffTime = d2.getTime() - d1.getTime();
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }

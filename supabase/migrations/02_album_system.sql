@@ -41,11 +41,16 @@ DROP POLICY IF EXISTS "Allow public read access with access_key" ON public.album
 DROP POLICY IF EXISTS "Allow authenticated users to read albums" ON public.albums;
 DROP POLICY IF EXISTS "Allow admin full access" ON public.albums;
 
--- 创建新策略：允许任何人通过 access_key 查询相册
-CREATE POLICY "Allow public read access with access_key"
+-- 创建新策略：仅允许已绑定的用户读取相册
+CREATE POLICY "Allow bound users read albums"
   ON public.albums FOR SELECT
-  TO public
-  USING (true);
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_album_bindings b
+      WHERE b.album_id = albums.id AND b.user_id = auth.uid()
+    )
+  );
 
 -- 确保管理员可以完全管理相册
 CREATE POLICY "Allow admin full access"

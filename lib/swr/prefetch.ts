@@ -82,7 +82,7 @@ export async function prefetchByRoute(pathname: string) {
 
   // 照片墙页面：预加载相册列表
   if (pathname === '/gallery') {
-    prefetchAlbums();
+    // 相册列表仅管理员可访问，避免公共路由触发无权限预取
   }
 
   // 相册页面：预加载照片墙
@@ -93,6 +93,5 @@ export async function prefetchByRoute(pathname: string) {
   // 预约页面：预加载照片墙和相册
   if (pathname === '/booking') {
     prefetchGallery();
-    prefetchAlbums();
   }
 }

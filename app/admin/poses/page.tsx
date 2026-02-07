@@ -97,6 +97,11 @@ export default function PosesPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
+    if (poseFormData.tags.length > 3) {
+      setShowToast({ message: '每张摆姿最多只能绑定 3 个标签', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     setUploading(true);
     const supabase = createClient();
@@ -176,6 +181,11 @@ export default function PosesPage() {
 
   const handleEditPose = async () => {
     if (!editingPose) return;
+    if (poseFormData.tags.length > 3) {
+      setShowToast({ message: '每张摆姿最多只能绑定 3 个标签', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     setUploading(true);
     const supabase = createClient();
@@ -383,7 +393,14 @@ export default function PosesPage() {
       ...prev,
       tags: prev.tags.includes(tagName)
         ? prev.tags.filter(t => t !== tagName)
-        : [...prev.tags, tagName]
+        : (() => {
+          if (prev.tags.length >= 3) {
+            setShowToast({ message: '最多只能选择 3 个标签', type: 'warning' });
+            setTimeout(() => setShowToast(null), 3000);
+            return prev.tags;
+          }
+          return [...prev.tags, tagName];
+        })()
     }));
   };
 

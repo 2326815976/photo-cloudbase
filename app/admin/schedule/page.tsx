@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
+import { formatDateUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
 
 interface Blackout {
   id: number;
@@ -55,8 +56,8 @@ export default function SchedulePage() {
     const supabase = createClient();
 
     const dates: string[] = [];
-    const start = new Date(formData.startDate);
-    const end = formData.endDate ? new Date(formData.endDate) : start;
+    const start = parseDateUTC8(formData.startDate);
+    const end = formData.endDate ? parseDateUTC8(formData.endDate) : start;
 
     if (end < start) {
       setShowToast({ message: '结束日期不能早于开始日期', type: 'warning' });
@@ -67,8 +68,8 @@ export default function SchedulePage() {
 
     const current = new Date(start);
     while (current <= end) {
-      dates.push(current.toISOString().split('T')[0]);
-      current.setDate(current.getDate() + 1);
+      dates.push(formatDateUTC8(current));
+      current.setUTCDate(current.getUTCDate() + 1);
     }
 
     const records = dates.map(date => ({
@@ -304,14 +305,15 @@ export default function SchedulePage() {
                     </div>
                     <div>
                       <h3 className="font-bold text-[#5D4037]">
-                        {new Date(blackout.date).toLocaleDateString('zh-CN', {
+                        {parseDateUTC8(blackout.date).toLocaleDateString('zh-CN', {
                           year: 'numeric',
                           month: 'long',
                           day: 'numeric',
+                          timeZone: 'Asia/Shanghai'
                         })}
                       </h3>
                       <p className="text-xs text-[#5D4037]/60">
-                        {new Date(blackout.date).toLocaleDateString('zh-CN', { weekday: 'long' })}
+                        {parseDateUTC8(blackout.date).toLocaleDateString('zh-CN', { weekday: 'long', timeZone: 'Asia/Shanghai' })}
                       </p>
                     </div>
                   </div>

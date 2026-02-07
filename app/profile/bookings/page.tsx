@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, MapPin, Phone, MessageSquare, ArrowLeft, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Booking {
   id: string;
@@ -88,12 +89,9 @@ export default function BookingsPage() {
   };
 
   const canCancelBooking = (booking: Booking) => {
-    const bookingDate = new Date(booking.booking_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    bookingDate.setHours(0, 0, 0, 0);
-    // 约拍当天前，待确认和已确认状态可以取消
-    return bookingDate > today && (booking.status === 'pending' || booking.status === 'confirmed');
+    const today = getTodayUTC8();
+    // 约拍当天前，待确认和已确认状态可以取消（UTC）
+    return booking.booking_date > today && (booking.status === 'pending' || booking.status === 'confirmed');
   };
 
   const canDeleteBooking = (booking: Booking) => {

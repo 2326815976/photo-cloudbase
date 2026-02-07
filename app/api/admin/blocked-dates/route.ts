@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import { getTodayUTC } from '@/lib/utils/date-helpers';
+import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 export const dynamic = 'force-dynamic'; // 不缓存
 
@@ -26,7 +26,7 @@ export async function GET() {
     }
 
     // 使用UTC时间获取今天的日期，只查询今天及以后的锁定日期
-    const today = getTodayUTC();
+    const today = getTodayUTC8();
 
     // 查询所有锁定日期(只选择需要的字段)
     const { data, error } = await supabase
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     }
 
     // 验证日期不能是过去的日期
-    const today = getTodayUTC();
+    const today = getTodayUTC8();
     if (date < today) {
       return NextResponse.json({ error: '不能锁定过去的日期' }, { status: 400 });
     }

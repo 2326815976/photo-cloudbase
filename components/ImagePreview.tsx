@@ -45,6 +45,9 @@ export default function ImagePreview({
   const imageRef = useRef<HTMLImageElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const longPressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const ringRadius = 24;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringOffset = ringCircumference - (longPressProgress / 100) * ringCircumference;
 
   // Motion values for smooth animations
   const scale = useMotionValue(1);
@@ -288,6 +291,10 @@ export default function ImagePreview({
     setLongPressProgress(0);
   }, []);
 
+  useEffect(() => {
+    return () => cancelLongPress();
+  }, [cancelLongPress]);
+
   // 手势处理
   useGesture(
     {
@@ -309,6 +316,7 @@ export default function ImagePreview({
       },
 
       onDrag: ({ offset: [ox, oy], last, movement: [mx, my], velocity: [vx, vy], memo }) => {
+        cancelLongPress();
         const currentScale = scale.get();
         const minScale = getMinScale();
 
@@ -360,6 +368,7 @@ export default function ImagePreview({
       },
 
       onPinch: ({ offset: [s], last }) => {
+        cancelLongPress();
         const minScale = getMinScale();
         const maxScale = getMaxScale();
 
@@ -393,6 +402,7 @@ export default function ImagePreview({
       },
 
       onWheel: ({ delta: [, dy] }) => {
+        cancelLongPress();
         const currentScale = scale.get();
         const minScale = getMinScale();
         const maxScale = getMaxScale();
@@ -506,8 +516,44 @@ export default function ImagePreview({
             }}
             onLoad={handleImageLoad}
             draggable={false}
+            onTouchStart={(e) => {
+              if (e.touches.length === 1) {
+                startLongPress();
+              }
+            }}
+            onTouchMove={cancelLongPress}
+            onTouchEnd={cancelLongPress}
+            onTouchCancel={cancelLongPress}
           />
         </AnimatePresence>
+
+        {/* 长按下载进度环 */}
+        {!isWechat && enableLongPressDownload && longPressProgress > 0 && (
+          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+            <svg className="w-16 h-16" viewBox="0 0 56 56">
+              <circle
+                cx="28"
+                cy="28"
+                r={ringRadius}
+                stroke="rgba(255,255,255,0.35)"
+                strokeWidth="4"
+                fill="none"
+              />
+              <circle
+                cx="28"
+                cy="28"
+                r={ringRadius}
+                stroke="#FFFFFF"
+                strokeWidth="4"
+                fill="none"
+                strokeDasharray={ringCircumference}
+                strokeDashoffset={ringOffset}
+                strokeLinecap="round"
+                transform="rotate(-90 28 28)"
+              />
+            </svg>
+          </div>
+        )}
 
         {/* 下载原图按钮 */}
         {!isWechat && enableLongPressDownload && (

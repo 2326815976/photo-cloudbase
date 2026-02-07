@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatDateUTC8, getDateAfterDaysUTC8, getTodayUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
 
 interface DatePickerProps {
   value: string | null;  // YYYY-MM-DD
@@ -22,7 +23,7 @@ export default function DatePicker({
   placeholder = '请选择日期...'
 }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(() => parseDateUTC8(getTodayUTC8()));
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 调试日志：监控blockedDates变化
@@ -31,49 +32,33 @@ export default function DatePicker({
     console.log('[DatePicker] blockedDates数量:', blockedDates?.length || 0);
   }, [blockedDates]);
 
-  // 解析日期字符串为本地时间（避免UTC时区问题）
-  const parseLocalDate = (dateStr: string) => {
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    date.setHours(0, 0, 0, 0);
-    return date;
-  };
+  // 计算默认的最小和最大日期（UTC）
+  const today = parseDateUTC8(getTodayUTC8());
+  const min = minDate ? parseDateUTC8(minDate) : today;
+  const max = maxDate ? parseDateUTC8(maxDate) : parseDateUTC8(getDateAfterDaysUTC8(30));
 
-  // 计算默认的最小和最大日期
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const min = minDate ? parseLocalDate(minDate) : today;
-  const max = maxDate ? parseLocalDate(maxDate) : new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-  // 格式化日期为 YYYY-MM-DD（本地时间）
-  const formatDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  // 格式化显示日期
+  // 格式化显示日期（UTC）
   const formatDisplayDate = (dateStr: string) => {
-    const date = new Date(dateStr);
+    const date = parseDateUTC8(dateStr);
     return date.toLocaleDateString('zh-CN', {
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'Asia/Shanghai'
     });
   };
 
-  // 生成月份日历（只显示5行，35天）
+  // 生成月份日历（UTC，5行 35天）
   const generateCalendar = (year: number, month: number) => {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
+    const firstDay = new Date(Date.UTC(year, month, 1));
+    const lastDay = new Date(Date.UTC(year, month + 1, 0));
     const startDate = new Date(firstDay);
-    startDate.setDate(startDate.getDate() - firstDay.getDay());
+    startDate.setUTCDate(startDate.getUTCDate() - firstDay.getUTCDay());
 
     const days = [];
     for (let i = 0; i < 35; i++) {  // 改为35天（5行 x 7天）
       const date = new Date(startDate);
-      date.setDate(date.getDate() + i);
+      date.setUTCDate(date.getUTCDate() + i);
       days.push(date);
     }
     return days;
@@ -81,7 +66,7 @@ export default function DatePicker({
 
   // 判断日期是否可选
   const isDateSelectable = (date: Date) => {
-    const dateStr = formatDate(date);
+    const dateStr = formatDateUTC8(date);
     const isInRange = date >= min && date <= max;
     const isBlocked = blockedDates.includes(dateStr);
 
@@ -99,26 +84,26 @@ export default function DatePicker({
 
   // 判断日期是否在当前月份
   const isCurrentMonth = (date: Date) => {
-    return date.getMonth() === currentMonth.getMonth() &&
-           date.getFullYear() === currentMonth.getFullYear();
+    return date.getUTCMonth() === currentMonth.getUTCMonth() &&
+           date.getUTCFullYear() === currentMonth.getUTCFullYear();
   };
 
   // 判断日期是否被选中
   const isSelected = (date: Date) => {
     if (!value) return false;
-    return formatDate(date) === value;
+    return formatDateUTC8(date) === value;
   };
 
   // 判断日期是否被锁定
   const isBlocked = (date: Date) => {
-    const dateStr = formatDate(date);
+    const dateStr = formatDateUTC8(date);
     return blockedDates.includes(dateStr);
   };
 
   // 切换月份
   const changeMonth = (offset: number) => {
     const newMonth = new Date(currentMonth);
-    newMonth.setMonth(newMonth.getMonth() + offset);
+    newMonth.setUTCMonth(newMonth.getUTCMonth() + offset);
     setCurrentMonth(newMonth);
   };
 
@@ -139,7 +124,7 @@ export default function DatePicker({
     };
   }, [isOpen]);
 
-  const days = generateCalendar(currentMonth.getFullYear(), currentMonth.getMonth());
+  const days = generateCalendar(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth());
   const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
   return (
@@ -179,7 +164,7 @@ export default function DatePicker({
                 <ChevronLeft className="w-4 h-4 text-[#5D4037]" />
               </button>
               <span className="text-sm font-bold text-[#5D4037]">
-                {currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月
+                {currentMonth.getUTCFullYear()}年{currentMonth.getUTCMonth() + 1}月
               </span>
               <button
                 type="button"
@@ -216,7 +201,7 @@ export default function DatePicker({
                     type="button"
                     onClick={() => {
                       if (selectable) {
-                        onChange(formatDate(date));
+                        onChange(formatDateUTC8(date));
                         setIsOpen(false);
                       }
                     }}

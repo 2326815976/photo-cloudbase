@@ -67,7 +67,7 @@ export function useAlbumContent(albumId: string | null) {
 
     const supabase = createClient();
     const { data, error } = await supabase.rpc('get_album_content', {
-      p_album_id: albumId
+      input_key: albumId
     });
 
     if (error) throw error;

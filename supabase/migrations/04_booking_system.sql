@@ -414,6 +414,13 @@ WHERE status IN ('pending', 'confirmed', 'in_progress');
 
 COMMENT ON INDEX idx_bookings_unique_active_date IS '确保同一日期只能有一个活跃预约（pending/confirmed/in_progress），防止竞态条件';
 
+-- 创建部分唯一索引：确保同一用户只有一个活跃预约
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_unique_active_user
+ON public.bookings(user_id)
+WHERE status IN ('pending', 'confirmed', 'in_progress');
+
+COMMENT ON INDEX idx_bookings_unique_active_user IS '确保同一用户只能有一个活跃预约（pending/confirmed/in_progress）';
+
 -- ================================================================================================
 -- 完成
 -- ================================================================================================

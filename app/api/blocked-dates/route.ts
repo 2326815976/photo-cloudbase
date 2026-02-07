@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import { getTodayUTC, getDateAfterDaysUTC } from '@/lib/utils/date-helpers';
+import { getTodayUTC8, getDateAfterDaysUTC8 } from '@/lib/utils/date-helpers';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0; // 禁用缓存,实时获取最新数据
@@ -11,8 +11,8 @@ export async function GET() {
     const supabase = createAdminClient();
 
     // 使用UTC时间统一处理日期，避免时区问题
-    const today = getTodayUTC();
-    const maxDateStr = getDateAfterDaysUTC(30);
+    const today = getTodayUTC8();
+    const maxDateStr = getDateAfterDaysUTC8(30);
 
     // 1. 获取管理员锁定的日期
     const { data: blackoutData, error: blackoutError } = await supabase
@@ -25,11 +25,11 @@ export async function GET() {
       console.error('Error fetching blackout dates:', blackoutError);
     }
 
-    // 2. 获取已有预约的日期（pending和confirmed状态）
+    // 2. 获取已有预约的日期（pending、confirmed、in_progress状态）
     const { data: bookingData, error: bookingError } = await supabase
       .from('bookings')
       .select('booking_date')
-      .in('status', ['pending', 'confirmed'])
+      .in('status', ['pending', 'confirmed', 'in_progress'])
       .gte('booking_date', today)
       .lte('booking_date', maxDateStr);
 
