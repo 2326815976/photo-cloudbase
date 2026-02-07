@@ -30,6 +30,13 @@ export default function ReleasesPage() {
     setLoading(true);
     const supabase = createClient();
 
+    if (!supabase) {
+      setLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('app_releases')
       .select('*')
@@ -37,6 +44,9 @@ export default function ReleasesPage() {
 
     if (!error && data) {
       setReleases(data);
+    } else if (error) {
+      setShowToast({ message: `加载失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
     }
     setLoading(false);
   };
@@ -54,6 +64,13 @@ export default function ReleasesPage() {
     setActionLoading(true);
     const supabase = createClient();
 
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     const getStoragePath = (url: string, bucket: string) => {
       try {
         const urlObj = new URL(url);
@@ -67,12 +84,18 @@ export default function ReleasesPage() {
     };
 
     // 优先删除 Supabase Storage（APK存储桶）
+    let assetDeleteError: string | null = null;
+
     if (deletingRelease.download_url) {
       const storagePath = getStoragePath(deletingRelease.download_url, 'apk-releases');
       if (storagePath) {
         const { error: storageError } = await supabase.storage
           .from('apk-releases')
           .remove([storagePath]);
+
+        if (storageError && !assetDeleteError) {
+          assetDeleteError = storageError.message;
+        }
 
         if (storageError) {
           console.error('删除Storage文件失败:', storageError);
@@ -83,6 +106,10 @@ export default function ReleasesPage() {
           const { error: legacyError } = await supabase.storage
             .from('releases')
             .remove([legacyPath]);
+
+          if (legacyError && !assetDeleteError) {
+            assetDeleteError = legacyError.message;
+          }
 
           if (legacyError) {
             console.error('删除Storage文件失败:', legacyError);
@@ -106,6 +133,9 @@ export default function ReleasesPage() {
               }
             } catch (error) {
               console.error('删除COS文件失败:', error);
+              if (!assetDeleteError) {
+                assetDeleteError = error instanceof Error ? error.message : '删除 COS 文件失败';
+              }
             }
           }
         }
@@ -113,6 +143,13 @@ export default function ReleasesPage() {
     }
 
     // 删除数据库记录
+    if (assetDeleteError) {
+      setActionLoading(false);
+      setShowToast({ message: `删除失败：文件清理异常（${assetDeleteError}）`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     const { error } = await supabase
       .from('app_releases')
       .delete()

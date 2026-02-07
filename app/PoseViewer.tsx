@@ -108,6 +108,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     if (initialTags.length === 0) {
       const loadTags = async () => {
         const supabase = createClient();
+        if (!supabase) return;
         const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
         if (data) setTags(data);
       };
@@ -116,6 +117,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       // 首屏已加载 20 个热门标签，延迟加载完整列表
       const loadAllTags = async () => {
         const supabase = createClient();
+        if (!supabase) return;
         const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
         if (data && data.length > initialTags.length) {
           setTags(data); // 更新为完整列表
@@ -160,6 +162,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
     bootstrapLoadedRef.current = true;
     const supabase = createClient();
+    if (!supabase) return;
     let cancelled = false;
 
     const loadBootstrap = async () => {
@@ -223,6 +226,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
       isPreloadingRef.current = true;
       const supabase = createClient();
+      if (!supabase) {
+        isPreloadingRef.current = false;
+        return;
+      }
 
       try {
         // 随机查询100条记录
@@ -357,76 +364,36 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         // 有标签查询使用缓存
         poses = cachedPoses;
       } else {
-        // 有标签查询：首次查询
-        // 有标签随机：两段式策略
-          // 第一段：先用标签过滤拿候选集（100 条）
-          const { data: candidates } = await supabase
+        // 有标签查询：严格遵循“先精确匹配，空结果再模糊匹配”
+        const baseSelect = 'id, image_url, tags, view_count, rand_key';
+
+        const { data: exactMatches, error: exactError } = await supabase
+          .from('poses')
+          .select(baseSelect)
+          .contains('tags', selectedTags)
+          .limit(200);
+
+        if (exactError) {
+          throw exactError;
+        }
+
+        const normalizedExactMatches = normalizePoses(exactMatches || []);
+
+        if (normalizedExactMatches.length > 0) {
+          poses = normalizedExactMatches;
+        } else {
+          const { data: fuzzyMatches, error: fuzzyError } = await supabase
             .from('poses')
-            .select('id, image_url, tags, view_count, rand_key')
+            .select(baseSelect)
             .overlaps('tags', selectedTags)
-            .limit(100);
+            .limit(200);
 
-          const normalizedCandidates = normalizePoses(candidates || []);
-          if (normalizedCandidates.length > 0) {
-            // 第二段：在候选集中用随机键随机
-            const r = Math.random();
-            const filtered = normalizedCandidates.filter((p: any) => p.rand_key >= r);
-
-            let allMatches = normalizedCandidates;
-            if (filtered.length > 0) {
-              // 按 rand_key 排序取第一个
-              filtered.sort((a: any, b: any) => a.rand_key - b.rand_key);
-              allMatches = [filtered[0], ...normalizedCandidates.filter((p: any) => p.id !== filtered[0].id)];
-            } else {
-              // 兜底：从候选集中随机选一个
-              const randomIndex = Math.floor(Math.random() * normalizedCandidates.length);
-              allMatches = [normalizedCandidates[randomIndex], ...normalizedCandidates.filter((p: any, i: number) => i !== randomIndex)];
-            }
-
-            // 保留原有的精确匹配逻辑
-            if (allMatches && allMatches.length > 0) {
-            // 精确匹配逻辑
-            if (selectedTags.length === 1) {
-              let filtered = allMatches.filter((p: any) => p.tags.length === 1 && p.tags.includes(selectedTags[0]));
-              if (filtered.length === 0) {
-                filtered = allMatches.filter((p: any) => (p.tags.length === 2 || p.tags.length === 3) && p.tags.includes(selectedTags[0]));
-              }
-              poses = filtered.length > 0 ? filtered : allMatches;
-            } else if (selectedTags.length === 2 || selectedTags.length === 3) {
-              let filtered = allMatches.filter((p: any) =>
-                (p.tags.length === 2 || p.tags.length === 3) &&
-                selectedTags.every(tag => p.tags.includes(tag))
-              );
-              if (filtered.length === 0) {
-                filtered = allMatches.filter((p: any) =>
-                  (p.tags.length === 1 || p.tags.length === 2) &&
-                  selectedTags.some(tag => p.tags.includes(tag))
-                );
-              }
-              poses = filtered.length > 0 ? filtered : allMatches;
-            } else {
-              poses = allMatches;
-            }
-
-            // 兜底策略：如果精确匹配结果太少（< 5 条），放宽到所有匹配
-            if (poses.length < 5 && poses.length < allMatches.length) {
-              poses = allMatches;
-            }
-            }
-          } else {
-            // 兜底策略：如果 100 条都没有匹配，再查询更多（最多 200 条）
-            const { data: moreMatches } = await supabase
-              .from('poses')
-              .select('id, image_url, tags, view_count, rand_key')
-              .overlaps('tags', selectedTags)
-              .limit(200);
-
-            const normalizedMoreMatches = normalizePoses(moreMatches || []);
-            if (normalizedMoreMatches.length > 0) {
-              const randomIndex = Math.floor(Math.random() * normalizedMoreMatches.length);
-              poses = [normalizedMoreMatches[randomIndex]];
-            }
+          if (fuzzyError) {
+            throw fuzzyError;
           }
+
+          poses = normalizePoses(fuzzyMatches || []);
+        }
 
         // 只缓存有标签的查询结果
         if (selectedTags.length > 0) {

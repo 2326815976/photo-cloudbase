@@ -71,6 +71,12 @@ export default function PosesPage() {
   const loadPoses = async () => {
     setPosesLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setPosesLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     let query = supabase
       .from('poses')
@@ -105,6 +111,12 @@ export default function PosesPage() {
 
     setUploading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setUploading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       // 批量上传模式
@@ -192,6 +204,12 @@ export default function PosesPage() {
 
     setUploading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setUploading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -228,9 +246,17 @@ export default function PosesPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setDeletingPose(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       // 删除COS中的文件
+      let cosDeleteSuccess = true;
       if (deletingPose.storage_path) {
         try {
           const response = await fetch('/api/delete', {
@@ -246,7 +272,12 @@ export default function PosesPage() {
           }
         } catch (error) {
           console.error('删除COS文件失败:', error);
+          cosDeleteSuccess = false;
         }
+      }
+
+      if (!cosDeleteSuccess) {
+        throw new Error('删除COS文件失败，已中止数据库删除');
       }
 
       // 删除数据库记录
@@ -286,6 +317,12 @@ export default function PosesPage() {
     setActionLoading(true);
 
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       // 获取要删除的摆姿的storage_path
@@ -293,6 +330,7 @@ export default function PosesPage() {
       const storagePaths = posesToDelete.map(p => p.storage_path).filter(Boolean);
 
       // 批量删除COS中的文件
+      let cosDeleteSuccess = true;
       if (storagePaths.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -308,7 +346,12 @@ export default function PosesPage() {
           }
         } catch (error) {
           console.error('批量删除COS文件失败:', error);
+          cosDeleteSuccess = false;
         }
+      }
+
+      if (!cosDeleteSuccess) {
+        throw new Error('批量删除COS文件失败，已中止数据库删除');
       }
 
       // 批量删除数据库记录
@@ -411,6 +454,12 @@ export default function PosesPage() {
   const loadTags = async () => {
     setTagsLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setTagsLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     const { data, error } = await supabase
       .from('pose_tags')
@@ -432,6 +481,12 @@ export default function PosesPage() {
 
     setAddingTag(true);
     const supabase = createClient();
+    if (!supabase) {
+      setAddingTag(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       // 解析标签：支持中文逗号、英文逗号分隔
@@ -495,6 +550,12 @@ export default function PosesPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -522,6 +583,13 @@ export default function PosesPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setDeletingTag(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -560,6 +628,12 @@ export default function PosesPage() {
     setActionLoading(true);
 
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       const { error } = await supabase

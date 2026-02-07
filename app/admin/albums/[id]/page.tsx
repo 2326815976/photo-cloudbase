@@ -80,6 +80,12 @@ export default function AlbumDetailPage() {
   const loadAlbumData = async () => {
     setLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     const [albumRes, foldersRes, photosRes] = await Promise.all([
       supabase.from('albums').select('*').eq('id', albumId).single(),
@@ -99,6 +105,9 @@ export default function AlbumDetailPage() {
 
   const loadPhotoUrls = async (photosToLoad: Photo[]) => {
     const supabase = createClient();
+    if (!supabase) {
+      return;
+    }
 
     // 过滤掉所有URL字段都为空的照片，优先使用新字段
     const validPhotos = photosToLoad.filter((photo): photo is Photo & { thumbnail_url: string } => {
@@ -140,6 +149,12 @@ export default function AlbumDetailPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase.from('album_folders').insert({
       album_id: albumId,
       name: newFolderName,
@@ -171,6 +186,13 @@ export default function AlbumDetailPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setDeletingFolder(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase.from('album_folders').delete().eq('id', deletingFolder.id);
 
     setActionLoading(false);
@@ -214,6 +236,12 @@ export default function AlbumDetailPage() {
 
     setUploading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setUploading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     let successCount = 0;
     let failCount = 0;
 
@@ -313,6 +341,13 @@ export default function AlbumDetailPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setDeletingPhoto(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       // 从URL中提取COS存储路径
@@ -326,6 +361,7 @@ export default function AlbumDetailPage() {
       ].filter(Boolean) as string[];
 
       // 删除COS中的所有版本文件
+      let cosDeleteSuccess = true;
       if (filesToDelete.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -338,10 +374,16 @@ export default function AlbumDetailPage() {
 
           if (!response.ok) {
             console.error('删除COS文件失败');
+            cosDeleteSuccess = false;
           }
         } catch (error) {
           console.error('删除COS文件时出错:', error);
+          cosDeleteSuccess = false;
         }
+      }
+
+      if (!cosDeleteSuccess) {
+        throw new Error('删除COS文件失败，已中止数据库删除');
       }
 
       // 删除数据库记录
@@ -396,6 +438,12 @@ export default function AlbumDetailPage() {
     setActionLoading(true);
 
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       // 1. 获取要删除的照片信息
@@ -415,6 +463,7 @@ export default function AlbumDetailPage() {
       }
 
       // 3. 删除COS中的文件
+      let cosDeleteSuccess = true;
       if (filesToDelete.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -430,7 +479,12 @@ export default function AlbumDetailPage() {
           }
         } catch (error) {
           console.error('删除COS文件失败:', error);
+          cosDeleteSuccess = false;
         }
+      }
+
+      if (!cosDeleteSuccess) {
+        throw new Error('删除COS文件失败，已中止数据库删除');
       }
 
       // 4. 删除数据库记录

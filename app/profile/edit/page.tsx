@@ -25,9 +25,16 @@ export default function EditProfilePage() {
   const loadProfile = async () => {
     setIsLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setError('服务初始化失败，请刷新后重试');
+      setIsLoading(false);
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
+      setIsLoading(false);
       router.push('/login');
       return;
     }
@@ -55,6 +62,12 @@ export default function EditProfilePage() {
     setIsSaving(true);
 
     const supabase = createClient();
+    if (!supabase) {
+      setError('服务初始化失败，请刷新后重试');
+      setIsSaving(false);
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {

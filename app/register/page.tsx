@@ -87,6 +87,10 @@ export default function RegisterPage() {
 
       // 注册成功，自动登录
       const supabase = createClient();
+      if (!supabase) {
+        setError('服务初始化失败，请刷新页面后重试');
+        return;
+      }
       const email = `${phone}@slogan.app`;
 
       const { error: signInError } = await supabase.auth.signInWithPassword({

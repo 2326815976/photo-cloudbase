@@ -13,6 +13,9 @@ import { CACHE_TIME } from './config';
 export function useGallery(page: number = 1, pageSize: number = 20) {
   const fetcher = async () => {
     const supabase = createClient();
+    if (!supabase) {
+      throw new Error('Supabase client unavailable');
+    }
     const { data, error } = await supabase.rpc('get_public_gallery', {
       page_no: page,
       page_size: pageSize
@@ -39,6 +42,9 @@ export function useGallery(page: number = 1, pageSize: number = 20) {
 export function useAlbums() {
   const fetcher = async () => {
     const supabase = createClient();
+    if (!supabase) {
+      throw new Error('Supabase client unavailable');
+    }
     const { data, error } = await supabase
       .from('albums')
       .select('id, access_key, title, cover_url, recipient_name, expires_at, created_at')
@@ -66,6 +72,9 @@ export function useAlbumContent(albumId: string | null) {
     if (!albumId) return null;
 
     const supabase = createClient();
+    if (!supabase) {
+      throw new Error('Supabase client unavailable');
+    }
     const { data, error } = await supabase.rpc('get_album_content', {
       input_key: albumId
     });
@@ -90,6 +99,9 @@ export function useAlbumContent(albumId: string | null) {
 export function usePoses(tags: string[] = []) {
   const fetcher = async () => {
     const supabase = createClient();
+    if (!supabase) {
+      throw new Error('Supabase client unavailable');
+    }
     let query = supabase
       .from('poses')
       .select('*')
@@ -121,6 +133,9 @@ export function usePoses(tags: string[] = []) {
 export function useTags() {
   const fetcher = async () => {
     const supabase = createClient();
+    if (!supabase) {
+      throw new Error('Supabase client unavailable');
+    }
     const { data, error } = await supabase
       .from('pose_tags')
       .select('*')

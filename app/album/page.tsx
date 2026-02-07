@@ -46,6 +46,11 @@ export default function AlbumLoginPage() {
   const loadUserData = async () => {
     setPageLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setPageLoading(false);
+      setError('服务初始化失败，请刷新页面后重试');
+      return;
+    }
     const { data: { user } } = await supabase.auth.getUser();
 
     setIsLoggedIn(!!user);
@@ -76,6 +81,11 @@ export default function AlbumLoginPage() {
     setIsLoading(true);
 
     const supabase = createClient();
+    if (!supabase) {
+      setError('服务初始化失败，请刷新页面后重试');
+      setIsLoading(false);
+      return;
+    }
 
     // 使用 get_album_content RPC 验证密钥（可以绕过 RLS）
     const { data, error: checkError } = await supabase.rpc('get_album_content', {

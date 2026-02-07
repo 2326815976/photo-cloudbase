@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
  */
 export async function prefetchGallery(page: number = 1, pageSize: number = 20) {
   const supabase = createClient();
+  if (!supabase) return;
   const { data } = await supabase.rpc('get_public_gallery', {
     page_no: page,
     page_size: pageSize
@@ -26,6 +27,7 @@ export async function prefetchGallery(page: number = 1, pageSize: number = 20) {
  */
 export async function prefetchAlbums() {
   const supabase = createClient();
+  if (!supabase) return;
   const { data } = await supabase
     .from('albums')
     .select('*')
@@ -42,6 +44,7 @@ export async function prefetchAlbums() {
  */
 export async function prefetchPoses(limit: number = 10) {
   const supabase = createClient();
+  if (!supabase) return;
   const { data } = await supabase
     .from('poses')
     .select('*')
@@ -58,6 +61,7 @@ export async function prefetchPoses(limit: number = 10) {
  */
 export async function prefetchTags() {
   const supabase = createClient();
+  if (!supabase) return;
   const { data } = await supabase
     .from('pose_tags')
     .select('*')

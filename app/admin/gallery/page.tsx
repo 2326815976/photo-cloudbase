@@ -48,6 +48,12 @@ export default function AdminGalleryPage() {
   const loadPhotos = async () => {
     setLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     const { data, error } = await supabase
       .from('album_photos')
@@ -74,6 +80,13 @@ export default function AdminGalleryPage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setDeletingPhoto(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     // 从URL中提取COS存储路径
     const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
@@ -87,6 +100,7 @@ export default function AdminGalleryPage() {
     ].filter(Boolean) as string[];
 
     // 删除COS中的所有版本文件
+    let cosDeleteSuccess = true;
     if (filesToDelete.length > 0) {
       try {
         const response = await fetch('/api/batch-delete', {
@@ -102,7 +116,15 @@ export default function AdminGalleryPage() {
         }
       } catch (error) {
         console.error('删除COS文件失败:', error);
+        cosDeleteSuccess = false;
       }
+    }
+
+    if (!cosDeleteSuccess) {
+      setActionLoading(false);
+      setShowToast({ message: '删除失败：COS文件删除异常，已中止数据库删除', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
     }
 
     // 删除数据库记录
@@ -112,13 +134,14 @@ export default function AdminGalleryPage() {
       .eq('id', deletingPhoto.id);
 
     setActionLoading(false);
-    setDeletingPhoto(null);
 
     if (!dbError) {
+      setDeletingPhoto(null);
       loadPhotos();
       setShowToast({ message: '照片已删除', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } else {
+      setDeletingPhoto(null);
       setShowToast({ message: `删除失败：${dbError.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
@@ -137,6 +160,12 @@ export default function AdminGalleryPage() {
     setShowBatchDeleteConfirm(false);
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     try {
       const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
@@ -153,6 +182,7 @@ export default function AdminGalleryPage() {
       ]).filter(Boolean) as string[];
 
       // 批量删除COS文件
+      let cosDeleteSuccess = true;
       if (filePaths.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -168,7 +198,12 @@ export default function AdminGalleryPage() {
           }
         } catch (error) {
           console.error('批量删除COS文件失败:', error);
+          cosDeleteSuccess = false;
         }
+      }
+
+      if (!cosDeleteSuccess) {
+        throw new Error('批量删除COS文件失败，已中止数据库删除');
       }
 
       // 批量删除数据库记录
@@ -231,6 +266,13 @@ export default function AdminGalleryPage() {
 
     setUploading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setUploading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     let successCount = 0;
     let failCount = 0;
 

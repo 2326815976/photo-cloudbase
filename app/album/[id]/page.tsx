@@ -105,6 +105,11 @@ export default function AlbumDetailPage() {
   const loadAlbumData = async () => {
     setLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
+      return;
+    }
 
     // 调用RPC获取相册内容（已包含三个URL字段）
     const { data, error } = await supabase.rpc('get_album_content', {
@@ -175,6 +180,11 @@ export default function AlbumDetailPage() {
     if (!photo) return;
 
     const supabase = createClient();
+    if (!supabase) {
+      setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
 
     // 使用RPC函数确保安全性
     const { error } = await supabase.rpc('pin_photo_to_wall', {
@@ -268,6 +278,12 @@ export default function AlbumDetailPage() {
 
   const confirmBatchDelete = async () => {
     const supabase = createClient();
+    if (!supabase) {
+      setShowDeleteConfirm(false);
+      setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
     let successCount = 0;
     let failCount = 0;
 
@@ -276,6 +292,7 @@ export default function AlbumDetailPage() {
       if (!photo) continue;
 
       // 删除COS中的所有版本文件（基于 accessKey + photoId 服务端校验）
+      let cosDeleteSuccess = true;
       try {
         const response = await fetch('/api/batch-delete', {
           method: 'DELETE',
@@ -290,6 +307,12 @@ export default function AlbumDetailPage() {
         }
       } catch (error) {
         console.error('删除COS文件失败:', error);
+        cosDeleteSuccess = false;
+      }
+
+      if (!cosDeleteSuccess) {
+        failCount++;
+        continue;
       }
 
       // 删除数据库记录

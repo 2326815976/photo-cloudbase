@@ -41,6 +41,9 @@ export default function NewReleasePage() {
     try {
       // 上传文件到Supabase Storage（APK专用桶）
       const supabase = createClient();
+      if (!supabase) {
+        throw new Error('服务初始化失败，请刷新后重试');
+      }
       const filename = `${Date.now()}_${file.name}`;
       const filePath = `releases/${filename}`;
       const contentType = platform === 'Android'

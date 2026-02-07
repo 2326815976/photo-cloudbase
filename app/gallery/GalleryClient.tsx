@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, X, Eye } from 'lucide-react';
+import { Heart, X, Eye, Camera } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
@@ -120,6 +120,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     vibrate(50);
 
     const supabase = createClient();
+    if (!supabase) {
+      return;
+    }
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -165,6 +168,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     // 增加浏览量（带会话去重）
     const supabase = createClient();
+    if (!supabase) {
+      return;
+    }
     const sessionId = getSessionId();
 
     const { data } = await supabase.rpc('increment_photo_view', {
@@ -179,6 +185,50 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       ));
     }
   };
+
+  const showPageLoading = isLoading && allPhotos.length === 0;
+
+  if (showPageLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col items-center gap-6"
+        >
+          <div className="relative">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+            />
+            <motion.div
+              animate={{ rotate: -360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Camera className="w-8 h-8 text-[#FFC857]" />
+            </div>
+          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-center"
+          >
+            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+              加载中...
+            </p>
+            <p className="text-sm text-[#5D4037]/60">
+              正在加载照片墙
+            </p>
+          </motion.div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -198,18 +248,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
       {/* 滚动区域 */}
       <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20 gallery-scroll-container">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="relative mb-6">
-              {/* 外圈旋转 */}
-              <div className="w-16 h-16 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857] animate-spin"></div>
-              {/* 内圈反向旋转 */}
-              <div className="absolute inset-2 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037] animate-spin-reverse"></div>
-            </div>
-            <p className="text-base font-medium text-[#5D4037] mb-1" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>拾光中...</p>
-            <p className="text-sm text-[#5D4037]/60">正在加载照片墙</p>
-          </div>
-        ) : photos.length === 0 ? (
+        {photos.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-[#5D4037]/60">暂无照片</p>
           </div>

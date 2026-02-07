@@ -48,6 +48,12 @@ export default function AlbumsPage() {
   const loadAlbums = async () => {
     setLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     const { data, error } = await supabase
       .from('albums')
@@ -72,6 +78,12 @@ export default function AlbumsPage() {
     if (!deletingAlbum) return;
 
     const supabase = createClient();
+    if (!supabase) {
+      setDeletingAlbum(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('albums')
       .delete()
@@ -100,6 +112,11 @@ export default function AlbumsPage() {
     }
 
     const supabase = createClient();
+    if (!supabase) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     // 检查新密钥是否已被其他空间使用
     const { data: existing } = await supabase
@@ -136,6 +153,11 @@ export default function AlbumsPage() {
     if (!editingExpiry) return;
 
     const supabase = createClient();
+    if (!supabase) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + newExpiryDays);
 
@@ -160,6 +182,11 @@ export default function AlbumsPage() {
     if (!editingRecipient) return;
 
     const supabase = createClient();
+    if (!supabase) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('albums')
       .update({
@@ -185,6 +212,11 @@ export default function AlbumsPage() {
     if (!editingTitle || !newTitle.trim()) return;
 
     const supabase = createClient();
+    if (!supabase) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('albums')
       .update({ title: newTitle.trim() })
@@ -204,6 +236,11 @@ export default function AlbumsPage() {
 
   const handleToggleWelcomeLetter = async (album: Album) => {
     const supabase = createClient();
+    if (!supabase) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('albums')
       .update({ enable_welcome_letter: !(album.enable_welcome_letter ?? true) })
@@ -224,6 +261,11 @@ export default function AlbumsPage() {
 
   const handleToggleDonation = async (album: Album) => {
     const supabase = createClient();
+    if (!supabase) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('albums')
       .update({ enable_tipping: !album.enable_tipping })
@@ -282,6 +324,12 @@ export default function AlbumsPage() {
       const cdnUrl = await uploadToCosDirect(compressedFile, fileName, 'albums');
 
       const supabase = createClient();
+      if (!supabase) {
+        setUploadingQrCode(false);
+        setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
       const { error: updateError } = await supabase
         .from('albums')
         .update({ donation_qr_code_url: cdnUrl })
@@ -344,6 +392,13 @@ export default function AlbumsPage() {
       const cdnUrl = await uploadToCosDirect(compressedFile, fileName, 'albums');
 
       const supabase = createClient();
+      if (!supabase) {
+        setUploadingCover(false);
+        setEditingCover(null);
+        setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
       const { error: updateError } = await supabase
         .from('albums')
         .update({ cover_url: cdnUrl })

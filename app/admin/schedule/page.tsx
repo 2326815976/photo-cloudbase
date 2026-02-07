@@ -33,6 +33,12 @@ export default function SchedulePage() {
   const loadBlackouts = async () => {
     setLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     const { data, error } = await supabase
       .from('booking_blackouts')
@@ -54,6 +60,12 @@ export default function SchedulePage() {
 
     setSubmitting(true);
     const supabase = createClient();
+    if (!supabase) {
+      setSubmitting(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     const dates: string[] = [];
     const start = parseDateUTC8(formData.startDate);
@@ -106,6 +118,13 @@ export default function SchedulePage() {
 
     setActionLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setDeletingBlackout(null);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('booking_blackouts')
       .delete()
@@ -139,6 +158,12 @@ export default function SchedulePage() {
     setActionLoading(true);
 
     const supabase = createClient();
+    if (!supabase) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { error } = await supabase
       .from('booking_blackouts')
       .delete()

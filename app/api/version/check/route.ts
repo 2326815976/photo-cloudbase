@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
       .from('app_releases')
       .select('*')
       .eq('platform', platform)
+      .order('version', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(1)
       .single();

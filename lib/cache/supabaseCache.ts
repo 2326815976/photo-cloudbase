@@ -21,6 +21,9 @@ export async function getCachedAlbumContent(accessKey: string) {
 
   // 缓存未命中，从Supabase获取
   const supabase = createClient();
+  if (!supabase) {
+    return { data: null, error: { message: 'Supabase client unavailable' } };
+  }
   const { data, error } = await supabase.rpc('get_album_content', {
     input_key: accessKey
   });
@@ -46,6 +49,9 @@ export async function getCachedPublicGallery() {
   }
 
   const supabase = createClient();
+  if (!supabase) {
+    return { data: null, error: { message: 'Supabase client unavailable' } };
+  }
   const { data, error } = await supabase.rpc('get_public_gallery');
 
   if (!error && data) {

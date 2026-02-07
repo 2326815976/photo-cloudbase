@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { headers } from 'next/headers';
 import AdminSidebar from './components/AdminSidebar';
 
 export default async function AdminLayout({
@@ -12,10 +11,7 @@ export default async function AdminLayout({
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    // 获取当前路径并传递给登录页面
-    const headersList = await headers();
-    const pathname = headersList.get('x-pathname') || '/admin';
-    redirect(`/login?from=${encodeURIComponent(pathname)}`);
+    redirect('/login?from=%2Fadmin');
   }
 
   // 检查用户角色

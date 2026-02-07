@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { uploadToCOS } from '@/lib/storage/cos-client';
 import { createClient } from '@/lib/supabase/server';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_APK_TYPES = ['application/vnd.android.package-archive'];
 

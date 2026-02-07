@@ -68,6 +68,10 @@ export default function BookingsPage() {
   const loadBookings = async () => {
     setLoading(true);
     const supabase = createClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
     const { data: { user } } = await supabase.auth.getUser();
 
     if (user) {
@@ -100,8 +104,17 @@ export default function BookingsPage() {
   };
 
   const handleCancel = async (id: string) => {
+    const booking = bookings.find(b => b.id === id);
+    if (!booking || !canCancelBooking(booking)) {
+      return;
+    }
+
     setCancelingId(id);
     const supabase = createClient();
+    if (!supabase) {
+      setCancelingId(null);
+      return;
+    }
 
     const { error } = await supabase
       .from('bookings')
@@ -116,8 +129,19 @@ export default function BookingsPage() {
   };
 
   const handleDelete = async (id: string) => {
+    const booking = bookings.find(b => b.id === id);
+    if (!booking || !canDeleteBooking(booking)) {
+      setShowDeleteConfirm(null);
+      return;
+    }
+
     setDeletingId(id);
     const supabase = createClient();
+    if (!supabase) {
+      setDeletingId(null);
+      setShowDeleteConfirm(null);
+      return;
+    }
 
     const { error } = await supabase
       .from('bookings')
