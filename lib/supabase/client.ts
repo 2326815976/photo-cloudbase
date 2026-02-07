@@ -21,7 +21,13 @@ export function createClient(): ReturnType<typeof createBrowserClient> | null {
     return null;
   }
 
-  supabaseInstance = createBrowserClient(supabaseUrl, supabaseKey);
+  supabaseInstance = createBrowserClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: false,  // 禁用会话持久化，避免认证错误
+      autoRefreshToken: false, // 禁用自动刷新令牌
+      detectSessionInUrl: false // 禁用 URL 中的会话检测
+    }
+  });
 
   return supabaseInstance;
 }
