@@ -201,7 +201,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               .gte('rand_key', Math.random())
               .order('rand_key')
               .limit(PRELOAD_POOL_SIZE)
-              .then(({ data }) => {
+              .then(({ data }: { data: Pose[] | null }) => {
                 if (data && data.length > 0) {
                   setPreloadedPoses(prev => {
                     // 合并并去重
@@ -211,7 +211,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   });
                 }
               })
-              .catch(err => console.error('后台补充失败:', err))
+              .catch((err: any) => console.error('后台补充失败:', err))
               .finally(() => {
                 isPreloadingRef.current = false;
               });
