@@ -179,7 +179,7 @@ export default function AlbumLoginPage() {
               时光中...
             </p>
             <p className="text-sm text-[#5D4037]/60">
-              正在加载您的专属空间
+              正在加载返图空间
             </p>
           </motion.div>
         </motion.div>

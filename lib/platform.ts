@@ -41,8 +41,8 @@ export function isAndroidApp(): boolean {
   // 备用方案：检测 Bridge 对象（用于确认）
   const hasBridge = !!(window.AndroidPhotoDownload || window.AndroidClipboard || window.AndroidPhotoViewer);
 
-  // 调试日志（增强版）
-  if (typeof console !== 'undefined') {
+  // 调试日志（仅开发环境）
+  if (process.env.NODE_ENV !== 'production' && typeof console !== 'undefined') {
     console.log('[Platform Detection] ==================');
     console.log('[Platform] UserAgent:', userAgent);
     console.log('[Platform] isAndroidWebView:', isAndroidWebView);

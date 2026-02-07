@@ -55,21 +55,30 @@ export default function BookingPage() {
 
   const checkLoginStatus = async () => {
     const supabase = createClient();
-    if (!supabase) return;
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       setShowLoginPrompt(true);
+      setLoading(false);
+      return;
     }
+
+    await Promise.all([
+      loadUserProfile(user.id),
+      checkActiveBooking(user.id),
+    ]);
   };
 
   useEffect(() => {
     // 检查登录状态
-    checkLoginStatus();
+    void checkLoginStatus();
     loadBookingTypes();
     loadAllowedCities();
-    checkActiveBooking();
-    loadUserProfile();
     loadBlockedDates();
 
     // 设置高德地图安全密钥
@@ -80,21 +89,14 @@ export default function BookingPage() {
     // 加载高德地图脚本（避免重复注入）
     const scriptId = 'amap-sdk-script';
     const existing = document.getElementById(scriptId);
-    let script: HTMLScriptElement | null = null;
 
     if (!existing) {
-      script = document.createElement('script');
+      const script = document.createElement('script');
       script.id = scriptId;
       script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
       script.async = true;
       document.head.appendChild(script);
     }
-
-    return () => {
-      if (script && document.head.contains(script)) {
-        document.head.removeChild(script);
-      }
-    };
   }, []);
 
   const loadBookingTypes = async () => {
@@ -128,25 +130,22 @@ export default function BookingPage() {
     }
   };
 
-  const loadUserProfile = async () => {
+  const loadUserProfile = async (userId: string) => {
     const supabase = createClient();
     if (!supabase) return;
-    const { data: { user } } = await supabase.auth.getUser();
 
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('phone, wechat')
-        .eq('id', user.id)
-        .single();
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('phone, wechat')
+      .eq('id', userId)
+      .single();
 
-      if (profile) {
-        setFormData(prev => ({
-          ...prev,
-          phone: profile.phone || '',
-          wechat: profile.wechat || '',
-        }));
-      }
+    if (profile) {
+      setFormData(prev => ({
+        ...prev,
+        phone: profile.phone || '',
+        wechat: profile.wechat || '',
+      }));
     }
   };
 
@@ -161,38 +160,38 @@ export default function BookingPage() {
     }
   };
 
-  const checkActiveBooking = async () => {
+  const checkActiveBooking = async (userId: string) => {
     setLoading(true);
     const supabase = createClient();
     if (!supabase) {
       setLoading(false);
       return;
     }
-    const { data: { user } } = await supabase.auth.getUser();
 
-    if (user) {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(`
-          *,
-          booking_types(name)
-        `)
-        .eq('user_id', user.id)
-        .in('status', ['pending', 'confirmed', 'in_progress'])
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        booking_types(name)
+      `)
+      .eq('user_id', userId)
+      .in('status', ['pending', 'confirmed', 'in_progress'])
+      .maybeSingle();
 
-      if (!error && data) {
-        setActiveBooking({
-          id: data.id,
-          date: data.booking_date,
-          type: data.booking_types?.name || '',
-          location: data.location,
-          phone: data.phone,
-          wechat: data.wechat,
-          status: data.status,
-        });
-      }
+    if (!error && data) {
+      setActiveBooking({
+        id: data.id,
+        date: data.booking_date,
+        type: data.booking_types?.name || '',
+        location: data.location,
+        phone: data.phone,
+        wechat: data.wechat,
+        status: data.status,
+      });
+    } else {
+      setActiveBooking(null);
     }
+
     setLoading(false);
   };
 
@@ -344,7 +343,7 @@ export default function BookingPage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        checkActiveBooking();
+        checkActiveBooking(user.id);
       }, 3000);
     }
   };

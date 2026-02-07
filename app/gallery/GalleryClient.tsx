@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, X, Eye, Camera } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -39,15 +39,24 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [lastTouchDistance, setLastTouchDistance] = useState(0);
-  const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
+  const [clickTimer, setClickTimer] = useState<number | null>(null);
   const [page, setPage] = useState(initialPage);
   const [allPhotos, setAllPhotos] = useState<Photo[]>(initialPhotos);
   const [hasMore, setHasMore] = useState(initialTotal > initialPhotos.length);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const isLoadingMoreRef = useRef(false);
+  const preloadedPreviewUrlsRef = useRef<Set<string>>(new Set());
   const pageSize = 20;
+  const isInitialPage = page === initialPage;
 
   // 使用 SWR 获取照片数据,自动缓存和重新验证
-  const { data, error, isLoading, mutate: refreshGallery } = useGallery(page, pageSize);
+  const { data, error, isLoading, mutate: refreshGallery } = useGallery(
+    page,
+    pageSize,
+    isInitialPage && initialPhotos.length > 0
+      ? { photos: initialPhotos, total: initialTotal }
+      : undefined
+  );
 
   // 从 SWR 数据中提取照片和总数
   const photos = allPhotos;
@@ -75,11 +84,20 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setIsLoadingMore(false);
   }, [data, page, pageSize]);
 
+  useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
+
   // 预加载图片
   useEffect(() => {
     if (allPhotos.length > 0) {
       const lastIndex = Math.min(allPhotos.length, 20);
       allPhotos.slice(0, lastIndex).forEach((photo: Photo) => {
+        if (preloadedPreviewUrlsRef.current.has(photo.preview_url)) {
+          return;
+        }
+
+        preloadedPreviewUrlsRef.current.add(photo.preview_url);
         const img = new Image();
         img.src = photo.preview_url;
       });
@@ -88,28 +106,28 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   // 无限滚动监听
   useEffect(() => {
-    const handleScroll = () => {
-      if (isLoadingMore || !hasMore) return;
+    const scrollContainer = document.querySelector<HTMLElement>('.gallery-scroll-container');
+    if (!scrollContainer) {
+      return;
+    }
 
-      const scrollContainer = document.querySelector('.gallery-scroll-container');
-      if (!scrollContainer) return;
+    const handleScroll = () => {
+      if (isLoadingMoreRef.current || !hasMore) return;
 
       const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
       const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
 
       // 当滚动到底部 80% 时加载更多
       if (scrollPercentage > 0.8) {
+        isLoadingMoreRef.current = true;
         setIsLoadingMore(true);
         setPage(prev => prev + 1);
       }
     };
 
-    const scrollContainer = document.querySelector('.gallery-scroll-container');
-    if (scrollContainer) {
-      scrollContainer.addEventListener('scroll', handleScroll);
-      return () => scrollContainer.removeEventListener('scroll', handleScroll);
-    }
-  }, [isLoadingMore, hasMore]);
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, [hasMore]);
 
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
@@ -436,7 +454,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 setClickTimer(null);
               } else {
                 // 单击，设置300ms延迟
-                const timer = setTimeout(() => {
+                const timer = window.setTimeout(() => {
                   setFullscreenPhoto(null);
                   setScale(1);
                   setPosition({ x: 0, y: 0 });

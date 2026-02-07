@@ -15,7 +15,6 @@ export async function getCachedAlbumContent(accessKey: string) {
   // 尝试从缓存获取
   const cached = getCachedData(cacheKey);
   if (cached) {
-    console.log('📦 使用缓存的相册数据');
     return cached;
   }
 
@@ -44,7 +43,6 @@ export async function getCachedPublicGallery() {
 
   const cached = getCachedData(cacheKey);
   if (cached) {
-    console.log('📦 使用缓存的画廊数据');
     return cached;
   }
 

@@ -10,7 +10,7 @@ import { CACHE_TIME } from './config';
 /**
  * 照片墙数据 Hook
  */
-export function useGallery(page: number = 1, pageSize: number = 20) {
+export function useGallery(page: number = 1, pageSize: number = 20, fallbackData?: any) {
   const fetcher = async () => {
     const supabase = createClient();
     if (!supabase) {
@@ -32,6 +32,8 @@ export function useGallery(page: number = 1, pageSize: number = 20) {
       dedupingInterval: CACHE_TIME.GALLERY,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
+      fallbackData,
+      revalidateOnMount: !fallbackData,
     }
   );
 }
