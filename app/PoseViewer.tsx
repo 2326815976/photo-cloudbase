@@ -131,6 +131,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     setIsAnimating(true);
 
     try {
+      // 性能测量：开始计时
+      const queryStartTime = performance.now();
 
       const currentCacheKey = selectedTagsKey;
       let poses: Pose[] = [];
@@ -139,17 +141,53 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         poses = cachedPoses;
       } else {
         if (selectedTags.length === 0) {
-          const { data } = await supabase.from('poses').select('id, image_url, tags, view_count').limit(50);
+          // 无标签随机：使用随机键索引法
+          const r = Math.random();
+          let { data } = await supabase
+            .from('poses')
+            .select('id, image_url, tags, view_count, rand_key')
+            .gte('rand_key', r)
+            .order('rand_key')
+            .limit(1);
+
+          // 兜底：如果没有结果，从头开始查
+          if (!data || data.length === 0) {
+            const { data: fallback } = await supabase
+              .from('poses')
+              .select('id, image_url, tags, view_count, rand_key')
+              .order('rand_key')
+              .limit(1);
+            data = fallback;
+          }
+
           if (data) poses = data;
         } else {
-          // 有标签：先查询 50 条
-          const { data: allMatches } = await supabase
+          // 有标签随机：两段式策略
+          // 第一段：先用标签过滤拿候选集（100 条）
+          const { data: candidates } = await supabase
             .from('poses')
-            .select('id, image_url, tags, view_count')
+            .select('id, image_url, tags, view_count, rand_key')
             .overlaps('tags', selectedTags)
-            .limit(50);
+            .limit(100);
 
-          if (allMatches && allMatches.length > 0) {
+          if (candidates && candidates.length > 0) {
+            // 第二段：在候选集中用随机键随机
+            const r = Math.random();
+            const filtered = candidates.filter((p: any) => p.rand_key >= r);
+
+            let allMatches = candidates;
+            if (filtered.length > 0) {
+              // 按 rand_key 排序取第一个
+              filtered.sort((a: any, b: any) => a.rand_key - b.rand_key);
+              allMatches = [filtered[0], ...candidates.filter((p: any) => p.id !== filtered[0].id)];
+            } else {
+              // 兜底：从候选集中随机选一个
+              const randomIndex = Math.floor(Math.random() * candidates.length);
+              allMatches = [candidates[randomIndex], ...candidates.filter((p: any, i: number) => i !== randomIndex)];
+            }
+
+            // 保留原有的精确匹配逻辑
+            if (allMatches && allMatches.length > 0) {
             // 精确匹配逻辑
             if (selectedTags.length === 1) {
               let filtered = allMatches.filter((p: any) => p.tags.length === 1 && p.tags.includes(selectedTags[0]));
@@ -178,17 +216,19 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               console.log('[兜底] 精确匹配结果不足，使用所有匹配结果');
               poses = allMatches;
             }
+            }
           } else {
-            // 兜底策略：如果 50 条都没有匹配，再查询更多（最多 200 条）
-            console.log('[兜底] 前 50 条无匹配，扩大查询范围');
+            // 兜底策略：如果 100 条都没有匹配，再查询更多（最多 200 条）
+            console.log('[兜底] 前 100 条无匹配，扩大查询范围');
             const { data: moreMatches } = await supabase
               .from('poses')
-              .select('id, image_url, tags, view_count')
+              .select('id, image_url, tags, view_count, rand_key')
               .overlaps('tags', selectedTags)
               .limit(200);
 
             if (moreMatches && moreMatches.length > 0) {
-              poses = moreMatches;
+              const randomIndex = Math.floor(Math.random() * moreMatches.length);
+              poses = [moreMatches[randomIndex]];
             }
           }
         }
@@ -213,6 +253,13 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           .eq('id', selectedPose.id)
           .then(() => {})
           .catch((err: any) => console.error('更新浏览次数失败:', err));
+
+        // 性能测量：输出查询耗时
+        const queryEndTime = performance.now();
+        const queryDuration = queryEndTime - queryStartTime;
+        console.log(`[性能测量] 随机查询耗时: ${queryDuration.toFixed(2)}ms`);
+        console.log(`[性能测量] 标签: ${selectedTags.length > 0 ? selectedTags.join(', ') : '无'}`);
+        console.log(`[性能测量] 结果数量: ${poses.length}`);
       }
     } catch (error) {
       console.error('抽取摆姿失败:', error);
