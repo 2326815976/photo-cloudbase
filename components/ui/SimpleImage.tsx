@@ -19,6 +19,7 @@ interface SimpleImageProps {
   className?: string;
   priority?: boolean;
   onClick?: () => void;
+  onLoad?: () => void;
 }
 
 export default function SimpleImage({
@@ -26,7 +27,8 @@ export default function SimpleImage({
   alt,
   className = '',
   priority = false,
-  onClick
+  onClick,
+  onLoad
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
@@ -45,6 +47,7 @@ export default function SimpleImage({
     if (img && img.complete && img.naturalHeight !== 0) {
       setIsLoading(false);
       setShowLoadingAnimation(false);
+      onLoad?.();
     } else {
       // 记录加载开始时间
       loadStartTimeRef.current = performance.now();
@@ -59,7 +62,7 @@ export default function SimpleImage({
         clearTimeout(delayTimerRef.current);
       }
     };
-  }, [src]);
+  }, [src, onLoad]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -239,6 +242,7 @@ export default function SimpleImage({
             }
             setIsLoading(false);
             setShowLoadingAnimation(false);
+            onLoad?.();
           }}
           onError={() => {
             // 清除延迟计时器
