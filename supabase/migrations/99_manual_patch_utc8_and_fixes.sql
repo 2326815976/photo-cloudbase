@@ -41,12 +41,42 @@ CREATE POLICY "Allow admin full access"
     )
   );
 
+-- 2.1 照片墙系统相册（用于管理员上传照片墙）
+DO $$
+DECLARE
+  v_album_id uuid := '00000000-0000-0000-0000-000000000000';
+  v_access_key text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.albums WHERE id = v_album_id) THEN
+    v_access_key := upper('WALL' || substr(md5(random()::text), 1, 4));
+    WHILE EXISTS (SELECT 1 FROM public.albums WHERE access_key = v_access_key) LOOP
+      v_access_key := upper('WALL' || substr(md5(random()::text), 1, 4));
+    END LOOP;
+
+    INSERT INTO public.albums (
+      id, access_key, title, enable_tipping, enable_welcome_letter, created_at
+    ) VALUES (
+      v_album_id, v_access_key, '照片墙系统', false, false, now()
+    );
+  END IF;
+END $$;
+
 -- 3. 预约：同一用户仅允许一个活跃预约
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_unique_active_user
 ON public.bookings(user_id)
 WHERE status IN ('pending', 'confirmed', 'in_progress');
 
 COMMENT ON INDEX idx_bookings_unique_active_user IS '确保同一用户只能有一个活跃预约（pending/confirmed/in_progress）';
+
+-- 3.1 预约：用户可删除已取消或已完成的预约
+DROP POLICY IF EXISTS "Users can delete finished or cancelled bookings" ON public.bookings;
+CREATE POLICY "Users can delete finished or cancelled bookings"
+  ON public.bookings FOR DELETE
+  TO authenticated
+  USING (
+    auth.uid() = user_id
+    AND status IN ('finished', 'cancelled')
+  );
 
 -- 4. 维护：过期预约自动完成（包含 in_progress）
 CREATE OR REPLACE FUNCTION public.auto_complete_expired_bookings()

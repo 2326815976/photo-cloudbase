@@ -13,6 +13,7 @@ interface Photo {
   url?: string;
   thumbnail_url?: string;
   preview_url?: string;
+  original_url?: string;
   width: number;
   height: number;
   is_public: boolean;
@@ -20,6 +21,8 @@ interface Photo {
   view_count: number;
   created_at: string;
 }
+
+const PHOTO_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 
 export default function AdminGalleryPage() {
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -79,6 +82,7 @@ export default function AdminGalleryPage() {
     const filesToDelete = [
       deletingPhoto.thumbnail_url ? extractKeyFromURL(deletingPhoto.thumbnail_url) : null,
       deletingPhoto.preview_url ? extractKeyFromURL(deletingPhoto.preview_url) : null,
+      deletingPhoto.original_url ? extractKeyFromURL(deletingPhoto.original_url) : null,
       deletingPhoto.url ? extractKeyFromURL(deletingPhoto.url) : null
     ].filter(Boolean) as string[];
 
@@ -144,6 +148,7 @@ export default function AdminGalleryPage() {
       const filePaths = photosToDelete.flatMap(p => [
         p.thumbnail_url ? extractKeyFromURL(p.thumbnail_url) : null,
         p.preview_url ? extractKeyFromURL(p.preview_url) : null,
+        p.original_url ? extractKeyFromURL(p.original_url) : null,
         p.url ? extractKeyFromURL(p.url) : null
       ]).filter(Boolean) as string[];
 
@@ -271,7 +276,7 @@ export default function AdminGalleryPage() {
         // 4. 插入数据库
         if (thumbnail_url && preview_url && original_url) {
           const { error: insertError } = await supabase.from('album_photos').insert({
-            album_id: null,
+            album_id: PHOTO_WALL_ALBUM_ID,
             thumbnail_url,
             preview_url,
             original_url,

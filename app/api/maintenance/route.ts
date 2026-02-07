@@ -6,15 +6,30 @@ export async function POST(request: NextRequest) {
     // 验证请求来源（可选：添加密钥验证）
     const authHeader = request.headers.get('authorization');
     const expectedToken = process.env.MAINTENANCE_TOKEN;
+    const supabase = await createClient();
 
     if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
-      return NextResponse.json(
-        { error: '未授权访问' },
-        { status: 401 }
-      );
-    }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return NextResponse.json(
+          { error: '未授权访问' },
+          { status: 401 }
+        );
+      }
 
-    const supabase = await createClient();
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.role !== 'admin') {
+        return NextResponse.json(
+          { error: '未授权访问' },
+          { status: 401 }
+        );
+      }
+    }
 
     // 调用维护函数
     const { data, error } = await supabase.rpc('run_maintenance_tasks');

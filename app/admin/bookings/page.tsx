@@ -42,6 +42,8 @@ interface AllowedCity {
   city_name: string;
   province: string;
   city_code: string;
+  latitude?: number | null;
+  longitude?: number | null;
   is_active: boolean;
   created_at: string;
 }
@@ -471,7 +473,10 @@ export default function BookingsPage() {
   const handleEditCity = (city: AllowedCity) => {
     setEditingCity(city);
     setCityFormData({ city_name: city.city_name, province: city.province || '', city_code: city.city_code || '' });
-    setCityLocation({ latitude: 0, longitude: 0 });
+    setCityLocation({
+      latitude: city.latitude ?? 0,
+      longitude: city.longitude ?? 0,
+    });
     setShowCityModal(true);
   };
 
@@ -510,11 +515,20 @@ export default function BookingsPage() {
 
     setSubmitting(true);
     const supabase = createClient();
+    const locationPayload = {
+      latitude: cityLocation.latitude || null,
+      longitude: cityLocation.longitude || null,
+    };
 
     if (editingCity) {
       const { error } = await supabase
         .from('allowed_cities')
-        .update({ city_name: cityFormData.city_name, province: cityFormData.province, city_code: cityFormData.city_code })
+        .update({
+          city_name: cityFormData.city_name,
+          province: cityFormData.province,
+          city_code: cityFormData.city_code,
+          ...locationPayload,
+        })
         .eq('id', editingCity.id);
 
       if (!error) {
@@ -529,7 +543,12 @@ export default function BookingsPage() {
     } else {
       const { error } = await supabase
         .from('allowed_cities')
-        .insert({ city_name: cityFormData.city_name, province: cityFormData.province, city_code: cityFormData.city_code });
+        .insert({
+          city_name: cityFormData.city_name,
+          province: cityFormData.province,
+          city_code: cityFormData.city_code,
+          ...locationPayload,
+        });
 
       if (!error) {
         setShowCityModal(false);
