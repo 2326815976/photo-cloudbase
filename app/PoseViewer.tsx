@@ -61,7 +61,13 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
   const lastShakeTimeRef = useRef(0);
 
-  const HISTORY_SIZE = 5;
+  // 预加载缓存池（用于无标签查询的即时响应）
+  const [preloadedPoses, setPreloadedPoses] = useState<Pose[]>([]);
+  const isPreloadingRef = useRef(false);
+
+  const HISTORY_SIZE = 20;
+  const PRELOAD_POOL_SIZE = 100; // 预加载池大小
+  const PRELOAD_THRESHOLD = 30;  // 当缓存池少于30条时触发补充
   const SHAKE_THRESHOLD = 15;
   const SHAKE_COOLDOWN = 2000; // 2秒冷却时间
 
@@ -109,6 +115,44 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     setRecentPoseIds([]);
   }, [selectedTagsKey]);
 
+  // 预加载摆姿池（仅用于无标签查询）
+  useEffect(() => {
+    const preloadPoses = async () => {
+      if (isPreloadingRef.current || selectedTags.length > 0) return;
+
+      isPreloadingRef.current = true;
+      const supabase = createClient();
+
+      try {
+        // 随机查询100条记录
+        const r = Math.random();
+        const { data } = await supabase
+          .from('poses')
+          .select('id, image_url, tags, view_count, rand_key')
+          .gte('rand_key', r)
+          .order('rand_key')
+          .limit(PRELOAD_POOL_SIZE);
+
+        if (data && data.length > 0) {
+          setPreloadedPoses(data);
+        }
+      } catch (error) {
+        console.error('预加载失败:', error);
+      } finally {
+        isPreloadingRef.current = false;
+      }
+    };
+
+    // 延迟预加载：首屏渲染完成后 2 秒再触发，避免影响首屏速度
+    if (preloadedPoses.length < PRELOAD_THRESHOLD && selectedTags.length === 0) {
+      const timer = setTimeout(() => {
+        preloadPoses();
+      }, 2000); // 延迟 2 秒
+
+      return () => clearTimeout(timer);
+    }
+  }, [preloadedPoses.length, selectedTags.length, PRELOAD_POOL_SIZE, PRELOAD_THRESHOLD]);
+
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
       if (prev.includes(tagName)) {
@@ -139,26 +183,63 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
       // 无标签查询不使用缓存（每次都重新随机）
       if (selectedTags.length === 0) {
-        // 无标签随机：使用随机键索引法，获取多条记录以支持去重
-        const r = Math.random();
-        let { data } = await supabase
-          .from('poses')
-          .select('id, image_url, tags, view_count, rand_key')
-          .gte('rand_key', r)
-          .order('rand_key')
-          .limit(20);
+        // 优先使用预加载池（即时响应）
+        if (preloadedPoses.length > 0) {
+          poses = preloadedPoses;
 
-        // 兜底：如果没有结果，从头开始查
-        if (!data || data.length === 0) {
-          const { data: fallback } = await supabase
+          // 从预加载池中移除已使用的摆姿
+          const usedIds = new Set<number>();
+
+          // 后台补充预加载池（当池中剩余 < 30 条时）
+          if (preloadedPoses.length < PRELOAD_THRESHOLD && !isPreloadingRef.current) {
+            isPreloadingRef.current = true;
+
+            // 异步补充，不阻塞当前操作
+            supabase
+              .from('poses')
+              .select('id, image_url, tags, view_count, rand_key')
+              .gte('rand_key', Math.random())
+              .order('rand_key')
+              .limit(PRELOAD_POOL_SIZE)
+              .then(({ data }) => {
+                if (data && data.length > 0) {
+                  setPreloadedPoses(prev => {
+                    // 合并并去重
+                    const combined = [...prev, ...data];
+                    const uniqueMap = new Map(combined.map(p => [p.id, p]));
+                    return Array.from(uniqueMap.values());
+                  });
+                }
+              })
+              .catch(err => console.error('后台补充失败:', err))
+              .finally(() => {
+                isPreloadingRef.current = false;
+              });
+          }
+        } else {
+          // 预加载池为空时的兜底查询
+          const r = Math.random();
+          let { data } = await supabase
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
+            .gte('rand_key', r)
             .order('rand_key')
-            .limit(20);
-          data = fallback;
-        }
+            .limit(50);
 
-        if (data) poses = data;
+          if (!data || data.length < 30) {
+            const { data: fallback } = await supabase
+              .from('poses')
+              .select('id, image_url, tags, view_count, rand_key')
+              .order('rand_key')
+              .limit(50);
+
+            const combined = [...(data || []), ...(fallback || [])];
+            const uniqueMap = new Map(combined.map(p => [p.id, p]));
+            data = Array.from(uniqueMap.values());
+          }
+
+          if (data) poses = data;
+        }
       } else if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
         // 有标签查询使用缓存
         poses = cachedPoses;
