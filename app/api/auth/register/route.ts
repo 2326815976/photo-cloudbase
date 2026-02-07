@@ -89,9 +89,20 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. 创建 Supabase 用户（使用 Admin API 绕过邮箱验证）
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      await recordIPAttempt(clientIP, false, userAgent);
+      return NextResponse.json(
+        { error: '服务配置错误，请联系管理员' },
+        { status: 500 }
+      );
+    }
+
     const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      supabaseUrl,
+      supabaseServiceRoleKey,
       {
         auth: {
           autoRefreshToken: false,
@@ -136,24 +147,6 @@ export async function POST(request: NextRequest) {
         { error: errorMessage },
         { status: 400 }
       );
-    }
-
-    // 6. 创建用户扩展信息表（user_profiles 表）
-    // 注意：profiles 表由数据库触发器自动创建
-    if (authData.user) {
-      const { error: userProfileError } = await supabaseAdmin
-        .from('user_profiles')
-        .insert({
-          id: authData.user.id,
-          phone,
-          phone_verified: false,
-          upload_count: 0,
-          upload_limit: 20,
-        });
-
-      if (userProfileError) {
-        console.error('创建 user_profiles 失败:', userProfileError);
-      }
     }
 
     // 记录成功的注册尝试

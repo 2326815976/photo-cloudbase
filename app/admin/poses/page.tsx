@@ -110,6 +110,7 @@ export default function PosesPage() {
       // 批量上传模式
       if (batchImages.length > 0) {
         setUploadProgress({ current: 0, total: batchImages.length });
+        let successCount = 0;
 
         for (let i = 0; i < batchImages.length; i++) {
           const file = batchImages[i];
@@ -135,6 +136,8 @@ export default function PosesPage() {
 
             if (insertError) {
               console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
+            } else {
+              successCount++;
             }
           } catch (uploadError) {
             console.error(`上传第 ${i + 1} 张图片失败:`, uploadError);
@@ -142,7 +145,7 @@ export default function PosesPage() {
           }
         }
 
-        setShowToast({ message: `批量上传完成！成功上传 ${batchImages.length} 张图片`, type: 'success' });
+        setShowToast({ message: `批量上传完成！成功上传 ${successCount} 张图片`, type: 'success' });
         setTimeout(() => setShowToast(null), 3000);
       } else {
         // 单张上传模式
@@ -443,8 +446,9 @@ export default function PosesPage() {
         return;
       }
 
-      // 批量插入标签
-      const tagsToInsert = tagNames.map(name => ({ name }));
+      // 批量插入标签（去重，避免同一批次重复导致唯一键冲突）
+      const uniqueTagNames = Array.from(new Set(tagNames));
+      const tagsToInsert = uniqueTagNames.map(name => ({ name }));
       const { error } = await supabase
         .from('pose_tags')
         .insert(tagsToInsert);
@@ -454,7 +458,7 @@ export default function PosesPage() {
       setShowTagModal(false);
       setNewTagName('');
       loadTags();
-      setShowToast({ message: `成功添加 ${tagNames.length} 个标签！`, type: 'success' });
+      setShowToast({ message: `成功添加 ${uniqueTagNames.length} 个标签！`, type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setShowToast({ message: `添加失败：${error.message}`, type: 'error' });

@@ -51,11 +51,6 @@ export async function GET() {
 
     const dates = Array.from(blockedDates).sort();
 
-    // 调试日志
-    console.log('[blocked-dates API] 返回的不可用日期:', dates);
-    console.log('[blocked-dates API] 锁定日期数量:', blackoutData?.length || 0);
-    console.log('[blocked-dates API] 已预约日期数量:', bookingData?.length || 0);
-
     return NextResponse.json({ dates });
   } catch (error) {
     console.error('Unexpected error:', error);

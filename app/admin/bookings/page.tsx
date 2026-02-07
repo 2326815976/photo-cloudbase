@@ -83,7 +83,6 @@ export default function BookingsPage() {
   const [deletingCity, setDeletingCity] = useState<AllowedCity | null>(null);
 
   useEffect(() => {
-    loadBookings();
     loadBookingTypes();
     loadCities();
 
@@ -92,38 +91,26 @@ export default function BookingsPage() {
       securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
     };
 
-    // 加载高德地图脚本
+    // 加载高德地图脚本（避免重复注入）
+    const scriptId = 'amap-sdk-script';
+    const existing = document.getElementById(scriptId);
+    if (existing) return;
+
     const script = document.createElement('script');
+    script.id = scriptId;
     script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
     script.async = true;
     document.head.appendChild(script);
+  }, []);
 
-    return () => {
-      if (document.head.contains(script)) {
-        document.head.removeChild(script);
-      }
-    };
+  useEffect(() => {
+    loadBookings();
   }, [filter]);
 
   // 预约管理函数
   const loadBookings = async () => {
     setBookingsLoading(true);
     const supabase = createClient();
-
-    // 调试：检查当前登录用户
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log('🔍 当前登录用户:', user);
-
-    // 调试：检查用户的 profile 信息
-    if (user) {
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, email, role')
-        .eq('id', user.id)
-        .single();
-      console.log('🔍 用户 Profile:', profile);
-      console.log('🔍 Profile 查询错误:', profileError);
-    }
 
     // 优化查询：只选择需要的字段
     let query = supabase
@@ -151,13 +138,8 @@ export default function BookingsPage() {
 
     const { data, error } = await query;
 
-    // 调试：打印查询结果
-    console.log('🔍 预约查询结果:', data);
-    console.log('🔍 预约查询错误:', error);
-    console.log('🔍 预约数量:', data?.length || 0);
-
     if (error) {
-      console.error('❌ 预约查询失败:', error);
+      console.error('预约查询失败:', error);
       setShowToast({ message: `查询失败: ${error.message}`, type: 'error' });
     }
 
@@ -225,6 +207,23 @@ export default function BookingsPage() {
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `确认失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const handleStart = async (id: string) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'in_progress' })
+      .eq('id', id);
+
+    if (!error) {
+      loadBookings();
+      setShowToast({ message: '预约已开始', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } else {
+      setShowToast({ message: `开始失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -685,6 +684,7 @@ export default function BookingsPage() {
                 { key: 'all', label: '全部' },
                 { key: 'pending', label: '待确认' },
                 { key: 'confirmed', label: '已确认' },
+                { key: 'in_progress', label: '进行中' },
                 { key: 'finished', label: '已完成' },
                 { key: 'cancelled', label: '已取消' },
               ].map((item) => (
@@ -852,6 +852,25 @@ export default function BookingsPage() {
                     )}
 
                     {booking.status === 'confirmed' && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleStart(booking.id)}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors"
+                        >
+                          <Check className="w-4 h-4" />
+                          开始拍摄
+                        </button>
+                        <button
+                          onClick={() => handleCancel(booking.id)}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          取消预约
+                        </button>
+                      </div>
+                    )}
+
+                    {booking.status === 'in_progress' && (
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleFinish(booking.id)}

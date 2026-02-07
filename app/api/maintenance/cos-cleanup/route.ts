@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import COS from 'cos-nodejs-sdk-v5';
 
@@ -11,12 +11,28 @@ export const revalidate = 0;
  */
 export async function POST(request: Request) {
   try {
-    // 验证请求来源（可选：添加API密钥验证）
+    // 验证请求来源（优先使用定时任务密钥；否则要求管理员登录）
     const authHeader = request.headers.get('authorization');
     const expectedToken = process.env.CRON_SECRET;
+    const tokenValid = !!expectedToken && authHeader === `Bearer ${expectedToken}`;
 
-    if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 });
+    if (!tokenValid) {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        return NextResponse.json({ error: '未授权' }, { status: 401 });
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.role !== 'admin') {
+        return NextResponse.json({ error: '未授权' }, { status: 403 });
+      }
     }
 
     const supabase = createAdminClient();

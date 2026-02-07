@@ -21,9 +21,10 @@ export default function MaintenanceButton() {
       const data = await response.json();
 
       if (response.ok) {
+        const cleanup = data.result?.cleanup_result || {};
         setResult({
           success: true,
-          message: `维护任务执行成功！清理了 ${data.result?.deleted_photos || 0} 张照片、${data.result?.deleted_folders || 0} 个文件夹、${data.result?.deleted_albums || 0} 个相册`
+          message: `维护任务执行成功！清理了 ${cleanup.deleted_photos || 0} 张照片、${cleanup.deleted_folders || 0} 个文件夹、${cleanup.deleted_albums || 0} 个相册`
         });
       } else {
         setResult({

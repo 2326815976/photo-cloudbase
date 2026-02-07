@@ -79,7 +79,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const preloadedImageIdsRef = useRef<Set<number>>(new Set());
   const [hasInteracted, setHasInteracted] = useState(false);
 
-  const HISTORY_SIZE = 20;
+  const HISTORY_SIZE = 5;
   const PRELOAD_POOL_SIZE = 100; // 预加载池大小
   const PRELOAD_THRESHOLD = 30;  // 当缓存池少于30条时触发补充
   const PRELOAD_IMAGE_COUNT = 2; // 预加载下一批图片，提升首点后的切换速度
@@ -292,9 +292,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     setIsAnimating(true);
 
     try {
-      // 性能测量：开始计时
-      const queryStartTime = performance.now();
-
       const currentCacheKey = selectedTagsKey;
       let poses: Pose[] = [];
 
@@ -413,13 +410,11 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
             // 兜底策略：如果精确匹配结果太少（< 5 条），放宽到所有匹配
             if (poses.length < 5 && poses.length < allMatches.length) {
-              console.log('[兜底] 精确匹配结果不足，使用所有匹配结果');
               poses = allMatches;
             }
             }
           } else {
             // 兜底策略：如果 100 条都没有匹配，再查询更多（最多 200 条）
-            console.log('[兜底] 前 100 条无匹配，扩大查询范围');
             const { data: moreMatches } = await supabase
               .from('poses')
               .select('id, image_url, tags, view_count, rand_key')
@@ -463,13 +458,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           .rpc('increment_pose_view', { p_pose_id: selectedPose.id })
           .then(() => {})
           .catch((err: any) => console.error('更新浏览次数失败:', err));
-
-        // 性能测量：输出查询耗时
-        const queryEndTime = performance.now();
-        const queryDuration = queryEndTime - queryStartTime;
-        console.log(`[性能测量] 随机查询耗时: ${queryDuration.toFixed(2)}ms`);
-        console.log(`[性能测量] 标签: ${selectedTags.length > 0 ? selectedTags.join(', ') : '无'}`);
-        console.log(`[性能测量] 结果数量: ${poses.length}`);
       }
     } catch (error) {
       console.error('抽取摆姿失败:', error);

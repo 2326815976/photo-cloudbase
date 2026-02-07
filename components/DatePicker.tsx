@@ -26,12 +26,6 @@ export default function DatePicker({
   const [currentMonth, setCurrentMonth] = useState(() => parseDateUTC8(getTodayUTC8()));
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 调试日志：监控blockedDates变化
-  useEffect(() => {
-    console.log('[DatePicker] 收到的blockedDates:', blockedDates);
-    console.log('[DatePicker] blockedDates数量:', blockedDates?.length || 0);
-  }, [blockedDates]);
-
   // 计算默认的最小和最大日期（UTC）
   const today = parseDateUTC8(getTodayUTC8());
   const min = minDate ? parseDateUTC8(minDate) : today;
@@ -69,15 +63,6 @@ export default function DatePicker({
     const dateStr = formatDateUTC8(date);
     const isInRange = date >= min && date <= max;
     const isBlocked = blockedDates.includes(dateStr);
-
-    // 调试日志：检查特定日期
-    if (dateStr === '2026-02-08') {
-      console.log('[DatePicker] 检查2026-02-08:');
-      console.log('  - 日期字符串:', dateStr);
-      console.log('  - 在范围内:', isInRange);
-      console.log('  - 被锁定:', isBlocked);
-      console.log('  - blockedDates包含:', blockedDates);
-    }
 
     return isInRange && !isBlocked;
   };

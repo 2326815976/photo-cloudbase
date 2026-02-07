@@ -76,14 +76,21 @@ export default function BookingPage() {
       securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
     };
 
-    // 加载高德地图脚本
-    const script = document.createElement('script');
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
-    script.async = true;
-    document.head.appendChild(script);
+    // 加载高德地图脚本（避免重复注入）
+    const scriptId = 'amap-sdk-script';
+    const existing = document.getElementById(scriptId);
+    let script: HTMLScriptElement | null = null;
+
+    if (!existing) {
+      script = document.createElement('script');
+      script.id = scriptId;
+      script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
+      script.async = true;
+      document.head.appendChild(script);
+    }
 
     return () => {
-      if (document.head.contains(script)) {
+      if (script && document.head.contains(script)) {
         document.head.removeChild(script);
       }
     };
@@ -141,14 +148,11 @@ export default function BookingPage() {
 
   const loadBlockedDates = async () => {
     try {
-      console.log('[前端] 开始加载不可用日期...');
       const response = await fetch('/api/blocked-dates');
       const data = await response.json();
-      console.log('[前端] API返回的不可用日期:', data.dates);
-      console.log('[前端] 不可用日期数量:', data.dates?.length || 0);
       setBlockedDates(data.dates || []);
     } catch (error) {
-      console.error('[前端] 加载不可用日期失败:', error);
+      console.error('加载不可用日期失败:', error);
       setBlockedDates([]);
     }
   };
@@ -531,6 +535,7 @@ export default function BookingPage() {
                         value={selectedDate}
                         onChange={setSelectedDate}
                         minDate={getDateAfterDaysUTC8(1)}
+                        maxDate={getDateAfterDaysUTC8(30)}
                         blockedDates={blockedDates}
                         placeholder="请选择约拍日期（最早明天）..."
                       />

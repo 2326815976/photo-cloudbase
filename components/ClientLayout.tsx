@@ -16,7 +16,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   // 生产环境禁用 console 日志
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_APP_URL === 'production') {
+    if (process.env.NODE_ENV === 'production') {
       const noop = () => {};
       console.log = noop;
       console.warn = noop;
@@ -31,6 +31,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const timer = setTimeout(() => {
       const logActivity = async () => {
         const supabase = createClient();
+        if (!supabase) return;
+
         const { data: { user } } = await supabase.auth.getUser();
 
         if (user) {

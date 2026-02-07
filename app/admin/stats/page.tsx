@@ -349,18 +349,26 @@ export default async function StatsPage() {
               <Package className="w-8 h-8 text-[#FFC857]" />
               <div>
                 <p className="text-sm text-[#5D4037]/60">版本号</p>
-                <p className="text-xl font-bold text-[#5D4037]">{stats.system.latest_version.version}</p>
-              </div>
-              <div>
-                <p className="text-sm text-[#5D4037]/60">平台</p>
-                <p className="text-lg font-medium text-[#5D4037]">{stats.system.latest_version.platform}</p>
-              </div>
-              <div className="ml-auto">
-                <p className="text-sm text-[#5D4037]/60">发布时间</p>
-                <p className="text-sm text-[#5D4037]">
-                  {new Date(stats.system.latest_version.created_at).toLocaleDateString('zh-CN')}
+                <p className="text-xl font-bold text-[#5D4037]">
+                  {typeof stats.system.latest_version === 'string'
+                    ? stats.system.latest_version
+                    : stats.system.latest_version.version}
                 </p>
               </div>
+              {typeof stats.system.latest_version !== 'string' && (
+                <>
+                  <div>
+                    <p className="text-sm text-[#5D4037]/60">平台</p>
+                    <p className="text-lg font-medium text-[#5D4037]">{stats.system.latest_version.platform}</p>
+                  </div>
+                  <div className="ml-auto">
+                    <p className="text-sm text-[#5D4037]/60">发布时间</p>
+                    <p className="text-sm text-[#5D4037]">
+                      {new Date(stats.system.latest_version.created_at).toLocaleDateString('zh-CN')}
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
