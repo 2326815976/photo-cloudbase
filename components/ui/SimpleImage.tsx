@@ -32,15 +32,31 @@ export default function SimpleImage({
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
+  const loadingAnimationDelayTimerRef = useRef<number | null>(null);
   const [displaySrc, setDisplaySrc] = useState(src);
   const [hasRetriedOriginal, setHasRetriedOriginal] = useState(false);
 
   // 统一初始状态避免 hydration 错误
   const [isLoading, setIsLoading] = useState(true);
 
-  const [showLoadingAnimation, setShowLoadingAnimation] = useState(true);
+  const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
+
+  const clearLoadingAnimationDelayTimer = () => {
+    if (loadingAnimationDelayTimerRef.current !== null) {
+      window.clearTimeout(loadingAnimationDelayTimerRef.current);
+      loadingAnimationDelayTimerRef.current = null;
+    }
+  };
+
+  const scheduleLoadingAnimation = () => {
+    clearLoadingAnimationDelayTimer();
+    loadingAnimationDelayTimerRef.current = window.setTimeout(() => {
+      setShowLoadingAnimation(true);
+      loadingAnimationDelayTimerRef.current = null;
+    }, 500);
+  };
 
   const getOptimizedSrc = (originalSrc: string) => {
     if (typeof window === 'undefined') return originalSrc;
@@ -59,11 +75,13 @@ export default function SimpleImage({
     setHasRetriedOriginal(false);
     setHasError(false);
     setIsLoading(true);
-    setShowLoadingAnimation(true);
+    setShowLoadingAnimation(false);
     setLoadingTime(0);
+    scheduleLoadingAnimation();
 
     const img = imgRef.current;
     if (img && img.complete && img.naturalHeight !== 0) {
+      clearLoadingAnimationDelayTimer();
       setIsLoading(false);
       setShowLoadingAnimation(false);
       onLoad?.();
@@ -71,6 +89,10 @@ export default function SimpleImage({
 
     // 记录加载开始时间
     loadStartTimeRef.current = performance.now();
+
+    return () => {
+      clearLoadingAnimationDelayTimer();
+    };
   }, [src, onLoad]);
 
   useEffect(() => {
@@ -240,6 +262,7 @@ export default function SimpleImage({
             if (loadTime > 3000) {
               console.warn(`⚠️ 图片加载缓慢: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
             }
+            clearLoadingAnimationDelayTimer();
             setIsLoading(false);
             setShowLoadingAnimation(false);
             onLoad?.();
@@ -249,12 +272,14 @@ export default function SimpleImage({
               setHasRetriedOriginal(true);
               setDisplaySrc(src);
               setIsLoading(true);
-              setShowLoadingAnimation(true);
+              setShowLoadingAnimation(false);
+              scheduleLoadingAnimation();
               setHasError(false);
               loadStartTimeRef.current = performance.now();
               return;
             }
 
+            clearLoadingAnimationDelayTimer();
             setIsLoading(false);
             setShowLoadingAnimation(false);
             setHasError(true);
