@@ -137,32 +137,34 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       const currentCacheKey = selectedTagsKey;
       let poses: Pose[] = [];
 
-      if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
-        poses = cachedPoses;
-      } else {
-        if (selectedTags.length === 0) {
-          // 无标签随机：使用随机键索引法
-          const r = Math.random();
-          let { data } = await supabase
+      // 无标签查询不使用缓存（每次都重新随机）
+      if (selectedTags.length === 0) {
+        // 无标签随机：使用随机键索引法
+        const r = Math.random();
+        let { data } = await supabase
+          .from('poses')
+          .select('id, image_url, tags, view_count, rand_key')
+          .gte('rand_key', r)
+          .order('rand_key')
+          .limit(1);
+
+        // 兜底：如果没有结果，从头开始查
+        if (!data || data.length === 0) {
+          const { data: fallback } = await supabase
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
-            .gte('rand_key', r)
             .order('rand_key')
             .limit(1);
+          data = fallback;
+        }
 
-          // 兜底：如果没有结果，从头开始查
-          if (!data || data.length === 0) {
-            const { data: fallback } = await supabase
-              .from('poses')
-              .select('id, image_url, tags, view_count, rand_key')
-              .order('rand_key')
-              .limit(1);
-            data = fallback;
-          }
-
-          if (data) poses = data;
-        } else {
-          // 有标签随机：两段式策略
+        if (data) poses = data;
+      } else if (cacheKey === currentCacheKey && cachedPoses.length > 0) {
+        // 有标签查询使用缓存
+        poses = cachedPoses;
+      } else {
+        // 有标签查询：首次查询
+        // 有标签随机：两段式策略
           // 第一段：先用标签过滤拿候选集（100 条）
           const { data: candidates } = await supabase
             .from('poses')
@@ -231,10 +233,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               poses = [moreMatches[randomIndex]];
             }
           }
-        }
 
-        setCachedPoses(poses);
-        setCacheKey(currentCacheKey);
+        // 只缓存有标签的查询结果
+        if (selectedTags.length > 0) {
+          setCachedPoses(poses);
+          setCacheKey(currentCacheKey);
+        }
       }
 
       if (poses.length > 0) {
