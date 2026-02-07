@@ -188,10 +188,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         if (preloadedPoses.length > 0) {
           poses = preloadedPoses;
 
-          // 从预加载池中移除已使用的摆姿
-          const usedIds = new Set<number>();
-
           // 后台补充预加载池（当池中剩余 < 30 条时）
+          // 注意：这里检查的是当前池的大小，选择后会在下次点击时生效
           if (preloadedPoses.length < PRELOAD_THRESHOLD && !isPreloadingRef.current) {
             isPreloadingRef.current = true;
 
@@ -218,21 +216,21 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               });
           }
         } else {
-          // 预加载池为空时的兜底查询
+          // 预加载池为空时的兜底查询（优化：减少查询数量以提升首次点击速度）
           const r = Math.random();
           let { data } = await supabase
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
             .gte('rand_key', r)
             .order('rand_key')
-            .limit(50);
+            .limit(20);  // 优化：从 50 减少到 20，足够支持去重
 
-          if (!data || data.length < 30) {
+          if (!data || data.length < 15) {
             const { data: fallback } = await supabase
               .from('poses')
               .select('id, image_url, tags, view_count, rand_key')
               .order('rand_key')
-              .limit(50);
+              .limit(20);
 
             const combined = [...(data || []), ...(fallback || [])];
             const uniqueMap = new Map(combined.map(p => [p.id, p]));
