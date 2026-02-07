@@ -32,36 +32,45 @@ export default function SimpleImage({
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
-  const delayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [displaySrc, setDisplaySrc] = useState(src);
+  const [hasRetriedOriginal, setHasRetriedOriginal] = useState(false);
 
   // 统一初始状态避免 hydration 错误
   const [isLoading, setIsLoading] = useState(true);
 
-  const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
+  const [showLoadingAnimation, setShowLoadingAnimation] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
 
+  const getOptimizedSrc = (originalSrc: string) => {
+    if (typeof window === 'undefined') return originalSrc;
+    if (window.innerWidth >= 768) return originalSrc;
+    if (!originalSrc.includes('myqcloud.com')) return originalSrc;
+    if (originalSrc.includes('imageMogr2/')) return originalSrc;
+
+    const separator = originalSrc.includes('?') ? '&' : '?';
+    return `${originalSrc}${separator}imageMogr2/format/webp/rquality/80/rwidth/750`;
+  };
+
   // 检查图片是否已缓存 - 使用 useLayoutEffect 避免已缓存图片闪烁加载动画
   useLayoutEffect(() => {
+    const optimizedSrc = getOptimizedSrc(src);
+    setDisplaySrc(optimizedSrc);
+    setHasRetriedOriginal(false);
+    setHasError(false);
+    setIsLoading(true);
+    setShowLoadingAnimation(true);
+    setLoadingTime(0);
+
     const img = imgRef.current;
     if (img && img.complete && img.naturalHeight !== 0) {
       setIsLoading(false);
       setShowLoadingAnimation(false);
       onLoad?.();
-    } else {
-      // 记录加载开始时间
-      loadStartTimeRef.current = performance.now();
-      // 延迟0.5s后才显示加载动画
-      delayTimerRef.current = setTimeout(() => {
-        setShowLoadingAnimation(true);
-      }, 500);
     }
 
-    return () => {
-      if (delayTimerRef.current) {
-        clearTimeout(delayTimerRef.current);
-      }
-    };
+    // 记录加载开始时间
+    loadStartTimeRef.current = performance.now();
   }, [src, onLoad]);
 
   useEffect(() => {
@@ -217,12 +226,7 @@ export default function SimpleImage({
       {!hasError && (
         <img
           ref={imgRef}
-          src={
-            // 为移动端腾讯云 COS 图片添加处理参数（WebP + 质量优化 + 宽度限制）
-            typeof window !== 'undefined' && window.innerWidth < 768 && src.includes('myqcloud.com')
-              ? `${src}?imageMogr2/format/webp/rquality/80/rwidth/750`
-              : src
-          }
+          src={displaySrc}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
@@ -236,19 +240,21 @@ export default function SimpleImage({
             if (loadTime > 3000) {
               console.warn(`⚠️ 图片加载缓慢: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
             }
-            // 清除延迟计时器
-            if (delayTimerRef.current) {
-              clearTimeout(delayTimerRef.current);
-            }
             setIsLoading(false);
             setShowLoadingAnimation(false);
             onLoad?.();
           }}
           onError={() => {
-            // 清除延迟计时器
-            if (delayTimerRef.current) {
-              clearTimeout(delayTimerRef.current);
+            if (!hasRetriedOriginal && displaySrc !== src) {
+              setHasRetriedOriginal(true);
+              setDisplaySrc(src);
+              setIsLoading(true);
+              setShowLoadingAnimation(true);
+              setHasError(false);
+              loadStartTimeRef.current = performance.now();
+              return;
             }
+
             setIsLoading(false);
             setShowLoadingAnimation(false);
             setHasError(true);
