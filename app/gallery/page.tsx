@@ -23,8 +23,7 @@ const GalleryClient = dynamic(() => import('./GalleryClient'), {
         </div>
       </div>
     </div>
-  ),
-  ssr: false
+  )
 });
 
 interface Photo {
