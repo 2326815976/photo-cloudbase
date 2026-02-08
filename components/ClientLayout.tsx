@@ -14,11 +14,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith('/admin');
 
-  // 退出确认功能（仅在���管理员页面启用）
-  const { showDialog, handleConfirm, handleCancel } = useBackToExit({
-    enabled: !isAdminRoute
-  });
-
   // 生产环境禁用 console 日志
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') {
