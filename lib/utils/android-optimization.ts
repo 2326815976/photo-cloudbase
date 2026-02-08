@@ -106,8 +106,8 @@ export function optimizePageRendering() {
   // 优化字体加载
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => {
-      // 字体加载完成后的优化
-      document.body.style.fontDisplay = 'swap';
+      // 字体加载完成，无需额外操作
+      // fontDisplay已在CSS中配置
     });
   }
 
