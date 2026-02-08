@@ -272,7 +272,7 @@ export default function EditProfilePage() {
                 {/* 提示信息 */}
                 <div className="p-3 bg-[#FFC857]/10 rounded-xl border border-[#FFC857]/30">
                   <p className="text-xs text-[#5D4037]/70 text-center">
-                    💡 填写手机号和微信号后，预约时会自动填充
+                    💡 填写手机号和微信后，预约时会自动填充
                   </p>
                 </div>
 
