@@ -31,41 +31,10 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
 
         {/* 字体预加载 - 优先加载默认字体 */}
-        <link
-          rel="preload"
-          href="/fonts/ZQKNNY-Medium-2.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
+        <link rel="preload" href="/fonts/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
 
         {/* 自托管字体配置 */}
-        <style dangerouslySetInnerHTML={{__html: `
-          /* 默认字体 - ZQKNNY（用于所有非书信内容） */
-          @font-face {
-            font-family: 'ZQKNNY';
-            src: url('/fonts/ZQKNNY-Medium-2.woff2') format('woff2');
-            font-display: swap;
-            font-weight: 500;
-            font-style: normal;
-          }
-
-          /* 书信专用字体 - 祝你我明媚像春天 */
-          @font-face {
-            font-family: 'Letter Font';
-            src: url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2');
-            font-display: swap;
-            font-weight: 400;
-            font-style: normal;
-          }
-
-          /* 本地字体回退 */
-          @font-face {
-            font-family: 'YouYuan-Fallback';
-            src: local('YouYuan'), local('幼圆'), local('Microsoft YaHei'), local('微软雅黑');
-            font-display: swap;
-          }
-        `}} />
+        <style dangerouslySetInnerHTML={{__html: `@font-face{font-family:'ZQKNNY';src:url('/fonts/ZQKNNY-Medium-2.woff2') format('woff2'),url('/fonts/ZQKNNY-Medium-2.ttf') format('truetype');font-display:swap;font-weight:500;font-style:normal}@font-face{font-family:'Letter Font';src:url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2'),url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.ttf') format('truetype');font-display:swap;font-weight:400;font-style:normal}@font-face{font-family:'YouYuan-Fallback';src:local('YouYuan'),local('幼圆'),local('Microsoft YaHei'),local('微软雅黑');font-display:swap}`}} />
       </head>
       <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
         <ClientLayout>{children}</ClientLayout>
