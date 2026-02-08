@@ -7,12 +7,19 @@ import BottomNav from './BottomNav';
 import { createClient } from '@/lib/supabase/client';
 import SWRProvider from './providers/SWRProvider';
 import { prefetchByRoute } from '@/lib/swr/prefetch';
+import { useBackToExit } from '@/hooks/useBackToExit';
+import ExitConfirmDialog from './ExitConfirmDialog';
 
 const VersionChecker = lazy(() => import('./VersionChecker'));
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith('/admin');
+
+  // 退出确认功能（仅在���管理员页面启用）
+  const { showDialog, handleConfirm, handleCancel } = useBackToExit({
+    enabled: !isAdminRoute
+  });
 
   // 生产环境禁用 console 日志
   useEffect(() => {
@@ -91,6 +98,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         <Suspense fallback={null}>
           <VersionChecker />
         </Suspense>
+        {/* 退出确认弹窗 */}
+        <ExitConfirmDialog
+          isOpen={showDialog}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
       </MotionConfig>
     </SWRProvider>
   );

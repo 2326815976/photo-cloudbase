@@ -128,10 +128,10 @@ export default function DeleteAccountPage() {
                 <li>📸 所有珍藏的照片会消失不见</li>
                 <li>📅 所有预约记录会烟消云散</li>
                 <li>👤 你的账户信息会彻底清空</li>
-                <li>⏰ 这个操作 <span className="font-bold text-red-500">无法撤销</span>，就像打翻的牛奶一样收不回来</li>
+                <li>⏰ 这个操作 <span className="font-bold text-red-500">无法撤销</span></li>
               </ul>
               <p className="pt-1 sm:pt-2">
-                💡 如果只是想暂时休息一下，可以选择"退出登录"哦~ 这样你的数据还会安全地保存在这里，随时欢迎你回来！✨
+                💡 如果只是想暂时休息一下，可以选择"退出登录"哦~ 这样你的数据仍然存在，随时欢迎你回来！✨
               </p>
             </div>
           </div>
