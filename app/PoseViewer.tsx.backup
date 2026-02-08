@@ -6,8 +6,6 @@ import { Sparkles, RefreshCw, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import SimpleImage from '@/components/ui/SimpleImage';
 import ToggleSwitch from '@/components/ui/ToggleSwitch';
-import SkeletonPose from '@/components/ui/SkeletonPose';
-import SkeletonTags from '@/components/ui/SkeletonTags';
 import { SplashScreen } from '@capacitor/splash-screen';
 
 const journalColors = [
@@ -18,6 +16,7 @@ const journalColors = [
   'bg-[#FFF0F5] text-[#8B5A6B] border-[#D4A5B5]',
 ];
 
+const MAX_PRELOADED_IMAGES = 5;
 
 interface PoseTag {
   id: number;
@@ -64,25 +63,32 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const [cachedPoses, setCachedPoses] = useState<Pose[]>(initialPoses);
   const [cacheKey, setCacheKey] = useState<string>('__initial__');
   const [shakeEnabled, setShakeEnabled] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
   const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
   const selectedTagsKey = useMemo(() => [...selectedTags].sort().join(','), [selectedTags]);
   const lastShakeTimeRef = useRef(0);
+  const [isInitialImageLoaded, setIsInitialImageLoaded] = useState(false);
+  const initialImageLoadedRef = useRef(false);
+  const firstSwitchRef = useRef(false);
   const bootstrapLoadedRef = useRef(false);
+  const initialPrewarmRef = useRef(false);
 
   // 预加载缓存池（用于无标签查询的即时响应）
   const [preloadedPoses, setPreloadedPoses] = useState<Pose[]>(initialPoses);
-  const preloadedPosesRef = useRef<Pose[]>(initialPoses); // 使用 ref 避免闭包陷阱
   const isPreloadingRef = useRef(false);
+  const preloadedImageIdsRef = useRef<Set<number>>(new Set());
   const [hasInteracted, setHasInteracted] = useState(false);
 
-  const HISTORY_SIZE = 10; // 优化：从5轮增加到10轮，减少重复
-  const PRELOAD_POOL_SIZE = 25; // 优化：从100减少到25，小池策略
-  const PRELOAD_THRESHOLD = 5;  // 优化：从30减少到5，剩余≤5张时补充
-  const BOOTSTRAP_POOL_SIZE = 12; // 首屏兜底小池
+  const HISTORY_SIZE = 5;
+  const PRELOAD_POOL_SIZE = 100; // 预加载池大小
+  const PRELOAD_THRESHOLD = 30;  // 当缓存池少于30条时触发补充
+  const PRELOAD_IMAGE_COUNT = 2; // 预加载下一批图片，提升首点后的切换速度
+  const BOOTSTRAP_POOL_SIZE = 12; // 首屏兜底小池，避免首次切换卡等待
+  const FIRST_CLICK_PRELOAD_COUNT = 3; // 首次切换前预热图片数量
   const SHAKE_THRESHOLD = 15;
   const SHAKE_COOLDOWN = 2000; // 2秒冷却时间
 
-  // 隐藏启动画面 - 优化：骨架屏显示后立即隐藏
+  // 隐藏启动画面
   useEffect(() => {
     const hideSplash = async () => {
       try {
@@ -92,12 +98,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       }
     };
 
-    // 优化：从500ms减少到300ms，骨架屏显示后立即隐藏
-    const timer = setTimeout(hideSplash, 300);
+    // 延迟确保首屏内容已渲染
+    const timer = setTimeout(hideSplash, 500);
     return () => clearTimeout(timer);
   }, []);
 
-  // 客户端加载tags - 优化：立即加载完整标签列表，不再延迟
+  // 客户端加载tags（延迟加载完整标签列表）
   useEffect(() => {
     if (initialTags.length === 0) {
       const loadTags = async () => {
@@ -107,53 +113,53 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         if (data) setTags(data);
       };
       loadTags();
-    } else if (initialTags.length >= 15) {
-      // 优化：首屏已加载15个热门标签，立即加载完整列表（不再延迟1秒）
+    } else if (initialTags.length >= 20) {
+      // 首屏已加载 20 个热门标签，延迟加载完整列表
       const loadAllTags = async () => {
         const supabase = createClient();
         if (!supabase) return;
         const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
         if (data && data.length > initialTags.length) {
-          setTags(data);
+          setTags(data); // 更新为完整列表
         }
       };
-      loadAllTags();
+
+      // 首屏渲染后 1 秒再加载完整标签
+      setTimeout(loadAllTags, 1000);
     }
   }, [initialTags.length]);
 
-  // 优化：移除首屏后预热逻辑
-  // useEffect 已删除
+  const handleMainImageLoaded = useCallback(() => {
+    if (initialImageLoadedRef.current) return;
+    initialImageLoadedRef.current = true;
+    setIsInitialImageLoaded(true);
+  }, []);
+
+  const warmupPreloadedImages = useCallback((maxCount: number) => {
+    let loaded = 0;
+    for (const pose of preloadedPoses) {
+      if (loaded >= maxCount) break;
+      if (pose.id === currentPose?.id) continue;
+      if (preloadedImageIdsRef.current.has(pose.id)) continue;
+
+      const img = new Image();
+      img.src = pose.image_url;
+      preloadedImageIdsRef.current.add(pose.id);
+      loaded += 1;
+    }
+  }, [preloadedPoses, currentPose?.id]);
 
   // 标签变化时清空历史记录，避免新标签的摆姿被错误过滤
   useEffect(() => {
     setRecentPoseIds([]);
   }, [selectedTagsKey]);
 
-  // 首屏兜底：如果服务端预取数据不足，客户端补充到小池大小，避免首次切换卡等待
+  // 首屏兜底：如果服务端未预取到摆姿，客户端补一小池，避免首次切换卡等待
   useEffect(() => {
-    console.log('[首屏兜底] 检查条件:', {
-      bootstrapLoaded: bootstrapLoadedRef.current,
-      selectedTagsLength: selectedTags.length,
-      preloadedPosesLength: preloadedPoses.length,
-      BOOTSTRAP_POOL_SIZE,
-      currentPose: currentPose?.id,
-      initialPose: initialPose?.id
-    });
+    if (bootstrapLoadedRef.current) return;
+    if (selectedTags.length > 0) return;
+    if (preloadedPoses.length > 0) return;
 
-    if (bootstrapLoadedRef.current) {
-      console.log('[首屏兜底] 已执行过，跳过');
-      return;
-    }
-    if (selectedTags.length > 0) {
-      console.log('[首屏兜底] 有选中标签，跳过');
-      return;
-    }
-    if (preloadedPoses.length >= BOOTSTRAP_POOL_SIZE) {
-      console.log('[首屏兜底] 预加载池已满，跳过');
-      return;
-    }
-
-    console.log('[首屏兜底] 开始执行补充逻辑');
     bootstrapLoadedRef.current = true;
     const supabase = createClient();
     if (!supabase) return;
@@ -161,7 +167,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
     const loadBootstrap = async () => {
       try {
-        console.log('[首屏兜底] 开始查询数据库');
         const r = Math.random();
         let { data } = await supabase
           .from('poses')
@@ -170,39 +175,23 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           .order('rand_key')
           .limit(BOOTSTRAP_POOL_SIZE);
 
-        console.log('[首屏兜底] 首次查询结果:', data?.length);
-
         if (!data || data.length < Math.min(BOOTSTRAP_POOL_SIZE, 6)) {
-          console.log('[首屏兜底] 数据不足，执行兜底查询');
           const { data: fallback } = await supabase
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
             .order('rand_key')
             .limit(BOOTSTRAP_POOL_SIZE);
 
-          console.log('[首屏兜底] 兜底查询结果:', fallback?.length);
-
           const combined = [...(data || []), ...(fallback || [])];
           const uniqueMap = new Map(combined.map(p => [p.id, p]));
           data = Array.from(uniqueMap.values());
-          console.log('[首屏兜底] 合并去重后:', data.length);
         }
 
         if (!cancelled && data && data.length > 0) {
-          console.log('[首屏兜底] 设置预加载池，数量:', data.length);
-          const normalized = normalizePoses(data);
-          setPreloadedPoses(normalized);
-          preloadedPosesRef.current = normalized; // 同步更新 ref
-
-          // 如果 currentPose 为 null，立即设置第一张
-          if (!currentPose) {
-            console.log('[首屏兜底] currentPose 为空，立即设置第一张');
-            setCurrentPose(normalized[0]);
-            setRecentPoseIds([normalized[0].id]);
-          }
+          setPreloadedPoses(normalizePoses(data));
         }
       } catch (error) {
-        console.error('[首屏兜底] 预取失败:', error);
+        console.error('首屏兜底预取失败:', error);
       }
     };
 
@@ -210,9 +199,25 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     return () => {
       cancelled = true;
     };
-  }, [preloadedPoses.length, selectedTags.length, BOOTSTRAP_POOL_SIZE, currentPose, initialPose]);
+  }, [preloadedPoses.length, selectedTags.length, BOOTSTRAP_POOL_SIZE]);
 
-  // 优化：移除首屏后预热逻辑，改为按需加载
+  // 首屏图片加载完成后，轻量预热几张，提升首次切换速度
+  useEffect(() => {
+    if (!isInitialImageLoaded || initialPrewarmRef.current) return;
+    if (selectedTags.length > 0 || preloadedPoses.length === 0) return;
+
+    initialPrewarmRef.current = true;
+    const schedule = (window as any).requestIdleCallback
+      ? (cb: () => void) => (window as any).requestIdleCallback(cb)
+      : (cb: () => void) => setTimeout(cb, 0);
+
+    const cancel = (window as any).cancelIdleCallback
+      ? (id: number) => (window as any).cancelIdleCallback(id)
+      : (id: number) => clearTimeout(id);
+
+    const taskId = schedule(() => warmupPreloadedImages(FIRST_CLICK_PRELOAD_COUNT));
+    return () => cancel(taskId);
+  }, [isInitialImageLoaded, preloadedPoses.length, selectedTags.length, warmupPreloadedImages, FIRST_CLICK_PRELOAD_COUNT]);
 
   // 预加载摆姿池（仅用于无标签查询）
   useEffect(() => {
@@ -237,9 +242,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           .limit(PRELOAD_POOL_SIZE);
 
         if (data && data.length > 0) {
-          const normalized = normalizePoses(data);
-          setPreloadedPoses(normalized);
-          preloadedPosesRef.current = normalized; // 同步更新 ref
+          setPreloadedPoses(normalizePoses(data));
         }
       } catch (error) {
         console.error('预加载失败:', error);
@@ -264,6 +267,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     }
   }, [hasInteracted, preloadedPoses.length, selectedTags.length, PRELOAD_POOL_SIZE, PRELOAD_THRESHOLD]);
 
+  // 预加载下一批摆姿图片，避免首次切换时等待图片加载
+  useEffect(() => {
+    if (!hasInteracted || selectedTags.length > 0 || preloadedPoses.length === 0) return;
+    warmupPreloadedImages(PRELOAD_IMAGE_COUNT);
+  }, [hasInteracted, preloadedPoses.length, selectedTags.length, warmupPreloadedImages, PRELOAD_IMAGE_COUNT]);
+
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
       if (prev.includes(tagName)) {
@@ -278,31 +287,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   }, []);
 
   const getRandomPose = useCallback(async () => {
-    console.log('[getRandomPose] 函数被调用', {
-      isAnimating,
-      hasInteracted,
-      selectedTagsLength: selectedTags.length,
-      preloadedPosesLength: preloadedPoses.length,
-      currentPoseId: currentPose?.id
-    });
-
-    if (isAnimating) {
-      console.log('[getRandomPose] 正在动画中，跳过');
-      return;
-    }
+    if (isAnimating) return;
 
     if (!hasInteracted) {
-      console.log('[getRandomPose] 首次交互，设置 hasInteracted = true');
       setHasInteracted(true);
     }
 
     const supabase = createClient();
-    if (!supabase) {
-      console.error('[getRandomPose] Supabase 客户端创建失败');
-      return;
-    }
+    if (!supabase) return;
 
-    console.log('[getRandomPose] 设置 isAnimating = true');
     setIsAnimating(true);
 
     try {
@@ -311,15 +304,13 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
       // 无标签查询不使用缓存（每次都重新随机）
       if (selectedTags.length === 0) {
-        console.log('[getRandomPose] 无标签查询');
-        // 优先使用预加载池（即时响应）- 使用 ref 获取最新值
-        if (preloadedPosesRef.current.length > 0) {
-          console.log('[getRandomPose] 使用预加载池，数量:', preloadedPosesRef.current.length);
-          poses = preloadedPosesRef.current;
+        // 优先使用预加载池（即时响应）
+        if (preloadedPoses.length > 0) {
+          poses = preloadedPoses;
 
           // 后台补充预加载池（当池中剩余 < 30 条时）
           // 注意：这里检查的是当前池的大小，选择后会在下次点击时生效
-          if (preloadedPosesRef.current.length < PRELOAD_THRESHOLD && !isPreloadingRef.current) {
+          if (preloadedPoses.length < PRELOAD_THRESHOLD && !isPreloadingRef.current) {
             isPreloadingRef.current = true;
 
             // 异步补充，不阻塞当前操作
@@ -336,9 +327,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                     // 合并并去重
                     const combined = [...prev, ...normalized];
                     const uniqueMap = new Map(combined.map(p => [p.id, p]));
-                    const result = Array.from(uniqueMap.values());
-                    preloadedPosesRef.current = result; // 同步更新 ref
-                    return result;
+                    return Array.from(uniqueMap.values());
                   });
                 }
               })
@@ -417,7 +406,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         let availablePoses = poses.filter(p => !recentPoseIds.includes(p.id));
         if (availablePoses.length === 0) availablePoses = poses;
 
-        // 优化：移除首次切换预热逻辑，直接随机选择
+        // 首次切换优先选择已预热图片，避免首点卡在加载中
+        if (!firstSwitchRef.current && selectedTags.length === 0) {
+          const cachedCandidates = availablePoses.filter(p => preloadedImageIdsRef.current.has(p.id));
+          if (cachedCandidates.length > 0) {
+            availablePoses = cachedCandidates;
+          }
+          firstSwitchRef.current = true;
+        }
+
         const randomIndex = Math.floor(Math.random() * availablePoses.length);
         const selectedPose = availablePoses[randomIndex];
 
@@ -434,7 +431,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     } finally {
       setIsAnimating(false);
     }
-  }, [isAnimating, hasInteracted, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, preloadedPoses, HISTORY_SIZE, PRELOAD_THRESHOLD]);
+  }, [isAnimating, hasInteracted, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, HISTORY_SIZE]);
 
   // 摇一摇检测 - 必须在getRandomPose定义之后
   useEffect(() => {
@@ -468,11 +465,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           navigator.vibrate(200); // 震动200ms
         }
 
-        // 记录摇动时间
+        // 设置摇动状态
+        setIsShaking(true);
         lastShakeTimeRef.current = currentTime;
 
         // 触发切换
         getRandomPose();
+
+        // 500ms后重置摇动状态
+        setTimeout(() => setIsShaking(false), 500);
       }
 
       lastX = acceleration.x || 0;
@@ -508,50 +509,39 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
         }}
       >
-        {/* 骨架屏：数据加载时显示 */}
-        {!currentPose && (
-          <>
-            <SkeletonTags />
-            <SkeletonPose />
-          </>
-        )}
-
-        {/* 标签栏：数据加载完成后显示 */}
-        {currentPose && (
-          <div className="flex-none mb-4" style={{ contain: 'layout style' }}>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 overflow-x-auto scrollbar-hidden" style={{ willChange: 'scroll-position' }}>
-                <div className="flex gap-2 pb-1">
-                  {displayTags.map((tag) => (
-                    <button
-                      key={tag.id}
-                      onClick={() => toggleTag(tag.name)}
-                      className={`
-                        tag-button flex-shrink-0 px-2 py-0.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-colors
-                        ${selectedTags.includes(tag.name)
-                          ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
-                          : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
-                        }
-                      `}
-                      style={{ transform: 'translateZ(0)' }}
-                    >
-                      {tag.name}
-                    </button>
-                  ))}
-                </div>
+        <div className="flex-none mb-4" style={{ contain: 'layout style' }}>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 overflow-x-auto scrollbar-hidden" style={{ willChange: 'scroll-position' }}>
+              <div className="flex gap-2 pb-1">
+                {displayTags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    onClick={() => toggleTag(tag.name)}
+                    className={`
+                      tag-button flex-shrink-0 px-2 py-0.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-colors
+                      ${selectedTags.includes(tag.name)
+                        ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
+                        : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
+                      }
+                    `}
+                    style={{ transform: 'translateZ(0)' }}
+                  >
+                    {tag.name}
+                  </button>
+                ))}
               </div>
-
-              {tags.length > 0 && (
-                <button
-                  onClick={() => setShowTagSelector(true)}
-                  className="tag-button flex-shrink-0 px-2 py-0.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-colors bg-[#5D4037] text-white border-2 border-[#5D4037] flex items-center gap-1"
-                >
-                  全部
-                </button>
-              )}
             </div>
+
+            {tags.length > 0 && (
+              <button
+                onClick={() => setShowTagSelector(true)}
+                className="tag-button flex-shrink-0 px-2 py-0.5 md:px-3 md:py-1.5 rounded-full text-xs font-bold transition-colors bg-[#5D4037] text-white border-2 border-[#5D4037] flex items-center gap-1"
+              >
+                全部
+              </button>
+            )}
           </div>
-        )}
+        </div>
 
         {currentPose && (
           <AnimatePresence mode="wait">
@@ -579,6 +569,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                     alt="拍照姿势"
                     priority={true}
                     className="w-full h-full"
+                    onLoad={handleMainImageLoaded}
                   />
                 </div>
                 <div className="mt-3 flex-none">
@@ -611,19 +602,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             className="flex items-center justify-center mb-3"
           >
             <motion.button
-              onClick={() => {
-                console.log('[按钮点击] onClick 事件触发');
-                getRandomPose();
-              }}
+              onClick={getRandomPose}
               onPointerDown={() => {
-                console.log('[按钮点击] onPointerDown 事件触发');
                 if (!hasInteracted) setHasInteracted(true);
               }}
               disabled={isAnimating}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95, boxShadow: '2px 2px 0px #5D4037' }}
-              className="w-14 h-14 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] flex items-center justify-center disabled:opacity-50 transition-all relative z-50"
-              style={{ willChange: 'transform', transform: 'translateZ(0)', pointerEvents: 'auto' }}
+              className="w-14 h-14 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] flex items-center justify-center disabled:opacity-50 transition-all"
+              style={{ willChange: 'transform', transform: 'translateZ(0)' }}
             >
               {isAnimating ? (
                 <RefreshCw className="w-5 h-5 text-[#5D4037] animate-spin" />
@@ -710,7 +697,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => {
+            onClick={(e) => {
               // 延迟单击处理，避免与双击冲突
               if (clickTimer) {
                 // 检测到双击，清除单击定时器

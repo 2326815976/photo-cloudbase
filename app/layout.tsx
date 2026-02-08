@@ -30,11 +30,11 @@ export default function RootLayout({
         <link rel="preconnect" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
         <link rel="dns-prefetch" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
 
-        {/* 字体预加载 - 优先加载默认字体 */}
+        {/* 字体预加载 - 仅预加载首屏必需字体 */}
         <link rel="preload" href="/fonts/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
 
-        {/* 自托管字体配置 */}
-        <style dangerouslySetInnerHTML={{__html: `@font-face{font-family:'ZQKNNY';src:url('/fonts/ZQKNNY-Medium-2.woff2') format('woff2'),url('/fonts/ZQKNNY-Medium-2.ttf') format('truetype');font-display:swap;font-weight:500;font-style:normal}@font-face{font-family:'Letter Font';src:url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2'),url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.ttf') format('truetype');font-display:swap;font-weight:400;font-style:normal}@font-face{font-family:'YouYuan-Fallback';src:local('YouYuan'),local('幼圆'),local('Microsoft YaHei'),local('微软雅黑');font-display:swap}`}} />
+        {/* 自托管字体配置 - 移除 Letter Font 以减少首屏资源 */}
+        <style dangerouslySetInnerHTML={{__html: `@font-face{font-family:'ZQKNNY';src:url('/fonts/ZQKNNY-Medium-2.woff2') format('woff2'),url('/fonts/ZQKNNY-Medium-2.ttf') format('truetype');font-display:swap;font-weight:500;font-style:normal}@font-face{font-family:'YouYuan-Fallback';src:local('YouYuan'),local('幼圆'),local('Microsoft YaHei'),local('微软雅黑');font-display:swap}`}} />
       </head>
       <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
         <ClientLayout>{children}</ClientLayout>
