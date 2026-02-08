@@ -74,20 +74,35 @@ export function useBackToExit(options: UseBackToExitOptions = {}) {
  * 按优先级尝试不同的关闭方法
  */
 function closeApp() {
-  // 方案1: 如果有JSBridge，调用原生方法
-  if (typeof (window as any).JSBridge !== 'undefined' && (window as any).JSBridge.closeApp) {
-    try {
-      (window as any).JSBridge.closeApp();
-      return;
-    } catch (e) {
-      console.warn('JSBridge.closeApp failed:', e);
+  const win = window as any;
+
+  // 方案1: 尝试各种可能的JSBridge命名
+  const jsBridgeAttempts = [
+    { obj: 'JSBridge', method: 'closeApp' },
+    { obj: 'JSBridge', method: 'close' },
+    { obj: 'Android', method: 'closeApp' },
+    { obj: 'Android', method: 'close' },
+    { obj: 'AndroidInterface', method: 'closeApp' },
+    { obj: 'AndroidInterface', method: 'close' },
+    { obj: 'NativeApp', method: 'closeApp' },
+    { obj: 'NativeApp', method: 'close' },
+  ];
+
+  for (const { obj, method } of jsBridgeAttempts) {
+    if (typeof win[obj] !== 'undefined' && typeof win[obj][method] === 'function') {
+      try {
+        win[obj][method]();
+        return;
+      } catch (e) {
+        console.warn(`${obj}.${method} failed:`, e);
+      }
     }
   }
 
   // 方案2: 如果是微信环境，使用微信的关闭方法
-  if (typeof (window as any).WeixinJSBridge !== 'undefined') {
+  if (typeof win.WeixinJSBridge !== 'undefined') {
     try {
-      (window as any).WeixinJSBridge.call('closeWindow');
+      win.WeixinJSBridge.call('closeWindow');
       return;
     } catch (e) {
       console.warn('WeixinJSBridge.closeWindow failed:', e);
