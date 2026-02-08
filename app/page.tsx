@@ -20,19 +20,28 @@ interface Pose {
 export default async function HomePage() {
   const supabase = await createClient();
 
-  // 服务端预取数据，减少客户端请求（添加超时保护）
+  // Android WebView优化：添加超时保护，避免长时间等待
   try {
     const prefetchCount = 6;
     const randomSeed = Math.random();
-    const [posesResult, tagsResult] = await Promise.all([
-      supabase
-        .from('poses')
-        .select('id, image_url, tags, storage_path, view_count, rand_key')
-        .gte('rand_key', randomSeed)
-        .order('rand_key')
-        .limit(prefetchCount),
-      supabase.from('pose_tags').select('id, name, usage_count').order('usage_count', { ascending: false }).limit(20)
-    ]);
+
+    // 设置2秒超时，避免在Android WebView中长时间阻塞
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout')), 2000)
+    );
+
+    const [posesResult, tagsResult] = await Promise.race([
+      Promise.all([
+        supabase
+          .from('poses')
+          .select('id, image_url, tags, storage_path, view_count, rand_key')
+          .gte('rand_key', randomSeed)
+          .order('rand_key')
+          .limit(prefetchCount),
+        supabase.from('pose_tags').select('id, name, usage_count').order('usage_count', { ascending: false }).limit(20)
+      ]),
+      timeoutPromise
+    ]) as any;
 
     if (posesResult.error) {
       console.error('[服务端] Poses 查询错误:', posesResult.error);
