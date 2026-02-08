@@ -57,6 +57,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }
   }, [pathname, isAdminRoute]);
 
+  // 延迟加载书信字体，确保不影响首屏加载
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (document.fonts && document.fonts.load) {
+        document.fonts.load('1rem "Letter Font"').catch(() => {
+          // 忽略加载失败
+        });
+      }
+    }, 3000); // 3秒后开始加载
+    return () => clearTimeout(timer);
+  }, []);
+
   if (isAdminRoute) {
     // 管理后台：使用桌面端全屏布局
     return (
