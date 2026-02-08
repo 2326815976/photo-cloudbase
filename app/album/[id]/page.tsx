@@ -138,7 +138,8 @@ export default function AlbumDetailPage() {
 
     // 根据管理员设置决定是否显示欢迎信（仅首次打开显示）
     const hasSeenWelcome = typeof window !== 'undefined' && localStorage.getItem(welcomeStorageKey);
-    setShowWelcomeLetter(data.album.enable_welcome_letter !== false && !hasSeenWelcome);
+    const shouldShow = data.album.enable_welcome_letter !== false && !hasSeenWelcome;
+    setShowWelcomeLetter(shouldShow);
 
     // 预加载前10张照片的preview图片
     if (data.photos && data.photos.length > 0) {
@@ -415,7 +416,7 @@ export default function AlbumDetailPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center gap-2">
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
           <button
             onClick={() => router.push('/album')}
             className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors flex-shrink-0"
