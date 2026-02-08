@@ -63,7 +63,7 @@ export default async function HomePage() {
       posesData = Array.from(uniqueMap.values());
     }
 
-    const normalizedPoses = posesData.map((pose) => ({
+    const normalizedPoses = posesData.map((pose: Pose) => ({
       ...pose,
       tags: Array.isArray(pose.tags) ? pose.tags : [],
     }));
