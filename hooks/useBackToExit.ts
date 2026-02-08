@@ -95,12 +95,8 @@ function closeApp() {
   }
 
   // 方案3: 尝试使用 window.close()
-  try {
-    window.close();
-  } catch (e) {
-    console.warn('window.close failed:', e);
-  }
+  window.close();
 
-  // 方案4: 如果以上都失败，导航到空白页
-  window.location.href = 'about:blank';
+  // 注意：如果以上方法都失败，用户需要手动关闭应用
+  // 不使用 window.location.href = 'about:blank' 因为会触发浏览器选择器
 }
