@@ -111,8 +111,7 @@ export default function BookingPage() {
     if (!error && data) {
       setBookingTypes(data.map((type: any) => ({
         id: type.id,
-        name: type.name,
-        emoji: emojiMap[type.name] || '📸'
+        name: type.name
       })));
     }
   };
@@ -573,8 +572,7 @@ export default function BookingPage() {
                         onChange={(value) => handleTypeSelect(value)}
                         options={bookingTypes.map(type => ({
                           value: type.id,
-                          label: type.name,
-                          emoji: type.emoji
+                          label: type.name
                         }))}
                         placeholder="请选择约拍类型..."
                         required
@@ -593,7 +591,7 @@ export default function BookingPage() {
                         minDate={getDateAfterDaysUTC8(1)}
                         maxDate={getDateAfterDaysUTC8(30)}
                         blockedDates={blockedDates}
-                        placeholder="请选择约拍日期（最早明天）..."
+                        placeholder="请选择约拍日期"
                       />
                     </div>
 
@@ -623,7 +621,7 @@ export default function BookingPage() {
                                 )}
                               </div>
                             ) : (
-                              <p className="text-[#5D4037]/40">点击在地图上选择约拍地点...</p>
+                              <p className="text-[#5D4037]/40">点击选择约拍地点...</p>
                             )}
                           </div>
                           <MapPin className="w-5 h-5 text-[#FFC857] group-hover:scale-110 transition-transform" />
@@ -672,7 +670,7 @@ export default function BookingPage() {
                       </label>
                       <textarea
                         name="notes"
-                        placeholder="有什么特殊要求或想法，都可以告诉我..."
+                        placeholder="有什么要求或想法，都可以告诉我..."
                         value={formData.notes}
                         onChange={handleChange}
                         rows={4}
