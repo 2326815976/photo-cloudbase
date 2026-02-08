@@ -416,7 +416,7 @@ export default function AlbumDetailPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
+        <div className="px-4 py-2 flex items-center justify-between gap-2">
           <button
             onClick={() => router.push('/album')}
             className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors flex-shrink-0"
