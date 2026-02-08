@@ -7,8 +7,6 @@ import BottomNav from './BottomNav';
 import { createClient } from '@/lib/supabase/client';
 import SWRProvider from './providers/SWRProvider';
 import { prefetchByRoute } from '@/lib/swr/prefetch';
-import { useBackToExit } from '@/hooks/useBackToExit';
-import ExitConfirmDialog from './ExitConfirmDialog';
 
 const VersionChecker = lazy(() => import('./VersionChecker'));
 
@@ -98,12 +96,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         <Suspense fallback={null}>
           <VersionChecker />
         </Suspense>
-        {/* 退出确认弹窗 */}
-        <ExitConfirmDialog
-          isOpen={showDialog}
-          onConfirm={handleConfirm}
-          onCancel={handleCancel}
-        />
       </MotionConfig>
     </SWRProvider>
   );
