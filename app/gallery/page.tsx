@@ -3,7 +3,6 @@ import dynamic from 'next/dynamic';
 
 // 首屏优先：使用动态导入减少初始bundle大小
 const GalleryClient = dynamic(() => import('./GalleryClient'), {
-  ssr: false,
   loading: () => null
 });
 
