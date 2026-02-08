@@ -123,7 +123,7 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
                   <span className="font-bold underline decoration-wavy decoration-[#FFC857]">
                     {booking.wechat || booking.phone}
                   </span>{' '}
-                  沟通细节哦，请留意"新的朋友"验证消息~ 💬
+                  沟通细节哦~ 💬
                 </p>
               </div>
             </div>
