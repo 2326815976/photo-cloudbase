@@ -86,7 +86,7 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center shadow-md">
             <span className="text-lg">✨</span>
           </div>
-          <span className="text-lg font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <span className="text-lg font-bold text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             拾光谣管理
           </span>
         </Link>
@@ -107,7 +107,7 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center shadow-md">
             <span className="text-xl">✨</span>
           </div>
-          <span className="text-xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <span className="text-xl font-bold text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             拾光谣管理
           </span>
         </Link>

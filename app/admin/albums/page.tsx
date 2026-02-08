@@ -444,7 +444,7 @@ export default function AlbumsPage() {
     <div className="space-y-6 pt-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             专属空间管理 💝
           </h1>
           <p className="text-sm text-[#5D4037]/60">管理专属返图空间</p>
@@ -512,7 +512,7 @@ export default function AlbumsPage() {
                   {/* 标题区域 */}
                   <div className="pb-3 border-b-2 border-dashed border-[#5D4037]/10">
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-xl font-bold text-[#5D4037] flex-1" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                      <h3 className="text-xl font-bold text-[#5D4037] flex-1" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                         {album.title || '未命名空间'}
                       </h3>
                       <button

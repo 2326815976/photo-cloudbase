@@ -379,7 +379,7 @@ export default function AlbumDetailPage() {
             transition={{ delay: 0.3 }}
             className="text-center"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               时光中...
             </p>
             <p className="text-sm text-[#5D4037]/60">
@@ -424,7 +424,7 @@ export default function AlbumDetailPage() {
           </button>
 
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               {albumData.album.title || '专属回忆'}
             </h1>
           </div>
@@ -663,7 +663,7 @@ export default function AlbumDetailPage() {
                           repeat: Infinity,
                           ease: 'easeInOut'
                         }}
-                        style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}
+                        style={{ fontFamily: "'ZQKNNY', cursive" }}
                       >
                         拾光中...
                       </motion.p>

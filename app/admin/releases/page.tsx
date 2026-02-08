@@ -189,7 +189,7 @@ export default function ReleasesPage() {
       {/* 页面标题 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             发布版本 📦
           </h1>
           <p className="text-sm text-[#5D4037]/60">管理应用安装包发布</p>

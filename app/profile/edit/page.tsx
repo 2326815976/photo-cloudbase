@@ -141,7 +141,7 @@ export default function EditProfilePage() {
             transition={{ delay: 0.3 }}
             className="text-center"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               加载中...
             </p>
             <p className="text-sm text-[#5D4037]/60">
@@ -168,7 +168,7 @@ export default function EditProfilePage() {
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             编辑个人资料
           </h1>
         </div>
@@ -190,10 +190,10 @@ export default function EditProfilePage() {
             >
               <Save className="w-10 h-10 text-[#FFC857]" />
             </motion.div>
-            <h2 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <h2 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               保存成功！
             </h2>
-            <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               个人资料已更新 ✨
             </p>
           </motion.div>

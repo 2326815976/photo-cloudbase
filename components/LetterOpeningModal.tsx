@@ -118,7 +118,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
 
                   {/* 底部文字区域 - 修复重叠 */}
                   <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-3 z-0">
-                    <p className="text-xl text-[#5D4037] font-medium tracking-wide" style={{ fontFamily: "'Ma Shan Zheng', cursive" }}>
+                    <p className="text-xl text-[#5D4037] font-medium tracking-wide" style={{ fontFamily: "'Letter Font', cursive" }}>
                       To: {recipientName}
                     </p>
                     <div className="w-32 h-px bg-gradient-to-r from-transparent via-[#5D4037]/20 to-transparent" />
@@ -150,7 +150,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
                   animate={shouldReduceMotion ? { opacity: 1 } : { opacity: [0.5, 1, 0.5] }}
                   transition={shouldReduceMotion ? { duration: 0.2 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
                   className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] text-[#8d6e63]/60 tracking-widest whitespace-nowrap"
-                  style={{ fontFamily: "'Ma Shan Zheng', cursive" }}
+                  style={{ fontFamily: "'Letter Font', cursive" }}
                 >
                   轻触拆封开启回忆
                 </motion.p>
@@ -202,7 +202,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
                   <div
                     className="text-[#5D4037] leading-loose whitespace-pre-wrap"
                     style={{
-                      fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive, sans-serif",
+                      fontFamily: "'Letter Font', cursive, sans-serif",
                       fontSize: '1.125rem',
                       lineHeight: '2rem'
                     }}

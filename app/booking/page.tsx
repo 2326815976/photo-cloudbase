@@ -477,7 +477,7 @@ export default function BookingPage() {
             transition={{ delay: 0.3 }}
             className="text-center"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               加载中...
             </p>
             <p className="text-sm text-[#5D4037]/60">
@@ -498,7 +498,7 @@ export default function BookingPage() {
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
         <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none whitespace-nowrap" style={{ fontFamily: "'ZQKNNY', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
           <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
             <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
           </div>
@@ -533,10 +533,10 @@ export default function BookingPage() {
                 >
                   <Camera className="w-10 h-10 text-[#FFC857]" />
                 </motion.div>
-                <h2 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                <h2 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                   收到你的邀请啦！
                 </h2>
-                <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                   我们会尽快添加你的微信 {formData.wechat} 与您联系确认约拍时间 ✨
                 </p>
               </div>
@@ -753,7 +753,7 @@ export default function BookingPage() {
                 <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Camera className="w-8 h-8 text-[#FFC857]" />
                 </div>
-                <h3 className="text-xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                   ✨ 需要登录才能预约哦
                 </h3>
                 <p className="text-sm text-[#5D4037]/70 leading-relaxed">

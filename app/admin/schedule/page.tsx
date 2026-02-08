@@ -214,7 +214,7 @@ export default function SchedulePage() {
     <div className="p-8 max-w-7xl mx-auto">
       {/* 页面标题 */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           档期管理
         </h1>
         <p className="text-[#5D4037]/60">管理不可预约的日期，支持批量操作</p>

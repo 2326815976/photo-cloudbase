@@ -63,7 +63,7 @@ export default function DeleteAccountPage() {
             <CheckCircle className="w-10 h-10 sm:w-12 sm:h-12 text-[#FFC857]" />
           </motion.div>
 
-          <h1 className="text-xl sm:text-2xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             再见啦，小伙伴！👋
           </h1>
 
@@ -92,7 +92,7 @@ export default function DeleteAccountPage() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12 mt-8"
         >
-          <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             删除账户 🗑️
           </h1>
           <p className="text-sm text-[#5D4037]/60">这是一个需要慎重考虑的决定</p>

@@ -115,10 +115,10 @@ export default function ActiveBookingTicket({ booking, onCancel, isCanceling }: 
             <div className="flex items-start gap-3">
               <MessageCircle className="w-5 h-5 text-[#FFC857] flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="font-bold text-[#5D4037] text-sm mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                <p className="font-bold text-[#5D4037] text-sm mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                   ✨ 收到你的邀请啦！
                 </p>
-                <p className="text-xs text-[#8D6E63] leading-relaxed" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                <p className="text-xs text-[#8D6E63] leading-relaxed" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                   摄影师正在赶来的路上... 会尽快添加你的微信{' '}
                   <span className="font-bold underline decoration-wavy decoration-[#FFC857]">
                     {booking.wechat || booking.phone}

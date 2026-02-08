@@ -1,16 +1,7 @@
 import type { Metadata } from "next";
-import { Ma_Shan_Zheng } from "next/font/google";
 import "./globals.css";
 import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
-
-// 优化手写体字体加载 - 仅加载必需的手写体
-const maShanZheng = Ma_Shan_Zheng({
-  weight: "400",
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-ma-shan-zheng",
-});
 
 export const metadata: Metadata = {
   title: "拾光谣 · 记录此刻的不期而遇",
@@ -27,17 +18,48 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className={maShanZheng.variable}>
+    <html lang="zh-CN">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#FFC857" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
         {/* 预连接优化 - 减少网络延迟 */}
         <link rel="preconnect" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
         <link rel="dns-prefetch" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
+
+        {/* 字体预加载 - 优先加载默认字体 */}
+        <link
+          rel="preload"
+          href="/fonts/ZQKNNY-Medium-2.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+
+        {/* 自托管字体配置 */}
         <style dangerouslySetInnerHTML={{__html: `
+          /* 默认字体 - ZQKNNY（用于所有非书信内容） */
+          @font-face {
+            font-family: 'ZQKNNY';
+            src: url('/fonts/ZQKNNY-Medium-2.woff2') format('woff2');
+            font-display: swap;
+            font-weight: 500;
+            font-style: normal;
+          }
+
+          /* 书信专用字体 - 祝你我明媚像春天 */
+          @font-face {
+            font-family: 'Letter Font';
+            src: url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2');
+            font-display: swap;
+            font-weight: 400;
+            font-style: normal;
+          }
+
+          /* 本地字体回退 */
           @font-face {
             font-family: 'YouYuan-Fallback';
             src: local('YouYuan'), local('幼圆'), local('Microsoft YaHei'), local('微软雅黑');
@@ -45,7 +67,7 @@ export default function RootLayout({
           }
         `}} />
       </head>
-      <body className="antialiased" style={{ fontFamily: "'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
+      <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>

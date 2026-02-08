@@ -136,7 +136,7 @@ export default function RegisterPage() {
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-12 mt-8"
       >
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           ✨ 欢迎注册
         </h1>
         <p className="text-sm text-[#5D4037]/60">创建账号，开启美好瞬间记录之旅</p>

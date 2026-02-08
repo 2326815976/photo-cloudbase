@@ -154,8 +154,19 @@ body {
   font-family: 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif;
 }
 
+/* 默认字体 - ZQKNNY（用于所有非书信内容） */
+.font-default {
+  font-family: 'ZQKNNY', 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif;
+}
+
+/* 书信专用字体 - 明天会有好事发生 */
+.font-letter {
+  font-family: 'Letter Font', 'YouYuan', '幼圆', cursive, sans-serif;
+}
+
+/* 兼容旧代码的手写体类 - 统一使用ZQKNNY */
 .font-handwriting {
-  font-family: var(--font-ma-shan-zheng), var(--font-zcool-kuaile), cursive;
+  font-family: 'ZQKNNY', 'YouYuan', '幼圆', sans-serif;
 }
 
 /* 移动端触摸优化 */

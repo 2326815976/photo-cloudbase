@@ -83,7 +83,7 @@ export default function UpdatePasswordPage() {
             <CheckCircle className="w-12 h-12 text-[#FFC857]" />
           </motion.div>
 
-          <h1 className="text-2xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl font-bold text-[#5D4037] mb-3" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             密码更新成功！✨
           </h1>
 
@@ -102,7 +102,7 @@ export default function UpdatePasswordPage() {
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-12 mt-8"
       >
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           设置新密码 🔐
         </h1>
         <p className="text-sm text-[#5D4037]/60">请输入你的新密码</p>

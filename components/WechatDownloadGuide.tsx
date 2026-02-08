@@ -52,7 +52,7 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
                   <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Download className="w-8 h-8 text-[#FFC857]" />
                   </div>
-                  <h3 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                  <h3 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                     💡 微信浏览器下载提示
                   </h3>
                 </div>

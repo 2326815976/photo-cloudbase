@@ -157,7 +157,7 @@ export default function NewAlbumPage() {
       </button>
 
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           创建专属空间 ✨
         </h1>
         <p className="text-sm text-[#5D4037]/60">为模特创建专属返图空间</p>

@@ -102,7 +102,7 @@ export default function NewReleasePage() {
           <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
         </button>
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             发布新版本 🚀
           </h1>
           <p className="text-sm text-[#5D4037]/60">上传应用安装包</p>

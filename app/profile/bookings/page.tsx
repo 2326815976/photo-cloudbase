@@ -185,7 +185,7 @@ export default function BookingsPage() {
             transition={{ delay: 0.3 }}
             className="text-center"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               加载中...
             </p>
             <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
@@ -210,7 +210,7 @@ export default function BookingsPage() {
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
             我的预约记录
           </h1>
         </div>

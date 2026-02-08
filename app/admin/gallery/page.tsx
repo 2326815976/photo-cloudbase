@@ -363,7 +363,7 @@ export default function AdminGalleryPage() {
     <div className="space-y-6 pt-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           照片墙管理 🖼️
         </h1>
         <p className="text-sm text-[#5D4037]/60">管理公开展示的照片</p>

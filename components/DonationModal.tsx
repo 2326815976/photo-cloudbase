@@ -77,7 +77,7 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
 
             {/* 内容区域 */}
             <div className="p-6 pt-8">
-              <h3 className="text-2xl font-bold text-[#5D4037] mb-3 text-center" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+              <h3 className="text-2xl font-bold text-[#5D4037] mb-3 text-center" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                 ✨ 留下一份心意？
               </h3>
 
@@ -160,7 +160,7 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
 
               {/* 内容区域 */}
               <div className="p-6 pt-8">
-                <h3 className="text-2xl font-bold text-[#5D4037] mb-3 text-center" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+                <h3 className="text-2xl font-bold text-[#5D4037] mb-3 text-center" style={{ fontFamily: "'ZQKNNY', cursive" }}>
                   ✨ 留下一份心意？
                 </h3>
 

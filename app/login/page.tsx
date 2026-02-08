@@ -115,7 +115,7 @@ function LoginForm() {
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-12 mt-8"
       >
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'Ma Shan Zheng', 'ZCOOL KuaiLe', cursive" }}>
+        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           欢迎回来 👋
         </h1>
         <p className="text-sm text-[#5D4037]/60">继续你的拾光之旅</p>
