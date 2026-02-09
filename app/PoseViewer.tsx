@@ -313,12 +313,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       if (selectedTags.length === 0) {
         console.log('[getRandomPose] 无标签查询');
         // 优先使用预加载池（即时响应）- 使用 ref 获取最新值
-        if (preloadedPosesRef.current.length > 0) {
+        // 修复：预加载池至少需要 2 张才能切换（1 张是当前显示的，需要另外的选择）
+        if (preloadedPosesRef.current.length > 1) {
           console.log('[getRandomPose] 使用预加载池，数量:', preloadedPosesRef.current.length);
           poses = preloadedPosesRef.current;
 
-          // 后台补充预加载池（当池中剩余 < 30 条时）
-          // 注意：这里检查的是当前池的大小，选择后会在下次点击时生效
+          // 后台补充预加载池（当池中剩余 < 5 条时）
           if (preloadedPosesRef.current.length < PRELOAD_THRESHOLD && !isPreloadingRef.current) {
             isPreloadingRef.current = true;
 
