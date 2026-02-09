@@ -185,7 +185,7 @@ export default function BookingsPage() {
             transition={{ delay: 0.3 }}
             className="text-center"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+            <p className="text-lg font-medium text-[#5D4037] mb-2">
               加载中...
             </p>
             <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
