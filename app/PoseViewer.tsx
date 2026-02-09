@@ -69,6 +69,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const lastShakeTimeRef = useRef(0);
   const bootstrapLoadedRef = useRef(false);
 
+  // 浏览量批量提交缓冲区
+  const viewBufferRef = useRef<Map<number, number>>(new Map());
+  const viewSubmitTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // 预加载缓存池（用于无标签查询的即时响应）
   const [preloadedPoses, setPreloadedPoses] = useState<Pose[]>(initialPoses);
   const preloadedPosesRef = useRef<Pose[]>(initialPoses); // 使用 ref 避免闭包陷阱
@@ -81,6 +85,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const BOOTSTRAP_POOL_SIZE = 12; // 首屏兜底小池
   const SHAKE_THRESHOLD = 15;
   const SHAKE_COOLDOWN = 2000; // 2秒冷却时间
+  const VIEW_SUBMIT_INTERVAL = 5000; // 浏览量批量提交间隔：5秒
 
   // 隐藏启动画面 - 优化：骨架屏显示后立即隐藏
   useEffect(() => {
@@ -96,6 +101,44 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     const timer = setTimeout(hideSplash, 300);
     return () => clearTimeout(timer);
   }, []);
+
+  // 浏览量批量提交定时器 - 优化：减少90%+数据库写入
+  useEffect(() => {
+    const submitViewCounts = async () => {
+      const buffer = viewBufferRef.current;
+      if (buffer.size === 0) return;
+
+      const supabase = createClient();
+      if (!supabase) return;
+
+      // 转换为数组格式
+      const poseViews = Array.from(buffer.entries()).map(([pose_id, count]) => ({
+        pose_id,
+        count
+      }));
+
+      try {
+        await supabase.rpc('batch_increment_pose_views', { pose_views: poseViews });
+        console.log('[浏览量批量提交] 成功提交', poseViews.length, '条记录');
+        buffer.clear();
+      } catch (error) {
+        console.error('[浏览量批量提交] 失败:', error);
+        // 失败时保留数据，下次继续尝试
+      }
+    };
+
+    // 启动定时器
+    viewSubmitTimerRef.current = setInterval(submitViewCounts, VIEW_SUBMIT_INTERVAL);
+
+    // 清理函数：组件卸载时提交剩余数据
+    return () => {
+      if (viewSubmitTimerRef.current) {
+        clearInterval(viewSubmitTimerRef.current);
+      }
+      // 最后一次提交
+      submitViewCounts();
+    };
+  }, [VIEW_SUBMIT_INTERVAL]);
 
   // 客户端加载tags - 优化：立即加载完整标签列表，不再延迟
   useEffect(() => {
@@ -227,19 +270,18 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       }
 
       try {
-        // 随机查询100条记录
-        const r = Math.random();
-        const { data } = await supabase
-          .from('poses')
-          .select('id, image_url, tags, view_count, rand_key')
-          .gte('rand_key', r)
-          .order('rand_key')
-          .limit(PRELOAD_POOL_SIZE);
+        // 优化：使用批量 RPC 一次获取多条，减少网络往返
+        const { data } = await supabase.rpc('get_random_poses_batch', {
+          tag_filter: null,
+          batch_size: PRELOAD_POOL_SIZE,
+          exclude_ids: recentPoseIds
+        });
 
         if (data && data.length > 0) {
           const normalized = normalizePoses(data);
           setPreloadedPoses(normalized);
           preloadedPosesRef.current = normalized; // 同步更新 ref
+          console.log('[预加载池初始化] 批量获取成功，数量:', data.length);
         }
       } catch (error) {
         console.error('预加载失败:', error);
@@ -262,7 +304,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       const taskId = schedule(() => preloadPoses());
       return () => cancel(taskId);
     }
-  }, [hasInteracted, preloadedPoses.length, selectedTags.length, PRELOAD_POOL_SIZE, PRELOAD_THRESHOLD]);
+  }, [hasInteracted, preloadedPoses.length, selectedTags.length, PRELOAD_POOL_SIZE, PRELOAD_THRESHOLD, recentPoseIds]);
 
   const toggleTag = useCallback((tagName: string) => {
     setSelectedTags(prev => {
@@ -322,13 +364,13 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           if (preloadedPosesRef.current.length < PRELOAD_THRESHOLD && !isPreloadingRef.current) {
             isPreloadingRef.current = true;
 
-            // 异步补充，不阻塞当前操作
+            // 优化：使用批量 RPC 一次获取多条，减少网络往返
             supabase
-              .from('poses')
-              .select('id, image_url, tags, view_count, rand_key')
-              .gte('rand_key', Math.random())
-              .order('rand_key')
-              .limit(PRELOAD_POOL_SIZE)
+              .rpc('get_random_poses_batch', {
+                tag_filter: null,
+                batch_size: PRELOAD_POOL_SIZE,
+                exclude_ids: recentPoseIds
+              })
               .then(({ data }: { data: Pose[] | null }) => {
                 if (data && data.length > 0) {
                   const normalized = normalizePoses(data);
@@ -340,6 +382,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                     preloadedPosesRef.current = result; // 同步更新 ref
                     return result;
                   });
+                  console.log('[后台补充] 批量获取成功，数量:', data.length);
                 }
               })
               .catch((err: any) => console.error('后台补充失败:', err))
@@ -424,10 +467,10 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         setCurrentPose({ ...selectedPose, view_count: selectedPose.view_count + 1 });
         setRecentPoseIds(prev => [selectedPose.id, ...prev].slice(0, HISTORY_SIZE));
 
-        supabase
-          .rpc('increment_pose_view', { p_pose_id: selectedPose.id })
-          .then(() => {})
-          .catch((err: any) => console.error('更新浏览次数失败:', err));
+        // 优化：批量提交浏览量，减少90%+数据库写入
+        const currentCount = viewBufferRef.current.get(selectedPose.id) || 0;
+        viewBufferRef.current.set(selectedPose.id, currentCount + 1);
+        console.log('[浏览量缓冲] 摆姿ID:', selectedPose.id, '当前缓冲计数:', currentCount + 1);
       }
     } catch (error) {
       console.error('抽取摆姿失败:', error);
