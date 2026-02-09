@@ -88,10 +88,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     isLoadingMoreRef.current = isLoadingMore;
   }, [isLoadingMore]);
 
-  // 预加载图片
+  // 预加载图片 - Android优化：从20张减少到5张，减少内存占用和加载时间
   useEffect(() => {
     if (allPhotos.length > 0) {
-      const lastIndex = Math.min(allPhotos.length, 20);
+      const lastIndex = Math.min(allPhotos.length, 5);
       allPhotos.slice(0, lastIndex).forEach((photo: Photo) => {
         if (preloadedPreviewUrlsRef.current.has(photo.preview_url)) {
           return;

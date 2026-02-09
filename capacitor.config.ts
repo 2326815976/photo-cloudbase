@@ -5,11 +5,9 @@ const config: CapacitorConfig = {
   appName: '拾光谣',
   webDir: 'out',
 
-  // 混合架构：加载远程 Web 应用
-  server: {
-    // 生产环境：加载 Vercel 部署的应用
-    url: 'https://www.guangyao666.xyz',
-  },
+  // 本地打包架构：使用本地资源，避免页面重载问题
+  // 注意：移除 server.url 配置后，Android WebView 将加载本地打包的资源
+  // 这样可以避免页面切换时的完整重载，提升性能和用户体验
 
   // 插件配置
   plugins: {

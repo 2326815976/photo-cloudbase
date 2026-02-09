@@ -1,10 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
-import dynamic from 'next/dynamic';
+import GalleryClient from './GalleryClient';
 
-// 首屏优先：使用动态导入减少初始bundle大小
-const GalleryClient = dynamic(() => import('./GalleryClient'), {
-  loading: () => null
-});
+// Android优化：移除动态导入，避免页面切换时的额外网络请求
+// 本地打包架构下，直接导入可以提升加载速度
 
 interface Photo {
   id: string;
