@@ -5,9 +5,12 @@ const config: CapacitorConfig = {
   appName: '拾光谣',
   webDir: 'out',
 
-  // 本地打包架构：使用本地资源，避免页面重载问题
-  // 注意：移除 server.url 配置后，Android WebView 将加载本地打包的资源
-  // 这样可以避免页面切换时的完整重载，提升性能和用户体验
+  // 服务器架构：Android WebView 加载远程服务器
+  // 优化策略：启用 cleartext 支持 + 预加载优化
+  server: {
+    url: 'https://www.guangyao666.xyz',
+    cleartext: true,
+  },
 
   // 插件配置
   plugins: {

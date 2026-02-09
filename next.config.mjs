@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 启用 standalone 模式，用于 Docker 部署
+  // 保持 standalone 模式，用于服务器部署
   output: 'standalone',
 
   typescript: {
