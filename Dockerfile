@@ -57,8 +57,8 @@ COPY --from=builder /app/public ./public
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
-# 设置文件权限
-RUN chown -R nextjs:nodejs /app
+# 设置文件权限（确保 nextjs 用户可以修改 .next/static）
+RUN chown -R nextjs:nodejs /app && chmod -R u+w /app/.next/static
 USER nextjs
 
 # 使用 3000 端口（非 root 用户无法监听 80 端口）
