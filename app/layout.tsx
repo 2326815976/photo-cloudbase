@@ -28,6 +28,13 @@ export default function RootLayout({
   };
 
   // 服务端日志：输出运行时配置
+  console.log('[服务端] 所有环境变量:', {
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ? '已设置' : '未设置',
+    NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY ? '已设置' : '未设置',
+    NODE_ENV: process.env.NODE_ENV,
+  });
   console.log('[服务端] Runtime Config:', {
     NEXT_PUBLIC_SUPABASE_URL: runtimeConfig.NEXT_PUBLIC_SUPABASE_URL,
     hasSupabaseKey: !!runtimeConfig.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
