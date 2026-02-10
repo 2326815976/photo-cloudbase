@@ -17,29 +17,6 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // 在服务端读取环境变量并注入到客户端
-  const runtimeConfig = {
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY,
-    NEXT_PUBLIC_AMAP_SECURITY_CODE: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
-    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-  };
-
-  // 服务端日志：输出运行时配置
-  console.log('[服务端] 所有环境变量:', {
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ? '已设置' : '未设置',
-    NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY ? '已设置' : '未设置',
-    NODE_ENV: process.env.NODE_ENV,
-  });
-  console.log('[服务端] Runtime Config:', {
-    NEXT_PUBLIC_SUPABASE_URL: runtimeConfig.NEXT_PUBLIC_SUPABASE_URL,
-    hasSupabaseKey: !!runtimeConfig.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-  });
-
   return (
     <html lang="zh-CN">
       <head>
@@ -67,16 +44,6 @@ export default function RootLayout({
         `}} />
       </head>
       <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
-        {/* 注入运行时环境变量到 window 对象 - 必须在 body 最前面 */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};
-              console.log('[客户端] Runtime Config 已注入:', window.__RUNTIME_CONFIG__);
-              console.log('[客户端] Supabase URL:', window.__RUNTIME_CONFIG__?.NEXT_PUBLIC_SUPABASE_URL);
-            `,
-          }}
-        />
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>

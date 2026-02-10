@@ -2,6 +2,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET() {
+  // 生产环境禁用测试端点
+  if (process.env.NODE_ENV === 'production' && !process.env.ENABLE_TEST_ENDPOINTS) {
+    return NextResponse.json(
+      { error: '此端点在生产环境中已禁用' },
+      { status: 404 }
+    );
+  }
+
   try {
     // 权限验证
     const supabase = await createClient();

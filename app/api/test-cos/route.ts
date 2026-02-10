@@ -3,6 +3,14 @@ import COS from 'cos-nodejs-sdk-v5';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET() {
+  // 生产环境禁用测试端点
+  if (process.env.NODE_ENV === 'production' && !process.env.ENABLE_TEST_ENDPOINTS) {
+    return NextResponse.json(
+      { error: '此端点在生产环境中已禁用' },
+      { status: 404 }
+    );
+  }
+
   try {
     // 权限验证
     const supabase = await createClient();
@@ -65,7 +73,6 @@ export async function GET() {
       message: 'COS 连接成功',
       bucket: bucket,
       region: region,
-      secretIdPrefix: secretId.substring(0, 10) + '...',
       testResult: '权限验证通过',
     });
   } catch (error: any) {
