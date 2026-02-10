@@ -5,12 +5,12 @@ const config: CapacitorConfig = {
   appName: '拾光谣',
   webDir: 'out',
 
-  // 服务器架构：Android WebView 加载远程服务器
-  // 优化策略：启用 cleartext 支持 + 预加载优化
-  server: {
-    url: 'https://www.guangyao666.xyz',
-    cleartext: true,
-  },
+  // Android优化：使用本地打包架构，避免远程加载导致的页面完整重载
+  // 本地资源加载可以实现真正的SPA客户端路由，页面切换秒进
+  // server: {
+  //   url: 'https://www.guangyao666.xyz',
+  //   cleartext: true,
+  // },
 
   // 插件配置
   plugins: {

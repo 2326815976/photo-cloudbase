@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 保持 standalone 模式，用于服务器部署
-  output: 'standalone',
+  // Android本地打包：使用export模式生成静态HTML
+  // 服务器部署时改回'standalone'
+  output: 'export',
 
   typescript: {
     ignoreBuildErrors: false,

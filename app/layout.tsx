@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
+import RegisterServiceWorker from "./register-sw";
 
 export const metadata: Metadata = {
   title: "拾光谣 · 记录此刻的不期而遇",
@@ -61,6 +62,7 @@ export default function RootLayout({
         `}} />
       </head>
       <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
+        <RegisterServiceWorker />
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
