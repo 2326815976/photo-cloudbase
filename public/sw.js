@@ -1,68 +1,131 @@
-// Service Worker for PWA offline support
-const CACHE_NAME = 'shiguangyao-v1';
-const STATIC_CACHE = 'static-v1';
-const DYNAMIC_CACHE = 'dynamic-v1';
-const IMAGE_CACHE = 'images-v1';
+// Service Worker - 优化Android端性能
+const CACHE_VERSION = 'slogan-v1';
+const STATIC_CACHE = `${CACHE_VERSION}-static`;
+const FONT_CACHE = `${CACHE_VERSION}-fonts`;
+const IMAGE_CACHE = `${CACHE_VERSION}-images`;
+const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 
-// Static assets to cache on install
+// 字体文件预缓存列表
+const FONT_ASSETS = [
+  '/fonts/ZQKNNY-Medium-2.woff2',
+  '/fonts/ZQKNNY-Medium-2.ttf',
+  '/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2',
+];
+
+// 静态资源预缓存列表
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/Slogan_108x108.png',
-  '/Slogan_512x512.png'
+  '/Slogan_512x512.png',
 ];
 
-// Install event - cache static assets
+// 安装阶段：预缓存字体和静态资源
 self.addEventListener('install', (event) => {
+  console.log('[SW] 安装中...');
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+    Promise.all([
+      caches.open(FONT_CACHE).then((cache) => cache.addAll(FONT_ASSETS)),
+      caches.open(STATIC_CACHE).then((cache) => cache.addAll(STATIC_ASSETS)),
+    ]).then(() => {
+      console.log('[SW] 字体和静态资源预缓存完成');
+      return self.skipWaiting();
     })
   );
-  self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// 激活阶段：清理旧缓存
 self.addEventListener('activate', (event) => {
+  console.log('[SW] 激活中...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== STATIC_CACHE && name !== DYNAMIC_CACHE && name !== IMAGE_CACHE)
-          .map((name) => caches.delete(name))
+          .filter((name) => name.startsWith('slogan-') && !name.startsWith(CACHE_VERSION))
+          .map((name) => {
+            console.log('[SW] 删除旧缓存:', name);
+            return caches.delete(name);
+          })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
+// 请求拦截：实施缓存策略
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
+  // 只处理GET请求
   if (request.method !== 'GET') return;
 
-  // Handle image requests
-  if (request.destination === 'image') {
+  // 策略1：字体文件 - 缓存优先
+  if (url.pathname.startsWith('/fonts/')) {
     event.respondWith(
-      caches.open(IMAGE_CACHE).then((cache) => {
-        return cache.match(request).then((response) => {
-          return (
-            response ||
-            fetch(request).then((networkResponse) => {
-              cache.put(request, networkResponse.clone());
-              return networkResponse;
-            })
-          );
+      caches.match(request).then((cached) => {
+        if (cached) {
+          console.log('[SW] 字体缓存命中:', url.pathname);
+          return cached;
+        }
+        return fetch(request).then((response) => {
+          return caches.open(FONT_CACHE).then((cache) => {
+            cache.put(request, response.clone());
+            console.log('[SW] 字体已缓存:', url.pathname);
+            return response;
+          });
         });
       })
     );
     return;
   }
 
-  // Handle API requests - network first, cache fallback
+  // 策略2：COS CDN图片 - 缓存优先，限制数量
+  if (url.hostname.includes('cos.ap-guangzhou.myqcloud.com')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) {
+          console.log('[SW] 图片缓存命中:', url.pathname);
+          return cached;
+        }
+        return fetch(request).then((response) => {
+          return caches.open(IMAGE_CACHE).then((cache) => {
+            // 限制图片缓存数量为50张
+            cache.keys().then((keys) => {
+              if (keys.length >= 50) {
+                cache.delete(keys[0]); // 删除最旧的
+              }
+            });
+            cache.put(request, response.clone());
+            console.log('[SW] 图片已缓存:', url.pathname);
+            return response;
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // 策略3：静态资源（JS, CSS, 图标等）- 缓存优先
+  if (url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|ico|woff2|woff|ttf)$/)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) {
+          console.log('[SW] 静态资源缓存命中:', url.pathname);
+          return cached;
+        }
+        return fetch(request).then((response) => {
+          return caches.open(STATIC_CACHE).then((cache) => {
+            cache.put(request, response.clone());
+            console.log('[SW] 静态资源已缓存:', url.pathname);
+            return response;
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // 策略4：API请求 - 网络优先，缓存作为后备
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
@@ -74,36 +137,28 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          return caches.match(request);
+          return caches.match(request).then((cached) => {
+            if (cached) {
+              console.log('[SW] API缓存命中（离线）:', url.pathname);
+              return cached;
+            }
+            return new Response('离线状态，无法访问API', { status: 503 });
+          });
         })
     );
     return;
   }
 
-  // Handle other requests - cache first, network fallback
+  // 策略5：其他请求 - 网络优先
   event.respondWith(
-    caches.match(request).then((response) => {
-      return (
-        response ||
-        fetch(request).then((networkResponse) => {
-          return caches.open(DYNAMIC_CACHE).then((cache) => {
-            cache.put(request, networkResponse.clone());
-            return networkResponse;
-          });
-        })
-      );
+    fetch(request).catch(() => {
+      return caches.match(request).then((cached) => {
+        if (cached) {
+          console.log('[SW] 缓存命中（离线）:', url.pathname);
+          return cached;
+        }
+        return new Response('离线状态，资源不可用', { status: 503 });
+      });
     })
   );
 });
-
-// Background sync for offline actions
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-photos') {
-    event.waitUntil(syncPhotos());
-  }
-});
-
-async function syncPhotos() {
-  // Implement photo sync logic here
-  console.log('Syncing photos...');
-}
