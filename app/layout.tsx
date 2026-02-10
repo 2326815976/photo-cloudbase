@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
-import Script from "next/script";
 
 export const metadata: Metadata = {
   title: "拾光谣 · 记录此刻的不期而遇",
@@ -37,15 +36,6 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
-        {/* 注入运行时环境变量到 window 对象 */}
-        <Script
-          id="runtime-config"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};`,
-          }}
-        />
-
         {/* 预连接优化 - 减少网络延迟 */}
         <link rel="preconnect" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
         <link rel="dns-prefetch" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
@@ -64,6 +54,12 @@ export default function RootLayout({
         `}} />
       </head>
       <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>
+        {/* 注入运行时环境变量到 window 对象 - 必须在 body 最前面 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};`,
+          }}
+        />
         <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
