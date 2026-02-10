@@ -15,10 +15,13 @@ declare global {
 export function getSupabaseUrlFromEnv(): string {
   // 优先使用运行时配置（从 window 对象）
   if (typeof window !== 'undefined' && window.__RUNTIME_CONFIG__?.NEXT_PUBLIC_SUPABASE_URL) {
+    console.log('[Supabase] 使用运行时配置:', window.__RUNTIME_CONFIG__.NEXT_PUBLIC_SUPABASE_URL);
     return window.__RUNTIME_CONFIG__.NEXT_PUBLIC_SUPABASE_URL;
   }
   // 降级到构建时环境变量
-  return process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const fallbackUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  console.log('[Supabase] 使用构建时环境变量:', fallbackUrl);
+  return fallbackUrl;
 }
 
 export function getSupabaseAnonKeyFromEnv(): string {

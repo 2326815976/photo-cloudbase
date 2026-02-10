@@ -27,6 +27,12 @@ export default function RootLayout({
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
   };
 
+  // 服务端日志：输出运行时配置
+  console.log('[服务端] Runtime Config:', {
+    NEXT_PUBLIC_SUPABASE_URL: runtimeConfig.NEXT_PUBLIC_SUPABASE_URL,
+    hasSupabaseKey: !!runtimeConfig.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  });
+
   return (
     <html lang="zh-CN">
       <head>
@@ -57,7 +63,11 @@ export default function RootLayout({
         {/* 注入运行时环境变量到 window 对象 - 必须在 body 最前面 */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};`,
+            __html: `
+              window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};
+              console.log('[客户端] Runtime Config 已注入:', window.__RUNTIME_CONFIG__);
+              console.log('[客户端] Supabase URL:', window.__RUNTIME_CONFIG__?.NEXT_PUBLIC_SUPABASE_URL);
+            `,
           }}
         />
         <ClientLayout>{children}</ClientLayout>
