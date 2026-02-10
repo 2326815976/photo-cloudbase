@@ -19,13 +19,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# 构建时环境变量（从云托管构建参数传入）
-ARG NEXT_PUBLIC_APP_URL
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-ARG NEXT_PUBLIC_AMAP_KEY
-ARG NEXT_PUBLIC_AMAP_SECURITY_CODE
-ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY
+# 构建时环境变量（占位符，必须通过云托管构建参数传入真实值）
+# ⚠️ 重要：NEXT_PUBLIC_* 变量会被编译进客户端代码，必须在构建时传入真实值
+ARG NEXT_PUBLIC_APP_URL=https://build-placeholder-app-url.com
+ARG NEXT_PUBLIC_SUPABASE_URL=https://build-placeholder.supabase.co
+ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=build-placeholder-supabase-key
+ARG NEXT_PUBLIC_AMAP_KEY=build-placeholder-amap-key
+ARG NEXT_PUBLIC_AMAP_SECURITY_CODE=build-placeholder-amap-security
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=build-placeholder-turnstile-key
 
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
