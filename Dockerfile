@@ -53,12 +53,8 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# 复制启动脚本
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
-
-# 设置文件权限（确保 nextjs 用户可以修改 .next/static）
-RUN chown -R nextjs:nodejs /app && chmod -R u+w /app/.next/static
+# 设置文件权限
+RUN chown -R nextjs:nodejs /app
 USER nextjs
 
 # 使用 3000 端口（非 root 用户无法监听 80 端口）
@@ -67,5 +63,5 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 EXPOSE 3000
 
-# 使用启动脚本替换占位符后启动应用
-CMD ["./docker-entrypoint.sh"]
+# 启动应用（standalone 模式使用 server.js）
+CMD ["node", "server.js"]

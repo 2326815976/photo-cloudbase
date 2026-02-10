@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
+import Script from "next/script";
 
 export const metadata: Metadata = {
   title: "拾光谣 · 记录此刻的不期而遇",
@@ -17,6 +18,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // 在服务端读取环境变量并注入到客户端
+  const runtimeConfig = {
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY,
+    NEXT_PUBLIC_AMAP_SECURITY_CODE: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+  };
+
   return (
     <html lang="zh-CN">
       <head>
@@ -25,6 +36,15 @@ export default function RootLayout({
         <meta name="theme-color" content="#FFC857" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+        {/* 注入运行时环境变量到 window 对象 */}
+        <Script
+          id="runtime-config"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `window.__RUNTIME_CONFIG__ = ${JSON.stringify(runtimeConfig)};`,
+          }}
+        />
 
         {/* 预连接优化 - 减少网络延迟 */}
         <link rel="preconnect" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
