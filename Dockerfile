@@ -53,6 +53,10 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
+# 复制启动脚本
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 # 设置文件权限
 RUN chown -R nextjs:nodejs /app
 USER nextjs
@@ -63,5 +67,5 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 EXPOSE 3000
 
-# 启动应用（standalone 模式使用 server.js）
-CMD ["node", "server.js"]
+# 使用启动脚本替换占位符后启动应用
+CMD ["./docker-entrypoint.sh"]
