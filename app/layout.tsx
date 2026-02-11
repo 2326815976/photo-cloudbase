@@ -15,6 +15,9 @@ export const metadata: Metadata = {
   },
 };
 
+// 运行时读取环境变量，避免被静态预渲染固化为构建期值。
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{
