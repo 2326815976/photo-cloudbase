@@ -1,34 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
 import GalleryClient from './GalleryClient';
 
-// Android优化：移除动态导入，避免页面切换时的额外网络请求
-// 本地打包架构下，直接导入可以提升加载速度
-
-interface Photo {
-  id: string;
-  thumbnail_url: string;
-  preview_url: string;
-  storage_path?: string;
-  width: number;
-  height: number;
-  blurhash?: string;
-  like_count: number;
-  view_count: number;
-  is_liked: boolean;
-  created_at: string;
-}
-
-export default async function GalleryPage() {
-  const supabase = await createClient();
-
-  // 在服务端预加载第一页数据
-  const { data, error } = await supabase.rpc('get_public_gallery', {
-    page_no: 1,
-    page_size: 20
-  });
-
-  const initialPhotos: Photo[] = (!error && data) ? (data.photos || []) : [];
-  const initialTotal: number = (!error && data) ? (data.total || 0) : 0;
-
-  return <GalleryClient initialPhotos={initialPhotos} initialTotal={initialTotal} initialPage={1} />;
+export default function GalleryPage() {
+  return <GalleryClient initialPhotos={[]} initialTotal={0} initialPage={1} />;
 }

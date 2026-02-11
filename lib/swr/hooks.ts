@@ -16,10 +16,17 @@ export function useGallery(page: number = 1, pageSize: number = 20, fallbackData
     if (!supabase) {
       throw new Error('Supabase client unavailable');
     }
-    const { data, error } = await supabase.rpc('get_public_gallery', {
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('gallery_fetch_timeout')), 8000);
+    });
+
+    const queryPromise = supabase.rpc('get_public_gallery', {
       page_no: page,
       page_size: pageSize
     });
+
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
     if (error) throw error;
     return data;

@@ -78,6 +78,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const preloadedPosesRef = useRef<Pose[]>(initialPoses); // 使用 ref 避免闭包陷阱
   const isPreloadingRef = useRef(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const hasClientInitialLoadStartedRef = useRef(false);
+  const TAGS_CACHE_KEY = 'pose-tags-cache-v1';
+  const POSE_CACHE_KEY = 'pose-current-cache-v1';
 
   const HISTORY_SIZE = 10; // 优化：从5轮增加到10轮，减少重复
   const PRELOAD_POOL_SIZE = 25; // 优化：从100减少到25，小池策略
@@ -142,12 +145,44 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
   // 客户端加载tags - 优化：立即加载完整标签列表，不再延迟
   useEffect(() => {
+    const readCachedTags = () => {
+      if (initialTags.length > 0) return;
+
+      try {
+        const raw = localStorage.getItem(TAGS_CACHE_KEY);
+        if (!raw) return;
+
+        const parsed = JSON.parse(raw) as { tags?: PoseTag[]; cachedAt?: number };
+        const cachedTags = Array.isArray(parsed?.tags) ? parsed.tags : [];
+        if (cachedTags.length === 0) return;
+
+        const isExpired = typeof parsed.cachedAt === 'number' && Date.now() - parsed.cachedAt > 2 * 60 * 60 * 1000;
+        if (isExpired) return;
+
+        setTags(cachedTags);
+      } catch {
+        // 忽略缓存读取失败
+      }
+    };
+
+    readCachedTags();
+
     if (initialTags.length === 0) {
       const loadTags = async () => {
         const supabase = createClient();
         if (!supabase) return;
         const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
-        if (data) setTags(data);
+        if (data) {
+          setTags(data);
+          try {
+            localStorage.setItem(
+              TAGS_CACHE_KEY,
+              JSON.stringify({ tags: data, cachedAt: Date.now() })
+            );
+          } catch {
+            // 忽略缓存写入失败
+          }
+        }
       };
       loadTags();
     } else if (initialTags.length >= 15) {
@@ -158,11 +193,47 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
         if (data && data.length > initialTags.length) {
           setTags(data);
+          try {
+            localStorage.setItem(
+              TAGS_CACHE_KEY,
+              JSON.stringify({ tags: data, cachedAt: Date.now() })
+            );
+          } catch {
+            // 忽略缓存写入失败
+          }
         }
       };
       loadAllTags();
     }
   }, [initialTags.length]);
+
+  // 首页无初始姿势时，先读本地缓存，降低首个动画等待
+  useEffect(() => {
+    if (currentPose) return;
+    if (initialPose) return;
+
+    try {
+      const raw = localStorage.getItem(POSE_CACHE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as { pose?: Pose; cachedAt?: number };
+      const cachedPose = parsed?.pose;
+      if (!cachedPose || typeof cachedPose.id !== 'number') return;
+
+      const isExpired = typeof parsed.cachedAt === 'number' && Date.now() - parsed.cachedAt > 30 * 60 * 1000;
+      if (isExpired) return;
+
+      const normalizedPose = {
+        ...cachedPose,
+        tags: Array.isArray(cachedPose.tags) ? cachedPose.tags : [],
+      };
+
+      setCurrentPose(normalizedPose);
+      setRecentPoseIds([normalizedPose.id]);
+    } catch {
+      // 忽略缓存读取失败
+    }
+  }, [currentPose, initialPose]);
 
   // 优化：移除首屏后预热逻辑
   // useEffect 已删除
@@ -467,6 +538,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         setCurrentPose({ ...selectedPose, view_count: selectedPose.view_count + 1 });
         setRecentPoseIds(prev => [selectedPose.id, ...prev].slice(0, HISTORY_SIZE));
 
+        try {
+          localStorage.setItem(
+            POSE_CACHE_KEY,
+            JSON.stringify({ pose: selectedPose, cachedAt: Date.now() })
+          );
+        } catch {
+          // 忽略缓存写入失败
+        }
+
         // 优化：批量提交浏览量，减少90%+数据库写入
         const currentCount = viewBufferRef.current.get(selectedPose.id) || 0;
         viewBufferRef.current.set(selectedPose.id, currentCount + 1);
@@ -478,6 +558,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       setIsAnimating(false);
     }
   }, [isAnimating, hasInteracted, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, preloadedPoses, HISTORY_SIZE, PRELOAD_THRESHOLD]);
+
+  // 客户端首屏兜底（Android WebView 常见）：无初始姿势时立即触发一次加载
+  useEffect(() => {
+    if (hasClientInitialLoadStartedRef.current) return;
+    if (currentPose) return;
+
+    hasClientInitialLoadStartedRef.current = true;
+    void getRandomPose();
+  }, [currentPose, getRandomPose]);
 
   // 摇一摇检测 - 必须在getRandomPose定义之后
   useEffect(() => {

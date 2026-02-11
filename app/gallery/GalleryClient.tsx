@@ -46,9 +46,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const isLoadingMoreRef = useRef(false);
   const preloadedPreviewUrlsRef = useRef<Set<string>>(new Set());
+  const hasClientInitialFetchStartedRef = useRef(false);
   const pageSize = 20;
   const isInitialPage = page === initialPage;
-
+  const GALLERY_CACHE_KEY = 'gallery-page-1-cache-v1';
   // 使用 SWR 获取照片数据,自动缓存和重新验证
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(
     page,
@@ -83,6 +84,49 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     });
     setIsLoadingMore(false);
   }, [data, page, pageSize]);
+
+  // 缓存首页照片墙数据，用于下次进入秒开
+  useEffect(() => {
+    if (page !== 1) return;
+    if (!data?.photos || data.photos.length === 0) return;
+
+    try {
+      localStorage.setItem(
+        GALLERY_CACHE_KEY,
+        JSON.stringify({
+          photos: data.photos,
+          total: data.total || data.photos.length,
+          cachedAt: Date.now(),
+        })
+      );
+    } catch {
+      // 忽略缓存写入失败
+    }
+  }, [page, data]);
+
+  // 无初始数据时尝试读取本地缓存，避免反复进入加载动画
+  useEffect(() => {
+    if (initialPhotos.length > 0) return;
+    if (allPhotos.length > 0) return;
+
+    try {
+      const raw = localStorage.getItem(GALLERY_CACHE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as { photos?: Photo[]; total?: number; cachedAt?: number };
+      const cachedPhotos = Array.isArray(parsed?.photos) ? parsed.photos : [];
+      if (cachedPhotos.length === 0) return;
+
+      const isExpired = typeof parsed.cachedAt === 'number' && Date.now() - parsed.cachedAt > 30 * 60 * 1000;
+      if (isExpired) return;
+
+      setAllPhotos(cachedPhotos);
+      const cachedTotal = typeof parsed.total === 'number' ? parsed.total : cachedPhotos.length;
+      setHasMore(cachedPhotos.length < cachedTotal);
+    } catch {
+      // 忽略缓存解析失败
+    }
+  }, [initialPhotos.length, allPhotos.length]);
 
   useEffect(() => {
     isLoadingMoreRef.current = isLoadingMore;
@@ -205,6 +249,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   };
 
   const showPageLoading = isLoading && allPhotos.length === 0;
+
+  // Android WebView 常见：服务端未预取时，主动触发首屏拉取，避免停留在loading
+  useEffect(() => {
+    if (hasClientInitialFetchStartedRef.current) return;
+    if (allPhotos.length > 0) return;
+
+    hasClientInitialFetchStartedRef.current = true;
+    void refreshGallery();
+  }, [allPhotos.length, refreshGallery]);
 
   if (showPageLoading) {
     return (

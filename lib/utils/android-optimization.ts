@@ -1,3 +1,5 @@
+import { isAndroidWebViewUserAgent } from './platform-detect';
+
 /**
  * Android WebView 性能优化工具
  * 提供针对Android WebView环境的性能优化策略
@@ -10,12 +12,7 @@ export function isAndroidWebView(): boolean {
   if (typeof window === 'undefined') return false;
 
   const ua = navigator.userAgent.toLowerCase();
-  return ua.includes('android') && (
-    ua.includes('wv') ||
-    ua.includes('webview') ||
-    // Capacitor WebView检测
-    !!(window as any).Capacitor
-  );
+  return isAndroidWebViewUserAgent(ua) || !!(window as any).Capacitor;
 }
 
 /**

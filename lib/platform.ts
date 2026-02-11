@@ -1,3 +1,5 @@
+import { isAndroidWebViewUserAgent } from '@/lib/utils/platform-detect';
+
 /**
  * 平台检测工具
  * 用于识别应用运行环境（Android App / iOS / Web）
@@ -35,11 +37,12 @@ export function isAndroidApp(): boolean {
   // 优先使用 UserAgent 检测（更可靠，不依赖 Bridge 注入时机）
   const userAgent = navigator.userAgent || '';
   // 检测特定的App标识或Android WebView特征
-  // 增强检测：包含更多Android WebView特征
-  const isAndroidWebView = /SloganApp|median|gonative|Android.*wv|Android.*Version\/[\d.]+.*Chrome|; wv\)|Android.*AppleWebKit.*\(KHTML, like Gecko\).*Chrome/i.test(userAgent);
+  const isAndroidWebView = isAndroidWebViewUserAgent(userAgent);
 
   // 备用方案：检测 Bridge 对象（用于确认）
   const hasBridge = !!(window.AndroidPhotoDownload || window.AndroidClipboard || window.AndroidPhotoViewer);
+  // Capacitor 原生容器检测（Bridge 尚未注入时可兜底）
+  const hasCapacitor = !!((window as any).Capacitor && typeof (window as any).Capacitor === 'object');
 
   // 调试日志（仅开发环境）
   if (process.env.NODE_ENV !== 'production' && typeof console !== 'undefined') {
@@ -47,11 +50,12 @@ export function isAndroidApp(): boolean {
     console.log('[Platform] UserAgent:', userAgent);
     console.log('[Platform] isAndroidWebView:', isAndroidWebView);
     console.log('[Platform] hasBridge:', hasBridge);
-    console.log('[Platform] Final Result:', isAndroidWebView || hasBridge);
+    console.log('[Platform] hasCapacitor:', hasCapacitor);
+    console.log('[Platform] Final Result:', isAndroidWebView || hasBridge || hasCapacitor);
     console.log('[Platform Detection] ==================');
   }
 
-  return isAndroidWebView || hasBridge;
+  return isAndroidWebView || hasBridge || hasCapacitor;
 }
 
 /**

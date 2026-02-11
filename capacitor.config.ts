@@ -5,8 +5,8 @@ const config: CapacitorConfig = {
   appName: '拾光谣',
   webDir: 'out',
 
-  // Android优化：远程加载 + Service Worker 缓存策略
-  // Service Worker 会缓存字体、图片、静态资源，提升二次加载速度
+  // Android优化：保留远程加载，但禁用 Service Worker（WebView 下由 HTTP 缓存负责）
+  // 避免 SW 与服务端缓存策略冲突导致页面重复加载和字体抖动
   server: {
     url: 'https://www.guangyao666.xyz',
     cleartext: true,
