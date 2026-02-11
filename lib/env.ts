@@ -19,21 +19,33 @@ declare global {
  * 客户端优先级：window.__RUNTIME_CONFIG__ > process.env.NEXT_PUBLIC_* > process.env.*
  * 服务端优先级：process.env.* > process.env.NEXT_PUBLIC_*
  */
+function normalizeEnvValue(value: string | undefined): string {
+  if (!value) return '';
+
+  const normalized = value.trim();
+  // CloudBase 控制台不会展开 "$VAR" 语法，避免将其当作真实配置。
+  if (/^\$[A-Z_][A-Z0-9_]*$/.test(normalized)) {
+    return '';
+  }
+
+  return normalized;
+}
+
 function getEnv(key: string): string {
   // 客户端：优先使用运行时配置
   if (typeof window !== 'undefined' && window.__RUNTIME_CONFIG__) {
     const runtimeKey = `NEXT_PUBLIC_${key}` as keyof typeof window.__RUNTIME_CONFIG__;
-    const value = window.__RUNTIME_CONFIG__[runtimeKey];
+    const value = normalizeEnvValue(window.__RUNTIME_CONFIG__[runtimeKey]);
     if (value) return value;
   }
 
   // 降级到构建时环境变量
   const nextPublicKey = `NEXT_PUBLIC_${key}`;
   if (typeof window === 'undefined') {
-    return process.env[key] || process.env[nextPublicKey] || '';
+    return normalizeEnvValue(process.env[key]) || normalizeEnvValue(process.env[nextPublicKey]);
   }
 
-  return process.env[nextPublicKey] || process.env[key] || '';
+  return normalizeEnvValue(process.env[nextPublicKey]) || normalizeEnvValue(process.env[key]);
 }
 
 // 导出所有环境变量访问函数
