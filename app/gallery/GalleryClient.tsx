@@ -31,7 +31,47 @@ interface GalleryClientProps {
   initialPage?: number;
 }
 
+const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
+
+let galleryMemoryCache: { photos: Photo[]; total: number; cachedAt: number } = {
+  photos: [],
+  total: 0,
+  cachedAt: 0,
+};
+
+const readGalleryMemoryCache = (): { photos: Photo[]; total: number } | null => {
+  if (galleryMemoryCache.photos.length === 0) return null;
+
+  const isExpired = Date.now() - galleryMemoryCache.cachedAt > GALLERY_MEMORY_CACHE_TTL;
+  if (isExpired) {
+    galleryMemoryCache = { photos: [], total: 0, cachedAt: 0 };
+    return null;
+  }
+
+  return {
+    photos: galleryMemoryCache.photos.map((photo) => ({ ...photo })),
+    total: galleryMemoryCache.total,
+  };
+};
+
+const writeGalleryMemoryCache = (photos: Photo[], total: number) => {
+  if (photos.length === 0) {
+    galleryMemoryCache = { photos: [], total: 0, cachedAt: 0 };
+    return;
+  }
+
+  galleryMemoryCache = {
+    photos: photos.map((photo) => ({ ...photo })),
+    total,
+    cachedAt: Date.now(),
+  };
+};
+
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
+  const memoryGallery = initialPhotos.length > 0 ? null : readGalleryMemoryCache();
+  const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
+  const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
+
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<Photo | null>(null);
   const [scale, setScale] = useState(1);
@@ -41,8 +81,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [lastTouchDistance, setLastTouchDistance] = useState(0);
   const [clickTimer, setClickTimer] = useState<number | null>(null);
   const [page, setPage] = useState(initialPage);
-  const [allPhotos, setAllPhotos] = useState<Photo[]>(initialPhotos);
-  const [hasMore, setHasMore] = useState(initialTotal > initialPhotos.length);
+  const [allPhotos, setAllPhotos] = useState<Photo[]>(hydratedInitialPhotos);
+  const [hasMore, setHasMore] = useState(hydratedInitialTotal > hydratedInitialPhotos.length);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const isLoadingMoreRef = useRef(false);
   const preloadedPreviewUrlsRef = useRef<Set<string>>(new Set());
@@ -54,16 +94,20 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(
     page,
     pageSize,
-    isInitialPage && initialPhotos.length > 0
-      ? { photos: initialPhotos, total: initialTotal }
+    isInitialPage && hydratedInitialPhotos.length > 0
+      ? { photos: hydratedInitialPhotos, total: hydratedInitialTotal }
       : undefined
   );
 
   // 从 SWR 数据中提取照片和总数
   const photos = allPhotos;
-  const total = data?.total || initialTotal;
+  const total = data?.total || hydratedInitialTotal;
 
   // 当 SWR 数据更新时，刷新或追加照片
+  useEffect(() => {
+    writeGalleryMemoryCache(allPhotos, Math.max(total, allPhotos.length));
+  }, [allPhotos, total]);
+
   useEffect(() => {
     if (!data?.photos) return;
 
@@ -106,6 +150,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   // 无初始数据时尝试读取本地缓存，避免反复进入加载动画
   useEffect(() => {
+    if (memoryGallery && memoryGallery.photos.length > 0) return;
     if (initialPhotos.length > 0) return;
     if (allPhotos.length > 0) return;
 

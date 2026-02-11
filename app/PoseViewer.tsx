@@ -47,11 +47,49 @@ const normalizePoses = (poses: Pose[]) =>
     tags: Array.isArray(pose.tags) ? pose.tags : [],
   }));
 
+const POSE_MEMORY_CACHE_TTL = 30 * 60 * 1000;
+
+let poseMemoryCache: { pose: Pose | null; cachedAt: number } = {
+  pose: null,
+  cachedAt: 0,
+};
+
+const readPoseMemoryCache = (): Pose | null => {
+  if (!poseMemoryCache.pose) return null;
+
+  const isExpired = Date.now() - poseMemoryCache.cachedAt > POSE_MEMORY_CACHE_TTL;
+  if (isExpired) {
+    poseMemoryCache = { pose: null, cachedAt: 0 };
+    return null;
+  }
+
+  return {
+    ...poseMemoryCache.pose,
+    tags: Array.isArray(poseMemoryCache.pose.tags) ? poseMemoryCache.pose.tags : [],
+  };
+};
+
+const writePoseMemoryCache = (pose: Pose | null) => {
+  if (!pose) {
+    poseMemoryCache = { pose: null, cachedAt: 0 };
+    return;
+  }
+
+  poseMemoryCache = {
+    pose: {
+      ...pose,
+      tags: Array.isArray(pose.tags) ? pose.tags : [],
+    },
+    cachedAt: Date.now(),
+  };
+};
+
 export default function PoseViewer({ initialTags, initialPose, initialPoses }: PoseViewerProps) {
+  const memoryPose = initialPose ?? readPoseMemoryCache();
   const [tags, setTags] = useState<PoseTag[]>(initialTags);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [currentPose, setCurrentPose] = useState<Pose | null>(initialPose);
-  const [recentPoseIds, setRecentPoseIds] = useState<number[]>(initialPose?.id ? [initialPose.id] : []);
+  const [currentPose, setCurrentPose] = useState<Pose | null>(memoryPose);
+  const [recentPoseIds, setRecentPoseIds] = useState<number[]>(memoryPose?.id ? [memoryPose.id] : []);
   const [isAnimating, setIsAnimating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
@@ -76,9 +114,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   // 预加载缓存池（用于无标签查询的即时响应）
   const [preloadedPoses, setPreloadedPoses] = useState<Pose[]>(initialPoses);
   const preloadedPosesRef = useRef<Pose[]>(initialPoses); // 使用 ref 避免闭包陷阱
+  const currentPoseRef = useRef<Pose | null>(memoryPose);
   const isPreloadingRef = useRef(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const hasClientInitialLoadStartedRef = useRef(false);
+  const [poseCacheChecked, setPoseCacheChecked] = useState(false);
+  const [bootstrapReady, setBootstrapReady] = useState(Boolean(memoryPose));
   const TAGS_CACHE_KEY = 'pose-tags-cache-v1';
   const POSE_CACHE_KEY = 'pose-current-cache-v1';
 
@@ -86,6 +127,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const PRELOAD_POOL_SIZE = 25; // 优化：从100减少到25，小池策略
   const PRELOAD_THRESHOLD = 5;  // 优化：从30减少到5，剩余≤5张时补充
   const BOOTSTRAP_POOL_SIZE = 12; // 首屏兜底小池
+  const BOOTSTRAP_MAX_WAIT = 1500;
   const SHAKE_THRESHOLD = 15;
   const SHAKE_COOLDOWN = 2000; // 2秒冷却时间
   const VIEW_SUBMIT_INTERVAL = 5000; // 浏览量批量提交间隔：5秒
@@ -207,14 +249,23 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     }
   }, [initialTags.length]);
 
+  useEffect(() => {
+    currentPoseRef.current = currentPose;
+    writePoseMemoryCache(currentPose);
+  }, [currentPose]);
+
   // 首页无初始姿势时，先读本地缓存，降低首个动画等待
   useEffect(() => {
-    if (currentPose) return;
-    if (initialPose) return;
+    if (currentPose || initialPose) {
+      setPoseCacheChecked(true);
+      return;
+    }
 
     try {
       const raw = localStorage.getItem(POSE_CACHE_KEY);
-      if (!raw) return;
+      if (!raw) {
+        return;
+      }
 
       const parsed = JSON.parse(raw) as { pose?: Pose; cachedAt?: number };
       const cachedPose = parsed?.pose;
@@ -228,10 +279,13 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         tags: Array.isArray(cachedPose.tags) ? cachedPose.tags : [],
       };
 
+      currentPoseRef.current = normalizedPose;
       setCurrentPose(normalizedPose);
       setRecentPoseIds([normalizedPose.id]);
     } catch {
       // 忽略缓存读取失败
+    } finally {
+      setPoseCacheChecked(true);
     }
   }, [currentPose, initialPose]);
 
@@ -255,14 +309,17 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     });
 
     if (bootstrapLoadedRef.current) {
+      setBootstrapReady(true);
       console.log('[首屏兜底] 已执行过，跳过');
       return;
     }
     if (selectedTags.length > 0) {
+      setBootstrapReady(true);
       console.log('[首屏兜底] 有选中标签，跳过');
       return;
     }
     if (preloadedPoses.length >= BOOTSTRAP_POOL_SIZE) {
+      setBootstrapReady(true);
       console.log('[首屏兜底] 预加载池已满，跳过');
       return;
     }
@@ -270,8 +327,16 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     console.log('[首屏兜底] 开始执行补充逻辑');
     bootstrapLoadedRef.current = true;
     const supabase = createClient();
-    if (!supabase) return;
+    if (!supabase) {
+      setBootstrapReady(true);
+      return;
+    }
     let cancelled = false;
+    const bootstrapWaitTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setBootstrapReady(true);
+      }
+    }, BOOTSTRAP_MAX_WAIT);
 
     const loadBootstrap = async () => {
       try {
@@ -309,22 +374,29 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           preloadedPosesRef.current = normalized; // 同步更新 ref
 
           // 如果 currentPose 为 null，立即设置第一张
-          if (!currentPose) {
+          if (!currentPoseRef.current) {
             console.log('[首屏兜底] currentPose 为空，立即设置第一张');
+            currentPoseRef.current = normalized[0];
             setCurrentPose(normalized[0]);
             setRecentPoseIds([normalized[0].id]);
           }
         }
       } catch (error) {
         console.error('[首屏兜底] 预取失败:', error);
+      } finally {
+        clearTimeout(bootstrapWaitTimer);
+        if (!cancelled) {
+          setBootstrapReady(true);
+        }
       }
     };
 
     loadBootstrap();
     return () => {
       cancelled = true;
+      clearTimeout(bootstrapWaitTimer);
     };
-  }, [preloadedPoses.length, selectedTags.length, BOOTSTRAP_POOL_SIZE, currentPose, initialPose]);
+  }, [preloadedPoses.length, selectedTags.length, BOOTSTRAP_POOL_SIZE, BOOTSTRAP_MAX_WAIT, currentPose, initialPose]);
 
   // 优化：移除首屏后预热逻辑，改为按需加载
 
@@ -535,7 +607,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         const randomIndex = Math.floor(Math.random() * availablePoses.length);
         const selectedPose = availablePoses[randomIndex];
 
-        setCurrentPose({ ...selectedPose, view_count: selectedPose.view_count + 1 });
+        const nextPose = { ...selectedPose, view_count: selectedPose.view_count + 1 };
+        currentPoseRef.current = nextPose;
+        setCurrentPose(nextPose);
         setRecentPoseIds(prev => [selectedPose.id, ...prev].slice(0, HISTORY_SIZE));
 
         try {
@@ -559,14 +633,19 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     }
   }, [isAnimating, hasInteracted, selectedTags, selectedTagsKey, cacheKey, cachedPoses, recentPoseIds, preloadedPoses, HISTORY_SIZE, PRELOAD_THRESHOLD]);
 
-  // 客户端首屏兜底（Android WebView 常见）：无初始姿势时立即触发一次加载
+  // 客户端首屏兜底（Android WebView 常见）：缓存检查完成且无姿势时再触发
   useEffect(() => {
+    if (!poseCacheChecked) return;
+    if (!bootstrapReady) return;
     if (hasClientInitialLoadStartedRef.current) return;
-    if (currentPose) return;
+    if (currentPoseRef.current) {
+      hasClientInitialLoadStartedRef.current = true;
+      return;
+    }
 
     hasClientInitialLoadStartedRef.current = true;
     void getRandomPose();
-  }, [currentPose, getRandomPose]);
+  }, [poseCacheChecked, bootstrapReady, getRandomPose]);
 
   // 摇一摇检测 - 必须在getRandomPose定义之后
   useEffect(() => {

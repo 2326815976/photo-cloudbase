@@ -37,7 +37,7 @@ export function useGallery(page: number = 1, pageSize: number = 20, fallbackData
     fetcher,
     {
       dedupingInterval: CACHE_TIME.GALLERY,
-      revalidateOnFocus: true,
+      revalidateOnFocus: false,
       revalidateOnReconnect: true,
       fallbackData,
       revalidateOnMount: !fallbackData,
