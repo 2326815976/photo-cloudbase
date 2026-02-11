@@ -17,22 +17,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# 构建时环境变量（占位符，运行时通过腾讯云环境变量覆盖）
-ARG NEXT_PUBLIC_APP_URL=https://build-placeholder.com
-ARG NEXT_PUBLIC_SUPABASE_URL=https://build-placeholder.supabase.co
-ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=build-placeholder-key
-ARG NEXT_PUBLIC_AMAP_KEY=build-placeholder-amap-key
-ARG NEXT_PUBLIC_AMAP_SECURITY_CODE=build-placeholder-amap-security
-ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=build-placeholder-turnstile-key
-
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-ENV NEXT_PUBLIC_AMAP_KEY=$NEXT_PUBLIC_AMAP_KEY
-ENV NEXT_PUBLIC_AMAP_SECURITY_CODE=$NEXT_PUBLIC_AMAP_SECURITY_CODE
-ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
-
 # 构建应用（standalone 模式）
+# 注意：NEXT_PUBLIC_ 变量通过运行时配置注入（见 app/layout.tsx）
+# 不需要在构建时提供这些变量
 RUN pnpm build
 
 # ========== 阶段3: 生产运行 ==========
