@@ -4,6 +4,7 @@ import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
 import RegisterServiceWorker from "./register-sw";
 import FontCacheBootstrap from "./FontCacheBootstrap";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = {
   title: "拾光谣 · 记录此刻的不期而遇",
@@ -19,14 +20,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // 服务端注入运行时配置
+  // 服务端注入运行时配置（支持 CloudBase 不带 NEXT_PUBLIC_ 前缀的环境变量）
   const runtimeConfig = {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || '',
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '',
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '',
-    NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY || '',
-    NEXT_PUBLIC_AMAP_SECURITY_CODE: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE || '',
-    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '',
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '',
+    NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY || process.env.AMAP_KEY || '',
+    NEXT_PUBLIC_AMAP_SECURITY_CODE: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE || process.env.AMAP_SECURITY_CODE || '',
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || process.env.TURNSTILE_SITE_KEY || '',
   };
 
   return (

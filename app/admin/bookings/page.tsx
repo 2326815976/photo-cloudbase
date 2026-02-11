@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Calendar, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle, Camera, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MapPicker from '@/components/MapPicker';
+import { env } from '@/lib/env';
 
 interface Booking {
   id: string;
@@ -88,7 +89,7 @@ export default function BookingsPage() {
 
     // 设置高德地图安全密钥
     (window as any)._AMapSecurityConfig = {
-      securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
+      securityJsCode: env.AMAP_SECURITY_CODE(),
     };
 
     // 加载高德地图脚本（避免重复注入）
@@ -98,7 +99,7 @@ export default function BookingsPage() {
 
     const script = document.createElement('script');
     script.id = scriptId;
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${env.AMAP_KEY()}`;
     script.async = true;
     document.head.appendChild(script);
   }, []);

@@ -40,5 +40,5 @@ next-env.d.ts
 # scripts
 /scripts
 
-# android
-/android
+# else
+/.serena

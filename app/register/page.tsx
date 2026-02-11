@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Phone, Lock, ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { env } from '@/lib/env';
 
 // 动态导入 Turnstile 组件，延迟加载，不在首页加载时执行
 const Turnstile = dynamic(
@@ -190,7 +191,7 @@ export default function RegisterPage() {
             )}
             <Turnstile
               key={turnstileKey}
-              siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAACXpmi0p6LhPcGAW'}
+              siteKey={env.TURNSTILE_SITE_KEY() || '0x4AAAAAACXpmi0p6LhPcGAW'}
               onSuccess={(token) => {
                 setTurnstileToken(token);
                 setError('');

@@ -9,6 +9,7 @@ import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
 import { createClient } from '@/lib/supabase/client';
 import { getDateAfterDaysUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
+import { env } from '@/lib/env';
 
 interface BookingType {
   id: number;
@@ -83,7 +84,7 @@ export default function BookingPage() {
 
     // 设置高德地图安全密钥
     (window as any)._AMapSecurityConfig = {
-      securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
+      securityJsCode: env.AMAP_SECURITY_CODE(),
     };
 
     // 加载高德地图脚本（避免重复注入）
@@ -93,7 +94,7 @@ export default function BookingPage() {
     if (!existing) {
       const script = document.createElement('script');
       script.id = scriptId;
-      script.src = `https://webapi.amap.com/maps?v=2.0&key=${process.env.NEXT_PUBLIC_AMAP_KEY}`;
+      script.src = `https://webapi.amap.com/maps?v=2.0&key=${env.AMAP_KEY()}`;
       script.async = true;
       document.head.appendChild(script);
     }
