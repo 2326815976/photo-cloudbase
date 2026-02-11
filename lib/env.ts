@@ -16,7 +16,8 @@ declare global {
 
 /**
  * 获取环境变量的统一方法
- * 优先级：window.__RUNTIME_CONFIG__ > process.env.NEXT_PUBLIC_* > process.env.*
+ * 客户端优先级：window.__RUNTIME_CONFIG__ > process.env.NEXT_PUBLIC_* > process.env.*
+ * 服务端优先级：process.env.* > process.env.NEXT_PUBLIC_*
  */
 function getEnv(key: string): string {
   // 客户端：优先使用运行时配置
@@ -28,6 +29,10 @@ function getEnv(key: string): string {
 
   // 降级到构建时环境变量
   const nextPublicKey = `NEXT_PUBLIC_${key}`;
+  if (typeof window === 'undefined') {
+    return process.env[key] || process.env[nextPublicKey] || '';
+  }
+
   return process.env[nextPublicKey] || process.env[key] || '';
 }
 

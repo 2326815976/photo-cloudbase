@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkIPRateLimit, recordIPAttempt, getClientIP } from '@/lib/security/rate-limit';
+import { env } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,8 +90,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. 创建 Supabase 用户（使用 Admin API 绕过邮箱验证）
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = env.SUPABASE_URL();
+    const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY();
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       await recordIPAttempt(clientIP, false, userAgent);

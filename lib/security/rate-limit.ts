@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { env } from '@/lib/env';
 
 /**
  * IP频率限制配置
@@ -12,6 +13,18 @@ export const RATE_LIMIT_CONFIG = {
   HOUR_WINDOW: 60 * 60 * 1000,
   DAY_WINDOW: 24 * 60 * 60 * 1000,
 } as const;
+
+function createRateLimitClient() {
+  const supabaseUrl = env.SUPABASE_URL();
+  const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY();
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    console.error('频率限制服务初始化失败: Supabase 环境变量缺失');
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseServiceRoleKey);
+}
 
 /**
  * 验证IP地址格式
@@ -64,10 +77,10 @@ export async function checkIPRateLimit(
   ipAddress: string
 ): Promise<{ allowed: boolean; reason?: string; retryAfter?: number }> {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = createRateLimitClient();
+    if (!supabase) {
+      return { allowed: true };
+    }
 
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - RATE_LIMIT_CONFIG.HOUR_WINDOW);
@@ -139,10 +152,10 @@ export async function recordIPAttempt(
   userAgent?: string
 ): Promise<void> {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = createRateLimitClient();
+    if (!supabase) {
+      return;
+    }
 
     const { error } = await supabase.from('ip_registration_attempts').insert({
       ip_address: ipAddress,
