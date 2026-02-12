@@ -4,7 +4,7 @@
  * CuteImage - 治愈系图片组件
  *
  * 特性：
- * 1. 使用 Supabase Image Transformations 实时转换图片
+ * 1. 使用 CloudBase 图片转换能力实时生成访问 URL
  * 2. 温暖治愈的加载占位符（跳动云朵动画）
  * 3. 优雅的淡入过渡效果
  * 4. 智能错误处理（显示可爱占位图）
@@ -14,7 +14,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabaseImageLoader, IMAGE_SIZES, getAdaptiveQuality } from '@/lib/supabase/image-loader';
+import { cloudbaseImageLoader, IMAGE_SIZES, getAdaptiveQuality } from '@/lib/cloudbase/image-loader';
 import { isAndroidApp } from '@/lib/platform';
 
 interface CuteImageProps {
@@ -127,7 +127,7 @@ export default function CuteImage({
           alt={alt}
           width={imageWidth}
           height={height || imageWidth}
-          loader={supabaseImageLoader}
+          loader={cloudbaseImageLoader}
           quality={imageQuality}
           priority={priority}
           className={`w-full h-auto transition-opacity duration-500 ${
@@ -144,3 +144,4 @@ export default function CuteImage({
     </div>
   );
 }
+

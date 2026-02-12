@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic'; // 不缓存
@@ -10,15 +10,15 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
+    const dbClient = await createClient();
 
     // 验证管理员权限
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -29,7 +29,7 @@ export async function DELETE(
     }
 
     // 删除锁定日期
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('booking_blackouts')
       .delete()
       .eq('id', id);
@@ -45,3 +45,5 @@ export async function DELETE(
     return NextResponse.json({ error: '服务器错误' }, { status: 500 });
   }
 }
+
+

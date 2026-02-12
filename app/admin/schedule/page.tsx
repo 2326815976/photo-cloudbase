@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 import { formatDateUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
@@ -32,15 +32,15 @@ export default function SchedulePage() {
 
   const loadBlackouts = async () => {
     setLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('booking_blackouts')
       .select('*')
       .order('date', { ascending: true });
@@ -59,8 +59,8 @@ export default function SchedulePage() {
     }
 
     setSubmitting(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setSubmitting(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -89,7 +89,7 @@ export default function SchedulePage() {
       reason: formData.reason || '管理员锁定',
     }));
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('booking_blackouts')
       .insert(records);
 
@@ -117,15 +117,15 @@ export default function SchedulePage() {
     if (!deletingBlackout) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setDeletingBlackout(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('booking_blackouts')
       .delete()
       .eq('id', deletingBlackout.id);
@@ -157,14 +157,14 @@ export default function SchedulePage() {
     setShowBatchDeleteConfirm(false);
     setActionLoading(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('booking_blackouts')
       .delete()
       .in('id', selectedIds);
@@ -550,3 +550,5 @@ export default function SchedulePage() {
     </div>
   );
 }
+
+

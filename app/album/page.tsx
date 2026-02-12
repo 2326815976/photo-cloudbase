@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Sparkles, Plus, Calendar, Clipboard } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { useAlbums } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
 import { getClipboardText } from '@/lib/android';
@@ -45,19 +45,19 @@ export default function AlbumLoginPage() {
 
   const loadUserData = async () => {
     setPageLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setPageLoading(false);
       setError('服务初始化失败，请刷新页面后重试');
       return;
     }
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     setIsLoggedIn(!!user);
 
     if (user) {
       // 加载用户绑定的相册
-      const { data, error } = await supabase.rpc('get_user_bound_albums');
+      const { data, error } = await dbClient.rpc('get_user_bound_albums');
       if (!error && data) {
         setBoundAlbums(data);
       }
@@ -80,15 +80,15 @@ export default function AlbumLoginPage() {
 
     setIsLoading(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setError('服务初始化失败，请刷新页面后重试');
       setIsLoading(false);
       return;
     }
 
     // 使用 get_album_content RPC 验证密钥（可以绕过 RLS）
-    const { data, error: checkError } = await supabase.rpc('get_album_content', {
+    const { data, error: checkError } = await dbClient.rpc('get_album_content', {
       input_key: accessKey.toUpperCase()
     });
 
@@ -107,7 +107,7 @@ export default function AlbumLoginPage() {
 
     // 如果已登录，先尝试绑定该相册
     if (isLoggedIn) {
-      const { error: bindError } = await supabase.rpc('bind_user_to_album', {
+      const { error: bindError } = await dbClient.rpc('bind_user_to_album', {
         p_access_key: accessKey.toUpperCase()
       });
 
@@ -426,3 +426,5 @@ export default function AlbumLoginPage() {
     </div>
   );
 }
+
+

@@ -1,16 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToCOS } from '@/lib/storage/cos-client';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
+import { uploadFileToCloudBase } from '@/lib/cloudbase/storage';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const ALLOWED_FOLDERS = new Set(['albums', 'gallery', 'poses', 'releases']);
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-const ALLOWED_APK_TYPES = ['application/vnd.android.package-archive'];
+const ALLOWED_RELEASE_MIME_TYPES = [
+  'application/vnd.android.package-archive',
+  'application/octet-stream',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-msdownload',
+  'application/vnd.microsoft.portable-executable',
+  'application/x-apple-diskimage',
+  'application/x-debian-package',
+  'application/x-rpm',
+  'application/x-tar',
+  'application/gzip',
+  'application/x-gzip',
+];
+const ALLOWED_RELEASE_EXTENSIONS = [
+  '.apk',
+  '.ipa',
+  '.exe',
+  '.dmg',
+  '.zip',
+  '.deb',
+  '.rpm',
+  '.appimage',
+  '.tar.gz',
+];
+
+function isReleaseFileAllowed(file: File): boolean {
+  const fileName = String(file.name ?? '').toLowerCase().trim();
+  const contentType = String(file.type ?? '').toLowerCase().trim();
+
+  const byExt = ALLOWED_RELEASE_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+  if (byExt) {
+    return true;
+  }
+
+  return ALLOWED_RELEASE_MIME_TYPES.includes(contentType);
+}
 
 export async function POST(request: NextRequest) {
   try {
-    // 权限验证
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const dbClient = await createClient();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       return NextResponse.json(
@@ -19,8 +55,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 检查管理员权限
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -35,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const folder = formData.get('folder') as 'albums' | 'gallery' | 'poses' | 'releases';
+    const folder = String(formData.get('folder') ?? '').trim().toLowerCase() as 'albums' | 'gallery' | 'poses' | 'releases';
     const key = formData.get('key') as string;
 
     if (!file || !folder || !key) {
@@ -45,7 +80,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 文件大小验证
+    if (!ALLOWED_FOLDERS.has(folder)) {
+      return NextResponse.json(
+        { error: `不支持的上传目录：${folder}` },
+        { status: 400 }
+      );
+    }
+
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: `文件大小超过限制（最大${MAX_FILE_SIZE / 1024 / 1024}MB）` },
@@ -53,18 +94,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 文件类型验证
-    const allowedTypes = folder === 'releases' ? ALLOWED_APK_TYPES : ALLOWED_IMAGE_TYPES;
-    if (!allowedTypes.includes(file.type)) {
+    if (folder === 'releases') {
+      if (!isReleaseFileAllowed(file)) {
+        return NextResponse.json(
+          { error: `不支持的安装包格式：${file.name || file.type}` },
+          { status: 400 }
+        );
+      }
+    } else if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: `不支持的文件类型：${file.type}` },
         { status: 400 }
       );
     }
 
-    const url = await uploadToCOS(file, key, folder);
-
-    return NextResponse.json({ url });
+    const uploadResult = await uploadFileToCloudBase(file, key, folder);
+    return NextResponse.json({
+      url: uploadResult.downloadUrl,
+      fileId: uploadResult.fileId,
+      path: uploadResult.cloudPath,
+      provider: 'cloudbase',
+    });
   } catch (error) {
     console.error('上传失败:', error);
     return NextResponse.json(
@@ -73,3 +123,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+

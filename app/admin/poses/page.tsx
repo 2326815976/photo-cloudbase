@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generatePoseImage } from '@/lib/utils/image-versions';
-import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
+import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 
 interface Pose {
   id: number;
@@ -70,15 +70,15 @@ export default function PosesPage() {
   // 摆姿管理函数
   const loadPoses = async () => {
     setPosesLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setPosesLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    let query = supabase
+    let query = dbClient
       .from('poses')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
@@ -110,8 +110,8 @@ export default function PosesPage() {
     }
 
     setUploading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setUploading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -131,14 +131,14 @@ export default function PosesPage() {
           // 压缩图片（对标照片墙列表：1080px, 500KB, 质量0.8）
           const compressedFile = await generatePoseImage(file);
 
-          // 客户端直传图片到腾讯云COS（poses文件夹）
+          // 客户端上传图片到 CloudBase 云存储（poses 目录）
           const fileName = `${Date.now()}_${i}.webp`;
 
           try {
-            const publicUrl = await uploadToCosDirect(compressedFile, fileName, 'poses');
+            const publicUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'poses');
 
             // 插入数据库
-            const { error: insertError } = await supabase
+            const { error: insertError } = await dbClient
               .from('poses')
               .insert({
                 image_url: publicUrl,
@@ -166,9 +166,9 @@ export default function PosesPage() {
 
         const fileName = `${Date.now()}.webp`;
 
-        const publicUrl = await uploadToCosDirect(compressedFile, fileName, 'poses');
+        const publicUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'poses');
 
-        const { error: insertError } = await supabase
+        const { error: insertError } = await dbClient
           .from('poses')
           .insert({
             image_url: publicUrl,
@@ -203,8 +203,8 @@ export default function PosesPage() {
     }
 
     setUploading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setUploading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -212,7 +212,7 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('poses')
         .update({ tags: poseFormData.tags })
         .eq('id', editingPose.id);
@@ -245,8 +245,8 @@ export default function PosesPage() {
     if (!deletingPose) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setDeletingPose(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -255,8 +255,8 @@ export default function PosesPage() {
     }
 
     try {
-      // 删除COS中的文件
-      let cosDeleteSuccess = true;
+      // 删除云存储中的文件
+      let storageDeleteSuccess = true;
       if (deletingPose.storage_path) {
         try {
           const response = await fetch('/api/delete', {
@@ -268,20 +268,20 @@ export default function PosesPage() {
           });
 
           if (!response.ok) {
-            throw new Error('删除COS文件失败');
+            throw new Error('删除云存储文件失败');
           }
         } catch (error) {
-          console.error('删除COS文件失败:', error);
-          cosDeleteSuccess = false;
+          console.error('删除云存储文件失败:', error);
+          storageDeleteSuccess = false;
         }
       }
 
-      if (!cosDeleteSuccess) {
-        throw new Error('删除COS文件失败，已中止数据库删除');
+      if (!storageDeleteSuccess) {
+        throw new Error('删除云存储文件失败，已中止数据库删除');
       }
 
       // 删除数据库记录
-      const { error: dbError } = await supabase
+      const { error: dbError } = await dbClient
         .from('poses')
         .delete()
         .eq('id', deletingPose.id);
@@ -316,8 +316,8 @@ export default function PosesPage() {
     setShowBatchDeleteConfirm(false);
     setActionLoading(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -329,8 +329,8 @@ export default function PosesPage() {
       const posesToDelete = poses.filter(p => selectedPoseIds.includes(p.id));
       const storagePaths = posesToDelete.map(p => p.storage_path).filter(Boolean);
 
-      // 批量删除COS中的文件
-      let cosDeleteSuccess = true;
+      // 批量删除云存储中的文件
+      let storageDeleteSuccess = true;
       if (storagePaths.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -342,20 +342,20 @@ export default function PosesPage() {
           });
 
           if (!response.ok) {
-            throw new Error('批量删除COS文件失败');
+            throw new Error('批量删除云存储文件失败');
           }
         } catch (error) {
-          console.error('批量删除COS文件失败:', error);
-          cosDeleteSuccess = false;
+          console.error('批量删除云存储文件失败:', error);
+          storageDeleteSuccess = false;
         }
       }
 
-      if (!cosDeleteSuccess) {
-        throw new Error('批量删除COS文件失败，已中止数据库删除');
+      if (!storageDeleteSuccess) {
+        throw new Error('批量删除云存储文件失败，已中止数据库删除');
       }
 
       // 批量删除数据库记录
-      const { error: dbError } = await supabase
+      const { error: dbError } = await dbClient
         .from('poses')
         .delete()
         .in('id', selectedPoseIds);
@@ -453,15 +453,15 @@ export default function PosesPage() {
   // 标签管理函数
   const loadTags = async () => {
     setTagsLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setTagsLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('pose_tags')
       .select('*')
       .order('usage_count', { ascending: false });
@@ -480,8 +480,8 @@ export default function PosesPage() {
     }
 
     setAddingTag(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setAddingTag(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -504,7 +504,7 @@ export default function PosesPage() {
       // 批量插入标签（去重，避免同一批次重复导致唯一键冲突）
       const uniqueTagNames = Array.from(new Set(tagNames));
       const tagsToInsert = uniqueTagNames.map(name => ({ name }));
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('pose_tags')
         .insert(tagsToInsert);
 
@@ -549,8 +549,8 @@ export default function PosesPage() {
     }
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -558,7 +558,7 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('pose_tags')
         .update({ name: editingTagName.trim() })
         .eq('id', editingTag.id);
@@ -582,8 +582,8 @@ export default function PosesPage() {
     if (!deletingTag) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setDeletingTag(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -592,7 +592,7 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('pose_tags')
         .delete()
         .eq('id', deletingTag.id);
@@ -627,8 +627,8 @@ export default function PosesPage() {
     setShowBatchDeleteTagsConfirm(false);
     setActionLoading(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -636,7 +636,7 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('pose_tags')
         .delete()
         .in('id', selectedTagIds);
@@ -1669,3 +1669,8 @@ export default function PosesPage() {
     </div>
   );
 }
+
+
+
+
+

@@ -98,11 +98,16 @@ const nextConfig = {
   },
 
   images: {
-    // 腾讯云COS域名配置
+    // CloudBase 云存储常见域名（含自定义域名/默认域名）
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'slogan-1386452208.cos.ap-guangzhou.myqcloud.com',
+        hostname: '**.tcb.qcloud.la',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.cloud.tcb-service.com',
         pathname: '/**',
       },
     ],

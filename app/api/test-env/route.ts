@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 
 export async function GET() {
   // 生产环境禁用测试端点
@@ -12,8 +12,8 @@ export async function GET() {
 
   try {
     // 权限验证
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const dbClient = await createClient();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       return NextResponse.json(
@@ -23,7 +23,7 @@ export async function GET() {
     }
 
     // 检查管理员权限
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -37,11 +37,11 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      COS_BUCKET: process.env.COS_BUCKET || 'undefined',
-      COS_REGION: process.env.COS_REGION || 'undefined',
-      COS_CDN_DOMAIN: process.env.COS_CDN_DOMAIN || 'undefined',
-      COS_SECRET_ID: process.env.COS_SECRET_ID ? '已设置' : 'undefined',
-      COS_SECRET_KEY: process.env.COS_SECRET_KEY ? '已设置' : 'undefined',
+      CLOUDBASE_ID: process.env.CLOUDBASE_ID || 'undefined',
+      CLOUDBASE_SECRET_ID: process.env.CLOUDBASE_SECRET_ID ? '已设置' : 'undefined',
+      CLOUDBASE_SECRET_KEY: process.env.CLOUDBASE_SECRET_KEY ? '已设置' : 'undefined',
+      CLOUDBASE_BUCKET_ID: process.env.CLOUDBASE_BUCKET_ID || 'undefined',
+      CLOUDBASE_STORAGE_DOMAIN: process.env.CLOUDBASE_STORAGE_DOMAIN || 'undefined',
       NODE_ENV: process.env.NODE_ENV,
     });
   } catch (error) {
@@ -51,3 +51,5 @@ export async function GET() {
     );
   }
 }
+
+

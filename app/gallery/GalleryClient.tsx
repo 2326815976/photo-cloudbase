@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, X, Eye, Camera } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
 import { getSessionId } from '@/lib/utils/session';
@@ -226,18 +226,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     // 触觉反馈
     vibrate(50);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       return;
     }
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       setShowLoginPrompt(true);
       return;
     }
 
-    const { data, error } = await supabase.rpc('like_photo', {
+    const { data, error } = await dbClient.rpc('like_photo', {
       p_photo_id: photoId
     });
 
@@ -274,13 +274,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     img.src = photo.preview_url;
 
     // 增加浏览量（带会话去重）
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       return;
     }
     const sessionId = getSessionId();
 
-    const { data } = await supabase.rpc('increment_photo_view', {
+    const { data } = await dbClient.rpc('increment_photo_view', {
       p_photo_id: photo.id,
       p_session_id: sessionId
     });
@@ -749,3 +749,5 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     </div>
   );
 }
+
+

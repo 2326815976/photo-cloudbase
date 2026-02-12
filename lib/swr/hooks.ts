@@ -4,7 +4,7 @@
  */
 
 import useSWR from 'swr';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { CACHE_TIME } from './config';
 
 /**
@@ -12,16 +12,16 @@ import { CACHE_TIME } from './config';
  */
 export function useGallery(page: number = 1, pageSize: number = 20, fallbackData?: any) {
   const fetcher = async () => {
-    const supabase = createClient();
-    if (!supabase) {
-      throw new Error('Supabase client unavailable');
+    const dbClient = createClient();
+    if (!dbClient) {
+      throw new Error('数据库客户端不可用');
     }
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('gallery_fetch_timeout')), 8000);
     });
 
-    const queryPromise = supabase.rpc('get_public_gallery', {
+    const queryPromise = dbClient.rpc('get_public_gallery', {
       page_no: page,
       page_size: pageSize
     });
@@ -50,11 +50,11 @@ export function useGallery(page: number = 1, pageSize: number = 20, fallbackData
  */
 export function useAlbums() {
   const fetcher = async () => {
-    const supabase = createClient();
-    if (!supabase) {
-      throw new Error('Supabase client unavailable');
+    const dbClient = createClient();
+    if (!dbClient) {
+      throw new Error('数据库客户端不可用');
     }
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('albums')
       .select('id, access_key, title, cover_url, recipient_name, expires_at, created_at')
       .order('created_at', { ascending: false });
@@ -80,11 +80,11 @@ export function useAlbumContent(albumId: string | null) {
   const fetcher = async () => {
     if (!albumId) return null;
 
-    const supabase = createClient();
-    if (!supabase) {
-      throw new Error('Supabase client unavailable');
+    const dbClient = createClient();
+    if (!dbClient) {
+      throw new Error('数据库客户端不可用');
     }
-    const { data, error } = await supabase.rpc('get_album_content', {
+    const { data, error } = await dbClient.rpc('get_album_content', {
       input_key: albumId
     });
 
@@ -107,11 +107,11 @@ export function useAlbumContent(albumId: string | null) {
  */
 export function usePoses(tags: string[] = []) {
   const fetcher = async () => {
-    const supabase = createClient();
-    if (!supabase) {
-      throw new Error('Supabase client unavailable');
+    const dbClient = createClient();
+    if (!dbClient) {
+      throw new Error('数据库客户端不可用');
     }
-    let query = supabase
+    let query = dbClient
       .from('poses')
       .select('*')
       .order('created_at', { ascending: false });
@@ -141,11 +141,11 @@ export function usePoses(tags: string[] = []) {
  */
 export function useTags() {
   const fetcher = async () => {
-    const supabase = createClient();
-    if (!supabase) {
-      throw new Error('Supabase client unavailable');
+    const dbClient = createClient();
+    if (!dbClient) {
+      throw new Error('数据库客户端不可用');
     }
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('pose_tags')
       .select('*')
       .order('usage_count', { ascending: false });
@@ -163,3 +163,5 @@ export function useTags() {
     }
   );
 }
+
+

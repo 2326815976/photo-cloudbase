@@ -23,11 +23,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const storageDomain = env.CLOUDBASE_STORAGE_DOMAIN();
+
   // 服务端注入运行时配置（优先读取无前缀变量，兼容 CloudBase）
   const runtimeConfig = {
     NEXT_PUBLIC_APP_URL: env.APP_URL(),
-    NEXT_PUBLIC_SUPABASE_URL: env.SUPABASE_URL(),
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: env.SUPABASE_PUBLISHABLE_KEY(),
+    NEXT_PUBLIC_CLOUDBASE_STORAGE_DOMAIN: storageDomain,
     NEXT_PUBLIC_AMAP_KEY: env.AMAP_KEY(),
     NEXT_PUBLIC_AMAP_SECURITY_CODE: env.AMAP_SECURITY_CODE(),
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: env.TURNSTILE_SITE_KEY(),
@@ -50,8 +51,12 @@ export default function RootLayout({
         />
 
         {/* 预连接优化 - 减少网络延迟 */}
-        <link rel="preconnect" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
-        <link rel="dns-prefetch" href="https://slogan-1386452208.cos.ap-guangzhou.myqcloud.com" />
+        {storageDomain && (
+          <>
+            <link rel="preconnect" href={storageDomain} />
+            <link rel="dns-prefetch" href={storageDomain} />
+          </>
+        )}
 
         {/* 字体预加载 - 仅预加载首屏必需字体 */}
         <link rel="preload" href="/fonts/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />

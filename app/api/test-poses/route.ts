@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 
 export async function GET() {
   // 生产环境禁用测试端点
@@ -12,8 +12,8 @@ export async function GET() {
 
   try {
     // 权限验证
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const dbClient = await createClient();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       return NextResponse.json(
@@ -23,7 +23,7 @@ export async function GET() {
     }
 
     // 检查管理员权限
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -37,13 +37,13 @@ export async function GET() {
     }
 
     // 查询摆姿数据
-    const { data: poses, error: posesError, count } = await supabase
+    const { data: poses, error: posesError, count } = await dbClient
       .from('poses')
       .select('*', { count: 'exact' })
       .limit(5);
 
     // 查询标签数据
-    const { data: tags, error: tagsError } = await supabase
+    const { data: tags, error: tagsError } = await dbClient
       .from('pose_tags')
       .select('*')
       .limit(5);
@@ -63,3 +63,5 @@ export async function GET() {
     }, { status: 500 });
   }
 }
+
+

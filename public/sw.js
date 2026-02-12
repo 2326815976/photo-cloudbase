@@ -129,8 +129,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 策略2：COS CDN图片 - 缓存优先，限制数量
-  if (url.hostname.includes('cos.ap-guangzhou.myqcloud.com')) {
+  // 策略2：CloudBase 云存储图片 - 缓存优先，限制数量
+  const isCloudBaseImageHost =
+    url.hostname.includes('tcb.qcloud.la') ||
+    url.hostname.includes('cloud.tcb-service.com');
+
+  if (isCloudBaseImageHost) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) {

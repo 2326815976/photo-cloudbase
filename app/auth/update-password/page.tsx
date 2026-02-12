@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, CheckCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 export default function UpdatePasswordPage() {
   const router = useRouter();
@@ -33,14 +33,14 @@ export default function UpdatePasswordPage() {
     setIsLoading(true);
 
     try {
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setError('系统配置错误，请稍后重试');
         setIsLoading(false);
         return;
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({
+      const { error: updateError } = await dbClient.auth.updateUser({
         password: formData.password
       });
 
@@ -167,3 +167,5 @@ export default function UpdatePasswordPage() {
     </div>
   );
 }
+
+

@@ -8,7 +8,7 @@ import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import ImagePreview from '@/components/ImagePreview';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isAndroidApp } from '@/lib/platform';
 import { isWechatBrowser } from '@/lib/wechat';
@@ -104,15 +104,15 @@ export default function AlbumDetailPage() {
 
   const loadAlbumData = async () => {
     setLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
       return;
     }
 
     // 调用RPC获取相册内容（已包含三个URL字段）
-    const { data, error } = await supabase.rpc('get_album_content', {
+    const { data, error } = await dbClient.rpc('get_album_content', {
       input_key: accessKey
     });
 
@@ -180,15 +180,15 @@ export default function AlbumDetailPage() {
     const photo = photos.find(p => p.id === photoId);
     if (!photo) return;
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
       setTimeout(() => setToast(null), 3000);
       return;
     }
 
     // 使用RPC函数确保安全性
-    const { error } = await supabase.rpc('pin_photo_to_wall', {
+    const { error } = await dbClient.rpc('pin_photo_to_wall', {
       p_access_key: accessKey,
       p_photo_id: photoId
     });
@@ -278,8 +278,8 @@ export default function AlbumDetailPage() {
   };
 
   const confirmBatchDelete = async () => {
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowDeleteConfirm(false);
       setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
       setTimeout(() => setToast(null), 3000);
@@ -292,8 +292,8 @@ export default function AlbumDetailPage() {
       const photo = photos.find(p => p.id === photoId);
       if (!photo) continue;
 
-      // 删除COS中的所有版本文件（基于 accessKey + photoId 服务端校验）
-      let cosDeleteSuccess = true;
+      // 删除云存储中的所有版本文件（基于 accessKey + photoId 服务端校验）
+      let storageDeleteSuccess = true;
       try {
         const response = await fetch('/api/batch-delete', {
           method: 'DELETE',
@@ -304,20 +304,20 @@ export default function AlbumDetailPage() {
         });
 
         if (!response.ok) {
-          throw new Error('删除COS文件失败');
+          throw new Error('删除云存储文件失败');
         }
       } catch (error) {
-        console.error('删除COS文件失败:', error);
-        cosDeleteSuccess = false;
+        console.error('删除云存储文件失败:', error);
+        storageDeleteSuccess = false;
       }
 
-      if (!cosDeleteSuccess) {
+      if (!storageDeleteSuccess) {
         failCount++;
         continue;
       }
 
       // 删除数据库记录
-      const { error: dbError } = await supabase.rpc('delete_album_photo', {
+      const { error: dbError } = await dbClient.rpc('delete_album_photo', {
         p_access_key: accessKey,
         p_photo_id: photoId
       });
@@ -1074,3 +1074,7 @@ export default function AlbumDetailPage() {
     </div>
   );
 }
+
+
+
+

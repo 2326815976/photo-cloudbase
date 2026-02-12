@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { Calendar, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle, Camera, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MapPicker from '@/components/MapPicker';
@@ -111,8 +111,8 @@ export default function BookingsPage() {
   // 预约管理函数
   const loadBookings = async () => {
     setBookingsLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setBookingsLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -120,23 +120,9 @@ export default function BookingsPage() {
     }
 
     // 优化查询：只选择需要的字段
-    let query = supabase
+    let query = dbClient
       .from('bookings')
-      .select(`
-        id,
-        user_id,
-        type_id,
-        booking_date,
-        location,
-        city_name,
-        phone,
-        wechat,
-        notes,
-        status,
-        created_at,
-        updated_at,
-        booking_types(name)
-      `)
+      .select('id, user_id, type_id, booking_date, location, city_name, phone, wechat, notes, status, created_at, updated_at')
       .order('booking_date', { ascending: false });
 
     if (filter !== 'all') {
@@ -153,15 +139,30 @@ export default function BookingsPage() {
     if (!error && data && data.length > 0) {
       // 手动获取用户信息
       const userIds = [...new Set(data.map((b: any) => b.user_id))];
-      const { data: profiles } = await supabase
+      const { data: profiles } = await dbClient
         .from('profiles')
         .select('id, name, email')
         .in('id', userIds);
 
+      const typeIds = [...new Set(data.map((b: any) => b.type_id).filter(Boolean))];
+      let bookingTypeMap = new Map<number, { name: string }>();
+
+      if (typeIds.length > 0) {
+        const { data: bookingTypes } = await dbClient
+          .from('booking_types')
+          .select('id, name')
+          .in('id', typeIds);
+
+        bookingTypeMap = new Map(
+          (bookingTypes || []).map((item: any) => [item.id, { name: item.name }])
+        );
+      }
+
       // 将用户信息合并到预约数据中
       const bookingsWithProfiles = data.map((booking: any) => ({
         ...booking,
-        profiles: profiles?.find((p: any) => p.id === booking.user_id) || { name: '未知用户', email: '' }
+        profiles: profiles?.find((p: any) => p.id === booking.user_id) || { name: '未知用户', email: '' },
+        booking_types: booking.type_id ? bookingTypeMap.get(booking.type_id) : undefined,
       }));
 
       setBookings(bookingsWithProfiles as any);
@@ -182,8 +183,8 @@ export default function BookingsPage() {
     if (!cancelingBooking) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setCancelingBooking(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -198,7 +199,7 @@ export default function BookingsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('bookings')
       .update({ status: 'cancelled' })
       .eq('id', cancelingBooking.id);
@@ -224,14 +225,14 @@ export default function BookingsPage() {
       return;
     }
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('bookings')
       .update({ status: 'confirmed' })
       .eq('id', id)
@@ -255,14 +256,14 @@ export default function BookingsPage() {
       return;
     }
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('bookings')
       .update({ status: 'in_progress' })
       .eq('id', id)
@@ -286,14 +287,14 @@ export default function BookingsPage() {
       return;
     }
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('bookings')
       .update({ status: 'finished' })
       .eq('id', id)
@@ -356,8 +357,8 @@ export default function BookingsPage() {
     setShowBatchDeleteBookingsConfirm(false);
     setActionLoading(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -365,7 +366,7 @@ export default function BookingsPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('bookings')
         .delete()
         .in('id', selectedBookingIds);
@@ -404,14 +405,14 @@ export default function BookingsPage() {
   // 约拍类型管理函数
   const loadBookingTypes = async () => {
     setTypesLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setTypesLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('booking_types')
       .select('*')
       .order('id');
@@ -441,8 +442,8 @@ export default function BookingsPage() {
     }
 
     setSubmitting(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setSubmitting(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -450,7 +451,7 @@ export default function BookingsPage() {
     }
 
     if (editingType) {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('booking_types')
         .update({ name: typeFormData.name, description: typeFormData.description })
         .eq('id', editingType.id);
@@ -465,7 +466,7 @@ export default function BookingsPage() {
         setTimeout(() => setShowToast(null), 3000);
       }
     } else {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('booking_types')
         .insert({ name: typeFormData.name, description: typeFormData.description });
 
@@ -483,13 +484,13 @@ export default function BookingsPage() {
   };
 
   const handleToggleTypeStatus = async (type: BookingType) => {
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('booking_types')
       .update({ is_active: !type.is_active })
       .eq('id', type.id);
@@ -512,8 +513,8 @@ export default function BookingsPage() {
     if (!deletingType) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setDeletingType(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -522,7 +523,7 @@ export default function BookingsPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('booking_types')
         .delete()
         .eq('id', deletingType.id);
@@ -545,14 +546,14 @@ export default function BookingsPage() {
   // 城市管理函数
   const loadCities = async () => {
     setCitiesLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setCitiesLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('allowed_cities')
       .select('*')
       .order('id');
@@ -613,8 +614,8 @@ export default function BookingsPage() {
     }
 
     setSubmitting(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setSubmitting(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -626,7 +627,7 @@ export default function BookingsPage() {
     };
 
     if (editingCity) {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('allowed_cities')
         .update({
           city_name: cityFormData.city_name,
@@ -646,7 +647,7 @@ export default function BookingsPage() {
         setTimeout(() => setShowToast(null), 3000);
       }
     } else {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('allowed_cities')
         .insert({
           city_name: cityFormData.city_name,
@@ -669,13 +670,13 @@ export default function BookingsPage() {
   };
 
   const handleToggleCityStatus = async (city: AllowedCity) => {
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('allowed_cities')
       .update({ is_active: !city.is_active })
       .eq('id', city.id);
@@ -698,8 +699,8 @@ export default function BookingsPage() {
     if (!deletingCity) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setDeletingCity(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -708,7 +709,7 @@ export default function BookingsPage() {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('allowed_cities')
         .delete()
         .eq('id', deletingCity.id);
@@ -1537,3 +1538,5 @@ export default function BookingsPage() {
     </div>
   );
 }
+
+

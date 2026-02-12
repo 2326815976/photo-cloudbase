@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, RefreshCw, X } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import SimpleImage from '@/components/ui/SimpleImage';
 import ToggleSwitch from '@/components/ui/ToggleSwitch';
 import SkeletonPose from '@/components/ui/SkeletonPose';
@@ -153,8 +153,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       const buffer = viewBufferRef.current;
       if (buffer.size === 0) return;
 
-      const supabase = createClient();
-      if (!supabase) return;
+      const dbClient = createClient();
+      if (!dbClient) return;
 
       // 转换为数组格式
       const poseViews = Array.from(buffer.entries()).map(([pose_id, count]) => ({
@@ -163,7 +163,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       }));
 
       try {
-        await supabase.rpc('batch_increment_pose_views', { pose_views: poseViews });
+        await dbClient.rpc('batch_increment_pose_views', { pose_views: poseViews });
         console.log('[浏览量批量提交] 成功提交', poseViews.length, '条记录');
         buffer.clear();
       } catch (error) {
@@ -211,9 +211,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
     if (initialTags.length === 0) {
       const loadTags = async () => {
-        const supabase = createClient();
-        if (!supabase) return;
-        const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
+        const dbClient = createClient();
+        if (!dbClient) return;
+        const { data } = await dbClient.from('pose_tags').select('*').order('usage_count', { ascending: false });
         if (data) {
           setTags(data);
           try {
@@ -230,9 +230,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     } else if (initialTags.length >= 15) {
       // 优化：首屏已加载15个热门标签，立即加载完整列表（不再延迟1秒）
       const loadAllTags = async () => {
-        const supabase = createClient();
-        if (!supabase) return;
-        const { data } = await supabase.from('pose_tags').select('*').order('usage_count', { ascending: false });
+        const dbClient = createClient();
+        if (!dbClient) return;
+        const { data } = await dbClient.from('pose_tags').select('*').order('usage_count', { ascending: false });
         if (data && data.length > initialTags.length) {
           setTags(data);
           try {
@@ -326,8 +326,8 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
     console.log('[首屏兜底] 开始执行补充逻辑');
     bootstrapLoadedRef.current = true;
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setBootstrapReady(true);
       return;
     }
@@ -342,7 +342,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       try {
         console.log('[首屏兜底] 开始查询数据库');
         const r = Math.random();
-        let { data } = await supabase
+        let { data } = await dbClient
           .from('poses')
           .select('id, image_url, tags, view_count, rand_key')
           .gte('rand_key', r)
@@ -353,7 +353,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
         if (!data || data.length < Math.min(BOOTSTRAP_POOL_SIZE, 6)) {
           console.log('[首屏兜底] 数据不足，执行兜底查询');
-          const { data: fallback } = await supabase
+          const { data: fallback } = await dbClient
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
             .order('rand_key')
@@ -406,15 +406,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       if (isPreloadingRef.current || selectedTags.length > 0) return;
 
       isPreloadingRef.current = true;
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         isPreloadingRef.current = false;
         return;
       }
 
       try {
         // 优化：使用批量 RPC 一次获取多条，减少网络往返
-        const { data } = await supabase.rpc('get_random_poses_batch', {
+        const { data } = await dbClient.rpc('get_random_poses_batch', {
           tag_filter: null,
           batch_size: PRELOAD_POOL_SIZE,
           exclude_ids: recentPoseIds
@@ -481,9 +481,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       setHasInteracted(true);
     }
 
-    const supabase = createClient();
-    if (!supabase) {
-      console.error('[getRandomPose] Supabase 客户端创建失败');
+    const dbClient = createClient();
+    if (!dbClient) {
+      console.error('[getRandomPose] 数据库客户端创建失败');
       return;
     }
 
@@ -508,7 +508,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             isPreloadingRef.current = true;
 
             // 优化：使用批量 RPC 一次获取多条，减少网络往返
-            supabase
+            dbClient
               .rpc('get_random_poses_batch', {
                 tag_filter: null,
                 batch_size: PRELOAD_POOL_SIZE,
@@ -536,7 +536,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         } else {
           // 预加载池为空时的兜底查询（优化：减少查询数量以提升首次点击速度）
           const r = Math.random();
-          let { data } = await supabase
+          let { data } = await dbClient
             .from('poses')
             .select('id, image_url, tags, view_count, rand_key')
             .gte('rand_key', r)
@@ -544,7 +544,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
             .limit(20);  // 优化：从 50 减少到 20，足够支持去重
 
           if (!data || data.length < 15) {
-            const { data: fallback } = await supabase
+            const { data: fallback } = await dbClient
               .from('poses')
               .select('id, image_url, tags, view_count, rand_key')
               .order('rand_key')
@@ -564,7 +564,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         // 有标签查询：严格遵循“先精确匹配，空结果再模糊匹配”
         const baseSelect = 'id, image_url, tags, view_count, rand_key';
 
-        const { data: exactMatches, error: exactError } = await supabase
+        const { data: exactMatches, error: exactError } = await dbClient
           .from('poses')
           .select(baseSelect)
           .contains('tags', selectedTags)
@@ -579,7 +579,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         if (normalizedExactMatches.length > 0) {
           poses = normalizedExactMatches;
         } else {
-          const { data: fuzzyMatches, error: fuzzyError } = await supabase
+          const { data: fuzzyMatches, error: fuzzyError } = await dbClient
             .from('poses')
             .select(baseSelect)
             .overlaps('tags', selectedTags)
@@ -1155,3 +1155,5 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     </div>
   );
 }
+
+

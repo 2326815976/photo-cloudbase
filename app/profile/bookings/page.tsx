@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, MapPin, Phone, MessageSquare, ArrowLeft, Trash2, X } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Booking {
   id: string;
+  type_id?: number;
   booking_date: string;
   location: string;
   phone: string;
@@ -67,26 +68,41 @@ export default function BookingsPage() {
 
   const loadBookings = async () => {
     setLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       return;
     }
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (user) {
-      const { data, error } = await supabase
+      const { data, error } = await dbClient
         .from('bookings')
-        .select(`
-          id, booking_date, location, city_name, phone, wechat,
-          notes, status, created_at, updated_at,
-          booking_types(name)
-        `)
+        .select('id, type_id, booking_date, location, city_name, phone, wechat, notes, status, created_at, updated_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
-        setBookings(data);
+        const typeIds = [...new Set(data.map((item: any) => item.type_id).filter(Boolean))];
+        let bookingTypeMap = new Map<number, { name: string }>();
+
+        if (typeIds.length > 0) {
+          const { data: bookingTypes } = await dbClient
+            .from('booking_types')
+            .select('id, name')
+            .in('id', typeIds);
+
+          bookingTypeMap = new Map(
+            (bookingTypes || []).map((item: any) => [item.id, { name: item.name }])
+          );
+        }
+
+        setBookings(
+          data.map((item: any) => ({
+            ...item,
+            booking_types: item.type_id ? bookingTypeMap.get(item.type_id) : undefined,
+          }))
+        );
       }
     }
     setLoading(false);
@@ -110,13 +126,13 @@ export default function BookingsPage() {
     }
 
     setCancelingId(id);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setCancelingId(null);
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('bookings')
       .update({ status: 'cancelled' })
       .eq('id', id);
@@ -136,14 +152,14 @@ export default function BookingsPage() {
     }
 
     setDeletingId(id);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setDeletingId(null);
       setShowDeleteConfirm(null);
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('bookings')
       .delete()
       .eq('id', id);
@@ -376,3 +392,5 @@ export default function BookingsPage() {
     </div>
   );
 }
+
+

@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, lazy, Suspense } from 'react';
 import { MotionConfig } from 'framer-motion';
 import BottomNav from './BottomNav';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import SWRProvider from './providers/SWRProvider';
 import { prefetchByRoute } from '@/lib/swr/prefetch';
 import { isAndroidWebView, optimizePageRendering } from '@/lib/utils/android-optimization';
@@ -37,13 +37,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     const timer = setTimeout(() => {
       const logActivity = async () => {
-        const supabase = createClient();
-        if (!supabase) return;
+        const dbClient = createClient();
+        if (!dbClient) return;
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user } } = await dbClient.auth.getUser();
 
         if (user) {
-          await supabase.rpc('log_user_activity');
+          await dbClient.rpc('log_user_activity');
         }
       };
 
@@ -113,3 +113,5 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     </SWRProvider>
   );
 }
+
+

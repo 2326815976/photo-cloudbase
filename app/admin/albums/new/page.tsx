@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle, Upload, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
+import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 
 export default function NewAlbumPage() {
   const router = useRouter();
@@ -75,7 +75,7 @@ export default function NewAlbumPage() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
+      const dbClient = createClient();
       const accessKey = formData.auto_generate_key ? generateRandomKey() : formData.access_key;
 
       if (!accessKey) {
@@ -86,7 +86,7 @@ export default function NewAlbumPage() {
       }
 
       // 检查密钥是否已存在
-      const { data: existing } = await supabase
+      const { data: existing } = await dbClient
         .from('albums')
         .select('id')
         .eq('access_key', accessKey)
@@ -106,7 +106,7 @@ export default function NewAlbumPage() {
           const timestamp = Date.now();
           const ext = coverFile.name.split('.').pop();
           const fileName = `cover_${timestamp}.${ext}`;
-          coverUrl = await uploadToCosDirect(coverFile, fileName, 'albums');
+          coverUrl = await uploadToCloudBaseDirect(coverFile, fileName, 'albums');
         } catch (uploadError: any) {
           setShowToast({ message: `封面上传失败：${uploadError.message}`, type: 'error' });
           setTimeout(() => setShowToast(null), 3000);
@@ -119,7 +119,7 @@ export default function NewAlbumPage() {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + formData.expiry_days);
 
-      const { error } = await supabase.from('albums').insert({
+      const { error } = await dbClient.from('albums').insert({
         title: formData.title || '未命名空间',
         access_key: accessKey,
         cover_url: coverUrl,
@@ -376,3 +376,6 @@ export default function NewAlbumPage() {
     </div>
   );
 }
+
+
+

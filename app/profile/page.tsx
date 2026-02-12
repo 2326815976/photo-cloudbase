@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Calendar, Lock, LogOut, User } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -17,20 +17,20 @@ export default function ProfilePage() {
   // 检查登录状态
   useEffect(() => {
     const checkAuth = async () => {
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setIsLoading(false);
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await dbClient.auth.getSession();
 
       if (session?.user) {
         setIsLoggedIn(true);
         setUserEmail(session.user.email || '');
 
         // 从数据库profiles表获取用户名和手机号
-        const { data: profile } = await supabase
+        const { data: profile } = await dbClient
           .from('profiles')
           .select('name, phone')
           .eq('id', session.user.id)
@@ -267,9 +267,9 @@ export default function ProfilePage() {
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
             onClick={async () => {
-              const supabase = createClient();
-              if (supabase) {
-                await supabase.auth.signOut();
+              const dbClient = createClient();
+              if (dbClient) {
+                await dbClient.auth.signOut();
               }
               setIsLoggedIn(false);
               router.push('/login');
@@ -289,3 +289,5 @@ export default function ProfilePage() {
     </div>
   );
 }
+
+

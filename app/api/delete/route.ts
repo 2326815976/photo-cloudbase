@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteFromCOS } from '@/lib/storage/cos-client';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
+import { deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
 
 export async function DELETE(request: NextRequest) {
   try {
-    // 权限验证
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const dbClient = await createClient();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       return NextResponse.json(
@@ -15,8 +14,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // 检查管理员权限
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -29,16 +27,20 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const { key } = await request.json();
+    const body = await request.json().catch(() => ({} as any));
+    const key = String(body?.key ?? '').trim();
+    const url = String(body?.url ?? '').trim();
+    const fileId = String(body?.fileId ?? '').trim();
 
-    if (!key) {
+    const targets = [key, url, fileId].filter(Boolean);
+    if (targets.length === 0) {
       return NextResponse.json(
-        { error: '缺少文件路径参数' },
+        { error: '缺少文件标识参数' },
         { status: 400 }
       );
     }
 
-    await deleteFromCOS(key);
+    await deleteCloudBaseObjects(targets);
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -49,3 +51,5 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+
+

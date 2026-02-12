@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/cloudbase/server';
 import { NextResponse } from 'next/server';
 import { getTodayUTC8, getDateAfterDaysUTC8 } from '@/lib/utils/date-helpers';
 
@@ -8,14 +8,14 @@ export const revalidate = 0; // 禁用缓存,实时获取最新数据
 export async function GET() {
   try {
     // 使用管理员客户端绕过RLS策略,查询所有用户的预约记录
-    const supabase = createAdminClient();
+    const dbClient = createAdminClient();
 
     // 使用UTC时间统一处理日期，避免时区问题
     const today = getTodayUTC8();
     const maxDateStr = getDateAfterDaysUTC8(30);
 
     // 1. 获取管理员锁定的日期
-    const { data: blackoutData, error: blackoutError } = await supabase
+    const { data: blackoutData, error: blackoutError } = await dbClient
       .from('booking_blackouts')
       .select('date')
       .gte('date', today)
@@ -26,7 +26,7 @@ export async function GET() {
     }
 
     // 2. 获取已有预约的日期（pending、confirmed、in_progress状态）
-    const { data: bookingData, error: bookingError } = await supabase
+    const { data: bookingData, error: bookingError } = await dbClient
       .from('bookings')
       .select('booking_date')
       .in('status', ['pending', 'confirmed', 'in_progress'])
@@ -44,10 +44,10 @@ export async function GET() {
     blockedDates.add(today);
 
     // 添加锁定日期
-    blackoutData?.forEach(item => blockedDates.add(item.date));
+    blackoutData?.forEach((item: any) => blockedDates.add(item.date));
 
     // 添加已预约日期
-    bookingData?.forEach(item => blockedDates.add(item.booking_date));
+    bookingData?.forEach((item: any) => blockedDates.add(item.booking_date));
 
     const dates = Array.from(blockedDates).sort();
 
@@ -57,3 +57,5 @@ export async function GET() {
     return NextResponse.json({ dates: [] }, { status: 200 });
   }
 }
+
+

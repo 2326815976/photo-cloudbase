@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { Package, Plus, Trash2, Download, Smartphone, CheckCircle, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -10,6 +10,8 @@ interface Release {
   version: string;
   platform: string;
   download_url: string;
+  storage_provider?: 'cloudbase';
+  storage_file_id?: string | null;
   update_log: string;
   force_update: boolean;
   created_at: string;
@@ -28,16 +30,16 @@ export default function ReleasesPage() {
 
   const loadReleases = async () => {
     setLoading(true);
-    const supabase = createClient();
+    const dbClient = createClient();
 
-    if (!supabase) {
+    if (!dbClient) {
       setLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('app_releases')
       .select('*')
       .order('created_at', { ascending: false });
@@ -62,109 +64,28 @@ export default function ReleasesPage() {
     if (!deletingRelease) return;
 
     setActionLoading(true);
-    const supabase = createClient();
+    try {
+      const response = await fetch(`/api/admin/releases/${deletingRelease.id}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json();
 
-    if (!supabase) {
-      setActionLoading(false);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-
-    const getStoragePath = (url: string, bucket: string) => {
-      try {
-        const urlObj = new URL(url);
-        const marker = `/storage/v1/object/public/${bucket}/`;
-        const index = urlObj.pathname.indexOf(marker);
-        if (index === -1) return null;
-        return urlObj.pathname.substring(index + marker.length);
-      } catch {
-        return null;
+      if (!response.ok) {
+        throw new Error(payload?.error || '删除失败');
       }
-    };
 
-    // 优先删除 Supabase Storage（APK存储桶）
-    let assetDeleteError: string | null = null;
-
-    if (deletingRelease.download_url) {
-      const storagePath = getStoragePath(deletingRelease.download_url, 'apk-releases');
-      if (storagePath) {
-        const { error: storageError } = await supabase.storage
-          .from('apk-releases')
-          .remove([storagePath]);
-
-        if (storageError && !assetDeleteError) {
-          assetDeleteError = storageError.message;
-        }
-
-        if (storageError) {
-          console.error('删除Storage文件失败:', storageError);
-        }
-      } else {
-        const legacyPath = getStoragePath(deletingRelease.download_url, 'releases');
-        if (legacyPath) {
-          const { error: legacyError } = await supabase.storage
-            .from('releases')
-            .remove([legacyPath]);
-
-          if (legacyError && !assetDeleteError) {
-            assetDeleteError = legacyError.message;
-          }
-
-          if (legacyError) {
-            console.error('删除Storage文件失败:', legacyError);
-          }
-        } else {
-          // 兼容旧数据：COS URL
-          const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
-          const key = extractKeyFromURL(deletingRelease.download_url);
-          if (key) {
-            try {
-              const response = await fetch('/api/delete', {
-                method: 'DELETE',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ key }),
-              });
-
-              if (!response.ok) {
-                throw new Error('删除COS文件失败');
-              }
-            } catch (error) {
-              console.error('删除COS文件失败:', error);
-              if (!assetDeleteError) {
-                assetDeleteError = error instanceof Error ? error.message : '删除 COS 文件失败';
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // 删除数据库记录
-    if (assetDeleteError) {
-      setActionLoading(false);
-      setShowToast({ message: `删除失败：文件清理异常（${assetDeleteError}）`, type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-
-    const { error } = await supabase
-      .from('app_releases')
-      .delete()
-      .eq('id', deletingRelease.id);
-
-    setActionLoading(false);
-    setDeletingRelease(null);
-
-    if (!error) {
-      loadReleases();
+      setDeletingRelease(null);
+      await loadReleases();
       setShowToast({ message: '版本已删除', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+    } catch (error) {
+      setShowToast({
+        message: error instanceof Error ? `删除失败：${error.message}` : '删除失败',
+        type: 'error',
+      });
       setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -263,7 +184,7 @@ export default function ReleasesPage() {
                 )}
 
                 <a
-                  href={release.download_url}
+                  href={`/api/version/download/${release.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 px-6 py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
@@ -352,3 +273,5 @@ export default function ReleasesPage() {
     </div>
   );
 }
+
+

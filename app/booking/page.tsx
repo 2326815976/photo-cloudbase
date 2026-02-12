@@ -7,7 +7,7 @@ import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import MapPicker from '@/components/MapPicker';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { getDateAfterDaysUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { env } from '@/lib/env';
 
@@ -55,13 +55,13 @@ export default function BookingPage() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   const checkLoginStatus = async () => {
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       setShowLoginPrompt(true);
@@ -101,9 +101,9 @@ export default function BookingPage() {
   }, []);
 
   const loadBookingTypes = async () => {
-    const supabase = createClient();
-    if (!supabase) return;
-    const { data, error } = await supabase
+    const dbClient = createClient();
+    if (!dbClient) return;
+    const { data, error } = await dbClient
       .from('booking_types')
       .select('*')
       .eq('is_active', true)
@@ -118,9 +118,9 @@ export default function BookingPage() {
   };
 
   const loadAllowedCities = async () => {
-    const supabase = createClient();
-    if (!supabase) return;
-    const { data, error } = await supabase
+    const dbClient = createClient();
+    if (!dbClient) return;
+    const { data, error } = await dbClient
       .from('allowed_cities')
       .select('*')
       .eq('is_active', true);
@@ -131,10 +131,10 @@ export default function BookingPage() {
   };
 
   const loadUserProfile = async (userId: string) => {
-    const supabase = createClient();
-    if (!supabase) return;
+    const dbClient = createClient();
+    if (!dbClient) return;
 
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('phone, wechat')
       .eq('id', userId)
@@ -162,27 +162,35 @@ export default function BookingPage() {
 
   const checkActiveBooking = async (userId: string) => {
     setLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('bookings')
-      .select(`
-        *,
-        booking_types(name)
-      `)
+      .select('id, type_id, booking_date, location, phone, wechat, status')
       .eq('user_id', userId)
       .in('status', ['pending', 'confirmed', 'in_progress'])
       .maybeSingle();
 
     if (!error && data) {
+      let bookingTypeName = '';
+      if (data.type_id) {
+        const { data: bookingType } = await dbClient
+          .from('booking_types')
+          .select('name')
+          .eq('id', data.type_id)
+          .maybeSingle();
+
+        bookingTypeName = bookingType?.name || '';
+      }
+
       setActiveBooking({
         id: data.id,
         date: data.booking_date,
-        type: data.booking_types?.name || '',
+        type: bookingTypeName,
         location: data.location,
         phone: data.phone,
         wechat: data.wechat,
@@ -200,13 +208,13 @@ export default function BookingPage() {
     setError('');
     setIsSubmitting(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setError('服务初始化失败，请刷新页面后重试');
       setIsSubmitting(false);
       return;
     }
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       setError('请先登录');
@@ -297,7 +305,7 @@ export default function BookingPage() {
     }
 
     // 🔒 安全验证：调用数据库函数检查日期是否可预约（包括锁定日期和已有预约检查）
-    const { data: isAvailable, error: availabilityError } = await supabase
+    const { data: isAvailable, error: availabilityError } = await dbClient
       .rpc('check_date_availability', { target_date: selectedDate });
 
     if (availabilityError) {
@@ -313,7 +321,7 @@ export default function BookingPage() {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('bookings')
       .insert({
         user_id: user.id,
@@ -334,7 +342,14 @@ export default function BookingPage() {
     setIsSubmitting(false);
 
     if (error) {
-      if ((error as any)?.code === '23505') {
+      const errorCode = String((error as any)?.code ?? '');
+      const errorMessage = String(error.message ?? '');
+      const isDuplicateError =
+        errorCode === '23505' ||
+        errorCode === '1062' ||
+        /duplicate entry/i.test(errorMessage);
+
+      if (isDuplicateError) {
         setError('您已有进行中的预约，请先取消或等待完成');
       } else {
         setError(error.message);
@@ -352,14 +367,14 @@ export default function BookingPage() {
     if (!activeBooking) return;
 
     setIsCanceling(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setError('服务初始化失败，请刷新页面后重试');
       setIsCanceling(false);
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
     if (!user) {
       setError('请先登录后再操作');
       setIsCanceling(false);
@@ -377,7 +392,7 @@ export default function BookingPage() {
       return;
     }
 
-    const { data: cancelledBooking, error } = await supabase
+    const { data: cancelledBooking, error } = await dbClient
       .from('bookings')
       .update({ status: 'cancelled' })
       .eq('id', activeBooking.id)
@@ -404,7 +419,7 @@ export default function BookingPage() {
     } else if (!error && !cancelledBooking) {
       setError('当前预约已不可取消，请刷新后查看最新状态');
     } else {
-      setError(error.message);
+      setError(error?.message || '取消失败，请稍后重试');
     }
   };
 
@@ -785,3 +800,5 @@ export default function BookingPage() {
     </div>
   );
 }
+
+

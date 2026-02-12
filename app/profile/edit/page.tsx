@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { User, Phone, MessageSquare, ArrowLeft, Save } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -24,14 +24,14 @@ export default function EditProfilePage() {
 
   const loadProfile = async () => {
     setIsLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setError('服务初始化失败，请刷新后重试');
       setIsLoading(false);
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       setIsLoading(false);
@@ -39,7 +39,7 @@ export default function EditProfilePage() {
       return;
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('name, phone, wechat')
       .eq('id', user.id)
@@ -61,14 +61,14 @@ export default function EditProfilePage() {
     setError('');
     setIsSaving(true);
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setError('服务初始化失败，请刷新后重试');
       setIsSaving(false);
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     if (!user) {
       setError('请先登录');
@@ -83,7 +83,7 @@ export default function EditProfilePage() {
       return;
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await dbClient
       .from('profiles')
       .update({
         name: formData.name.trim(),
@@ -310,3 +310,5 @@ export default function EditProfilePage() {
     </div>
   );
 }
+
+

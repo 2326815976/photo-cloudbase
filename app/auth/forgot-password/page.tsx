@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Mail, CheckCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -19,15 +19,15 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setError('系统配置错误，请稍后重试');
         setIsLoading(false);
         return;
       }
 
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/update-password`,
+      const { error: resetError } = await dbClient.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/confirm`,
       });
 
       if (resetError) {
@@ -178,3 +178,5 @@ export default function ForgotPasswordPage() {
     </div>
   );
 }
+
+

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 import { NextResponse } from 'next/server';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 
@@ -7,15 +7,15 @@ export const dynamic = 'force-dynamic'; // 不缓存
 // 获取所有锁定日期（管理端）
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const dbClient = await createClient();
 
     // 验证管理员权限
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -29,7 +29,7 @@ export async function GET() {
     const today = getTodayUTC8();
 
     // 查询所有锁定日期(只选择需要的字段)
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('booking_blackouts')
       .select('id, date, reason, created_at')
       .gte('date', today)
@@ -50,15 +50,15 @@ export async function GET() {
 // 添加锁定日期
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
+    const dbClient = await createClient();
 
     // 验证管理员权限
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await dbClient.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await dbClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -96,14 +96,20 @@ export async function POST(request: Request) {
     }
 
     // 插入锁定日期
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('booking_blackouts')
       .insert({ date, reason: reason || null })
       .select()
       .single();
 
     if (error) {
-      if (error.code === '23505') { // 唯一约束冲突
+      const errorCode = String(error.code ?? '');
+      const errorMessage = String(error.message ?? '');
+      if (
+        errorCode === '23505' ||
+        errorCode === '1062' ||
+        /duplicate entry/i.test(errorMessage)
+      ) { // 唯一约束冲突
         return NextResponse.json({ error: '该日期已被锁定' }, { status: 409 });
       }
       console.error('Error inserting blocked date:', error);
@@ -116,3 +122,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '服务器错误' }, { status: 500 });
   }
 }
+
+

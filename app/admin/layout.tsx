@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 import { redirect } from 'next/navigation';
 import AdminSidebar from './components/AdminSidebar';
 
@@ -7,15 +7,15 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const dbClient = await createClient();
+  const { data: { user } } = await dbClient.auth.getUser();
 
   if (!user) {
     redirect('/login?from=%2Fadmin');
   }
 
   // 检查用户角色
-  const { data: profile } = await supabase
+  const { data: profile } = await dbClient
     .from('profiles')
     .select('role, name, email')
     .eq('id', user.id)
@@ -36,3 +36,5 @@ export default async function AdminLayout({
     </div>
   );
 }
+
+

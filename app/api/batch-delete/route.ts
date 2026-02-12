@@ -1,21 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { batchDeleteFromCOS } from '@/lib/storage/cos-client';
-import { createClient, createAdminClient } from '@/lib/supabase/server';
-import { extractKeyFromURL } from '@/lib/storage/cos-utils';
+import { createClient, createAdminClient } from '@/lib/cloudbase/server';
+import { deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
 
 const MAX_BATCH_DELETE = 100; // 最多一次删除100个文件
 
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
-    const { keys, accessKey, photoIds } = body || {};
+    const { keys, urls, fileIds, accessKey, photoIds } = body || {};
+    const deleteTargets = [
+      ...(Array.isArray(keys) ? keys : []),
+      ...(Array.isArray(urls) ? urls : []),
+      ...(Array.isArray(fileIds) ? fileIds : []),
+    ]
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean);
 
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const dbClient = await createClient();
+    const { data: { user } } = await dbClient.auth.getUser();
 
     let isAdmin = false;
     if (user) {
-      const { data: profile } = await supabase
+      const { data: profile } = await dbClient
         .from('profiles')
         .select('role')
         .eq('id', user.id)
@@ -25,21 +31,21 @@ export async function DELETE(request: NextRequest) {
 
     // 管理员路径：直接按 keys 删除
     if (isAdmin) {
-      if (!keys || !Array.isArray(keys) || keys.length === 0) {
+      if (deleteTargets.length === 0) {
         return NextResponse.json(
-          { error: '缺少文件路径数组参数' },
+          { error: '缺少文件标识数组参数' },
           { status: 400 }
         );
       }
 
-      if (keys.length > MAX_BATCH_DELETE) {
+      if (deleteTargets.length > MAX_BATCH_DELETE) {
         return NextResponse.json(
           { error: `批量删除数量超过限制（最多${MAX_BATCH_DELETE}个）` },
           { status: 400 }
         );
       }
 
-      await batchDeleteFromCOS(keys);
+      await deleteCloudBaseObjects(deleteTargets);
       return NextResponse.json({ success: true });
     }
 
@@ -78,7 +84,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const keysToDelete = new Set<string>();
+    const targetsToDelete = new Set<string>();
     (photos || []).forEach((photo: any) => {
       const urls = [
         photo.thumbnail_url,
@@ -88,26 +94,23 @@ export async function DELETE(request: NextRequest) {
       ].filter(Boolean) as string[];
 
       urls.forEach((url) => {
-        const key = extractKeyFromURL(url);
-        if (key) {
-          keysToDelete.add(key);
-        }
+        targetsToDelete.add(url);
       });
     });
 
-    const finalKeys = Array.from(keysToDelete);
-    if (finalKeys.length === 0) {
+    const finalTargets = Array.from(targetsToDelete);
+    if (finalTargets.length === 0) {
       return NextResponse.json({ success: true, message: '无需删除文件' });
     }
 
-    if (finalKeys.length > MAX_BATCH_DELETE) {
+    if (finalTargets.length > MAX_BATCH_DELETE) {
       return NextResponse.json(
         { error: `批量删除数量超过限制（最多${MAX_BATCH_DELETE}个）` },
         { status: 400 }
       );
     }
 
-    await batchDeleteFromCOS(finalKeys);
+    await deleteCloudBaseObjects(finalTargets);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('批量删除失败:', error);
@@ -117,3 +120,5 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+
+

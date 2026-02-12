@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
 import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, Heart, Upload, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -47,15 +47,15 @@ export default function AlbumsPage() {
 
   const loadAlbums = async () => {
     setLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('albums')
       .select('id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, enable_welcome_letter, donation_qr_code_url, expires_at, created_at')
       .order('created_at', { ascending: false });
@@ -77,26 +77,24 @@ export default function AlbumsPage() {
   const confirmDelete = async () => {
     if (!deletingAlbum) return;
 
-    const supabase = createClient();
-    if (!supabase) {
+    try {
+      const response = await fetch(`/api/admin/albums/${deletingAlbum.id}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json().catch(() => ({} as any));
+
       setDeletingAlbum(null);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-    const { error } = await supabase
-      .from('albums')
-      .delete()
-      .eq('id', deletingAlbum.id);
 
-    setDeletingAlbum(null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error ?? '删除失败'));
+      }
 
-    if (!error) {
       loadAlbums();
       setShowToast({ message: '专属空间已成功删除', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+    } catch (error) {
+      setDeletingAlbum(null);
+      setShowToast({ message: error instanceof Error ? `删除失败：${error.message}` : '删除失败', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -111,15 +109,15 @@ export default function AlbumsPage() {
       return;
     }
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
     // 检查新密钥是否已被其他空间使用
-    const { data: existing } = await supabase
+    const { data: existing } = await dbClient
       .from('albums')
       .select('id')
       .eq('access_key', newAccessKey)
@@ -132,7 +130,7 @@ export default function AlbumsPage() {
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('albums')
       .update({ access_key: newAccessKey })
       .eq('id', editingAlbum.id);
@@ -152,8 +150,8 @@ export default function AlbumsPage() {
   const handleUpdateExpiry = async () => {
     if (!editingExpiry) return;
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -161,7 +159,7 @@ export default function AlbumsPage() {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + newExpiryDays);
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('albums')
       .update({ expires_at: expiresAt.toISOString() })
       .eq('id', editingExpiry.id);
@@ -181,13 +179,13 @@ export default function AlbumsPage() {
   const handleUpdateRecipient = async () => {
     if (!editingRecipient) return;
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('albums')
       .update({
         recipient_name: newRecipientName || '拾光者',
@@ -211,13 +209,13 @@ export default function AlbumsPage() {
   const handleUpdateTitle = async () => {
     if (!editingTitle || !newTitle.trim()) return;
 
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('albums')
       .update({ title: newTitle.trim() })
       .eq('id', editingTitle.id);
@@ -235,13 +233,13 @@ export default function AlbumsPage() {
   };
 
   const handleToggleWelcomeLetter = async (album: Album) => {
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('albums')
       .update({ enable_welcome_letter: !(album.enable_welcome_letter ?? true) })
       .eq('id', album.id);
@@ -260,13 +258,13 @@ export default function AlbumsPage() {
   };
 
   const handleToggleDonation = async (album: Album) => {
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('albums')
       .update({ enable_tipping: !album.enable_tipping })
       .eq('id', album.id);
@@ -299,8 +297,8 @@ export default function AlbumsPage() {
       // 删除旧赞赏码文件
       if (album.donation_qr_code_url) {
         try {
-          const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
-          const oldKey = extractKeyFromURL(album.donation_qr_code_url);
+          const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
+          const oldKey = extractStorageKeyFromURL(album.donation_qr_code_url);
           if (oldKey) {
             await fetch('/api/delete', {
               method: 'DELETE',
@@ -317,20 +315,20 @@ export default function AlbumsPage() {
       const { compressImage } = await import('@/lib/utils/image-compression');
       const compressedFile = await compressImage(file);
 
-      const { uploadToCosDirect } = await import('@/lib/storage/cos-upload-client');
+      const { uploadToCloudBaseDirect } = await import('@/lib/storage/cloudbase-upload-client');
       const ext = compressedFile.name.split('.').pop();
       const fileName = `donation_qr_${album.id}_${Date.now()}.${ext}`;
 
-      const cdnUrl = await uploadToCosDirect(compressedFile, fileName, 'albums');
+      const cdnUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'albums');
 
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setUploadingQrCode(false);
         setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
-      const { error: updateError } = await supabase
+      const { error: updateError } = await dbClient
         .from('albums')
         .update({ donation_qr_code_url: cdnUrl })
         .eq('id', album.id);
@@ -367,8 +365,8 @@ export default function AlbumsPage() {
       // 删除旧封面文件
       if (album.cover_url) {
         try {
-          const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
-          const oldKey = extractKeyFromURL(album.cover_url);
+          const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
+          const oldKey = extractStorageKeyFromURL(album.cover_url);
           if (oldKey) {
             await fetch('/api/delete', {
               method: 'DELETE',
@@ -385,21 +383,21 @@ export default function AlbumsPage() {
       const { compressImage } = await import('@/lib/utils/image-compression');
       const compressedFile = await compressImage(file);
 
-      const { uploadToCosDirect } = await import('@/lib/storage/cos-upload-client');
+      const { uploadToCloudBaseDirect } = await import('@/lib/storage/cloudbase-upload-client');
       const ext = compressedFile.name.split('.').pop();
       const fileName = `cover_${album.id}_${Date.now()}.${ext}`;
 
-      const cdnUrl = await uploadToCosDirect(compressedFile, fileName, 'albums');
+      const cdnUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'albums');
 
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setUploadingCover(false);
         setEditingCover(null);
         setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
-      const { error: updateError } = await supabase
+      const { error: updateError } = await dbClient
         .from('albums')
         .update({ cover_url: cdnUrl })
         .eq('id', album.id);
@@ -1149,3 +1147,6 @@ export default function AlbumsPage() {
     </div>
   );
 }
+
+
+

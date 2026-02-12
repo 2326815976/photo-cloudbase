@@ -61,7 +61,19 @@ export default function SimpleImage({
   const getOptimizedSrc = (originalSrc: string) => {
     if (typeof window === 'undefined') return originalSrc;
     if (window.innerWidth >= 768) return originalSrc;
-    if (!originalSrc.includes('myqcloud.com')) return originalSrc;
+
+    const runtimeDomain = window.__RUNTIME_CONFIG__?.NEXT_PUBLIC_CLOUDBASE_STORAGE_DOMAIN ?? '';
+    const runtimeHost = runtimeDomain
+      .replace(/^https?:\/\//, '')
+      .replace(/\/+$/, '')
+      .toLowerCase();
+
+    const srcLower = originalSrc.toLowerCase();
+    const isCloudStorageImage =
+      srcLower.includes('tcb.qcloud.la') ||
+      (runtimeHost && srcLower.includes(runtimeHost));
+
+    if (!isCloudStorageImage) return originalSrc;
     if (originalSrc.includes('imageMogr2/')) return originalSrc;
 
     const separator = originalSrc.includes('?') ? '&' : '?';

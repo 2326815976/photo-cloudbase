@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Phone, Lock, ArrowLeft } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { env } from '@/lib/env';
 
 // 动态导入 Turnstile 组件，延迟加载，不在首页加载时执行
@@ -87,14 +87,14 @@ export default function RegisterPage() {
       }
 
       // 注册成功，自动登录
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setError('服务初始化失败，请刷新页面后重试');
         return;
       }
       const email = `${phone}@slogan.app`;
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await dbClient.auth.signInWithPassword({
         email,
         password,
       });
@@ -274,3 +274,5 @@ export default function RegisterPage() {
     </div>
   );
 }
+
+

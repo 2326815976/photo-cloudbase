@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Lock, CheckCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -39,22 +39,22 @@ export default function ChangePasswordPage() {
     setIsLoading(true);
 
     try {
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setError('系统配置错误，请稍后重试');
         setIsLoading(false);
         return;
       }
 
       // 验证当前密码
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await dbClient.auth.getUser();
       if (!user?.email) {
         setError('未找到用户信息');
         setIsLoading(false);
         return;
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await dbClient.auth.signInWithPassword({
         email: user.email,
         password: formData.currentPassword,
       });
@@ -66,7 +66,7 @@ export default function ChangePasswordPage() {
       }
 
       // 更新密码
-      const { error: updateError } = await supabase.auth.updateUser({
+      const { error: updateError } = await dbClient.auth.updateUser({
         password: formData.newPassword
       });
 
@@ -211,3 +211,5 @@ export default function ChangePasswordPage() {
     </div>
   );
 }
+
+

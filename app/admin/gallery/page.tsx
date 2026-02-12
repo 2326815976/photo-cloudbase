@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { Image, Trash2, Upload, Heart, Eye, CheckCircle, XCircle, AlertCircle, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateBlurHash } from '@/lib/utils/blurhash';
 import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
-import { uploadToCosDirect } from '@/lib/storage/cos-upload-client';
+import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 
 interface Photo {
   id: string;
@@ -47,15 +47,15 @@ export default function AdminGalleryPage() {
 
   const loadPhotos = async () => {
     setLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from('album_photos')
       .select('*')
       .eq('is_public', true)
@@ -79,8 +79,8 @@ export default function AdminGalleryPage() {
     if (!deletingPhoto) return;
 
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setDeletingPhoto(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -88,19 +88,19 @@ export default function AdminGalleryPage() {
       return;
     }
 
-    // 从URL中提取COS存储路径
-    const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
+    // 从 URL 中提取存储路径
+    const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
 
     // 收集需要删除的文件路径
     const filesToDelete = [
-      deletingPhoto.thumbnail_url ? extractKeyFromURL(deletingPhoto.thumbnail_url) : null,
-      deletingPhoto.preview_url ? extractKeyFromURL(deletingPhoto.preview_url) : null,
-      deletingPhoto.original_url ? extractKeyFromURL(deletingPhoto.original_url) : null,
-      deletingPhoto.url ? extractKeyFromURL(deletingPhoto.url) : null
+      deletingPhoto.thumbnail_url ? extractStorageKeyFromURL(deletingPhoto.thumbnail_url) : null,
+      deletingPhoto.preview_url ? extractStorageKeyFromURL(deletingPhoto.preview_url) : null,
+      deletingPhoto.original_url ? extractStorageKeyFromURL(deletingPhoto.original_url) : null,
+      deletingPhoto.url ? extractStorageKeyFromURL(deletingPhoto.url) : null
     ].filter(Boolean) as string[];
 
-    // 删除COS中的所有版本文件
-    let cosDeleteSuccess = true;
+    // 删除云存储中的所有版本文件
+    let storageDeleteSuccess = true;
     if (filesToDelete.length > 0) {
       try {
         const response = await fetch('/api/batch-delete', {
@@ -112,23 +112,23 @@ export default function AdminGalleryPage() {
         });
 
         if (!response.ok) {
-          throw new Error('删除COS文件失败');
+          throw new Error('删除云存储文件失败');
         }
       } catch (error) {
-        console.error('删除COS文件失败:', error);
-        cosDeleteSuccess = false;
+        console.error('删除云存储文件失败:', error);
+        storageDeleteSuccess = false;
       }
     }
 
-    if (!cosDeleteSuccess) {
+    if (!storageDeleteSuccess) {
       setActionLoading(false);
-      setShowToast({ message: '删除失败：COS文件删除异常，已中止数据库删除', type: 'error' });
+      setShowToast({ message: '删除失败：云存储文件删除异常，已中止数据库删除', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
 
     // 删除数据库记录
-    const { error: dbError } = await supabase
+    const { error: dbError } = await dbClient
       .from('album_photos')
       .delete()
       .eq('id', deletingPhoto.id);
@@ -159,8 +159,8 @@ export default function AdminGalleryPage() {
   const confirmBatchDelete = async () => {
     setShowBatchDeleteConfirm(false);
     setActionLoading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setActionLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -170,19 +170,19 @@ export default function AdminGalleryPage() {
     try {
       const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
 
-      // 从URL中提取COS存储路径
-      const { extractKeyFromURL } = await import('@/lib/storage/cos-utils');
+      // 从 URL 中提取存储路径
+      const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
 
       // 收集所有需要删除的文件路径（包括所有版本）
       const filePaths = photosToDelete.flatMap(p => [
-        p.thumbnail_url ? extractKeyFromURL(p.thumbnail_url) : null,
-        p.preview_url ? extractKeyFromURL(p.preview_url) : null,
-        p.original_url ? extractKeyFromURL(p.original_url) : null,
-        p.url ? extractKeyFromURL(p.url) : null
+        p.thumbnail_url ? extractStorageKeyFromURL(p.thumbnail_url) : null,
+        p.preview_url ? extractStorageKeyFromURL(p.preview_url) : null,
+        p.original_url ? extractStorageKeyFromURL(p.original_url) : null,
+        p.url ? extractStorageKeyFromURL(p.url) : null
       ]).filter(Boolean) as string[];
 
-      // 批量删除COS文件
-      let cosDeleteSuccess = true;
+      // 批量删除云存储文件
+      let storageDeleteSuccess = true;
       if (filePaths.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -194,20 +194,20 @@ export default function AdminGalleryPage() {
           });
 
           if (!response.ok) {
-            throw new Error('批量删除COS文件失败');
+            throw new Error('批量删除云存储文件失败');
           }
         } catch (error) {
-          console.error('批量删除COS文件失败:', error);
-          cosDeleteSuccess = false;
+          console.error('批量删除云存储文件失败:', error);
+          storageDeleteSuccess = false;
         }
       }
 
-      if (!cosDeleteSuccess) {
-        throw new Error('批量删除COS文件失败，已中止数据库删除');
+      if (!storageDeleteSuccess) {
+        throw new Error('批量删除云存储文件失败，已中止数据库删除');
       }
 
       // 批量删除数据库记录
-      const { error: dbError } = await supabase
+      const { error: dbError } = await dbClient
         .from('album_photos')
         .delete()
         .in('id', selectedPhotoIds);
@@ -265,8 +265,8 @@ export default function AdminGalleryPage() {
     }
 
     setUploading(true);
-    const supabase = createClient();
-    if (!supabase) {
+    const dbClient = createClient();
+    if (!dbClient) {
       setUploading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -297,13 +297,13 @@ export default function AdminGalleryPage() {
         let preview_url = '';
         let original_url = '';
 
-        // 3. 客户端直传三个版本到腾讯云COS（gallery文件夹）
+        // 3. 客户端上传三个版本到 CloudBase 云存储（gallery 目录）
         for (const version of versions) {
           const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
           const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
           try {
-            const publicUrl = await uploadToCosDirect(version.file, fileName, 'gallery');
+            const publicUrl = await uploadToCloudBaseDirect(version.file, fileName, 'gallery');
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
             else if (version.type === 'preview') preview_url = publicUrl;
@@ -317,7 +317,7 @@ export default function AdminGalleryPage() {
 
         // 4. 插入数据库
         if (thumbnail_url && preview_url && original_url) {
-          const { error: insertError } = await supabase.from('album_photos').insert({
+          const { error: insertError } = await dbClient.from('album_photos').insert({
             album_id: PHOTO_WALL_ALBUM_ID,
             thumbnail_url,
             preview_url,
@@ -839,3 +839,9 @@ export default function AdminGalleryPage() {
     </div>
   );
 }
+
+
+
+
+
+

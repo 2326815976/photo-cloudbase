@@ -3,7 +3,7 @@
  */
 
 /**
- * 生成 Supabase 图片缩略图 URL
+ * 生成图片缩略图 URL
  * @param url 原始图片 URL
  * @param width 目标宽度（像素）
  * @param quality 图片质量 (1-100)
@@ -16,7 +16,7 @@ export function getOptimizedImageUrl(
 ): string {
   if (!url) return url;
 
-  // Supabase 的 /render/image/ API 被浏览器阻止
+  // 图片转换链路由 CloudBase 云存储侧统一处理
   // 暂时直接返回原始 URL，依赖浏览器懒加载优化
   return url;
 }

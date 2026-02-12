@@ -4,15 +4,15 @@
  */
 
 import { mutate } from 'swr';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 /**
  * 预加载照片墙数据
  */
 export async function prefetchGallery(page: number = 1, pageSize: number = 20) {
-  const supabase = createClient();
-  if (!supabase) return;
-  const { data } = await supabase.rpc('get_public_gallery', {
+  const dbClient = createClient();
+  if (!dbClient) return;
+  const { data } = await dbClient.rpc('get_public_gallery', {
     page_no: page,
     page_size: pageSize
   });
@@ -26,9 +26,9 @@ export async function prefetchGallery(page: number = 1, pageSize: number = 20) {
  * 预加载相册列表
  */
 export async function prefetchAlbums() {
-  const supabase = createClient();
-  if (!supabase) return;
-  const { data } = await supabase
+  const dbClient = createClient();
+  if (!dbClient) return;
+  const { data } = await dbClient
     .from('albums')
     .select('*')
     .order('created_at', { ascending: false });
@@ -43,9 +43,9 @@ export async function prefetchAlbums() {
  * @param limit - 限制预加载数量，默认10张
  */
 export async function prefetchPoses(limit: number = 10) {
-  const supabase = createClient();
-  if (!supabase) return;
-  const { data } = await supabase
+  const dbClient = createClient();
+  if (!dbClient) return;
+  const { data } = await dbClient
     .from('poses')
     .select('*')
     .order('created_at', { ascending: false })
@@ -60,9 +60,9 @@ export async function prefetchPoses(limit: number = 10) {
  * 预加载标签列表
  */
 export async function prefetchTags() {
-  const supabase = createClient();
-  if (!supabase) return;
-  const { data } = await supabase
+  const dbClient = createClient();
+  if (!dbClient) return;
+  const { data } = await dbClient
     .from('pose_tags')
     .select('*')
     .order('usage_count', { ascending: false });
@@ -99,3 +99,5 @@ export async function prefetchByRoute(pathname: string) {
     prefetchGallery();
   }
 }
+
+

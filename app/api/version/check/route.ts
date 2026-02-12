@@ -1,5 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
+
+interface ReleaseRow {
+  id: number;
+  version: string;
+  platform: string;
+  download_url: string;
+  storage_file_id?: string | null;
+  update_log: string;
+  force_update: boolean;
+  created_at: string;
+}
+
+function pickLatestRelease(releases: ReleaseRow[]): ReleaseRow | null {
+  if (releases.length === 0) {
+    return null;
+  }
+
+  return releases.reduce((latest, current) => {
+    const versionCompare = compareVersions(current.version, latest.version);
+    if (versionCompare > 0) {
+      return current;
+    }
+    if (versionCompare < 0) {
+      return latest;
+    }
+
+    const currentTime = new Date(current.created_at).getTime();
+    const latestTime = new Date(latest.created_at).getTime();
+    return currentTime > latestTime ? current : latest;
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,19 +45,25 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
+    const dbClient = await createClient();
 
-    // 获取该平台的最新版本
-    const { data: latestRelease, error } = await supabase
+    // 获取该平台的版本列表，再基于语义化版本比较选出真正最新版本。
+    const { data: releases, error } = await dbClient
       .from('app_releases')
-      .select('*')
+      .select('id, version, platform, download_url, storage_file_id, update_log, force_update, created_at')
       .eq('platform', platform)
-      .order('version', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(100);
 
-    if (error || !latestRelease) {
+    if (error || !releases || releases.length === 0) {
+      return NextResponse.json({
+        needUpdate: false,
+        message: '暂无可用更新'
+      });
+    }
+
+    const latestRelease = pickLatestRelease(releases as ReleaseRow[]);
+    if (!latestRelease) {
       return NextResponse.json({
         needUpdate: false,
         message: '暂无可用更新'
@@ -43,11 +80,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const downloadUrl = latestRelease.storage_file_id
+      ? `${request.nextUrl.origin}/api/version/download/${latestRelease.id}`
+      : latestRelease.download_url;
+
     return NextResponse.json({
       needUpdate: true,
       forceUpdate: latestRelease.force_update || false,
       latestVersion: latestRelease.version,
-      downloadUrl: latestRelease.download_url,
+      downloadUrl,
       updateLog: latestRelease.update_log,
       platform: latestRelease.platform
     });
@@ -80,3 +121,5 @@ function compareVersions(v1: string, v2: string): number {
 
   return 0;
 }
+
+

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 import {
   Users, UserPlus, Activity, Image, Heart, MessageCircle,
   Calendar, CheckCircle, Clock, XCircle, Camera, Tags,
@@ -32,10 +32,10 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: StatCardProps) 
 }
 
 export default async function StatsPage() {
-  const supabase = await createClient();
+  const dbClient = await createClient();
 
   // 调用新的统计 RPC 函数
-  const { data: stats, error } = await supabase.rpc('get_admin_dashboard_stats');
+  const { data: stats, error } = await dbClient.rpc('get_admin_dashboard_stats');
 
   if (error) {
     console.error('获取统计数据失败:', error);
@@ -438,3 +438,5 @@ export default async function StatsPage() {
     </div>
   );
 }
+
+

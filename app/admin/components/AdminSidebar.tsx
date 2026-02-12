@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface AdminSidebarProps {
@@ -71,9 +71,9 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
   }, [mobileMenuOpen]);
 
   const handleLogout = async () => {
-    const supabase = createClient();
-    if (supabase) {
-      await supabase.auth.signOut();
+    const dbClient = createClient();
+    if (dbClient) {
+      await dbClient.auth.signOut();
     }
     router.push('/login');
   };
@@ -214,3 +214,5 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
     </>
   );
 }
+
+

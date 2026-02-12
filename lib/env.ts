@@ -5,8 +5,7 @@ declare global {
   interface Window {
     __RUNTIME_CONFIG__?: {
       NEXT_PUBLIC_APP_URL?: string;
-      NEXT_PUBLIC_SUPABASE_URL?: string;
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?: string;
+      NEXT_PUBLIC_CLOUDBASE_STORAGE_DOMAIN?: string;
       NEXT_PUBLIC_AMAP_KEY?: string;
       NEXT_PUBLIC_AMAP_SECURITY_CODE?: string;
       NEXT_PUBLIC_TURNSTILE_SITE_KEY?: string;
@@ -48,15 +47,27 @@ function getEnv(key: string): string {
   return normalizeEnvValue(process.env[nextPublicKey]) || normalizeEnvValue(process.env[key]);
 }
 
+function resolveCloudBaseStorageDomain(): string {
+  const configuredDomain = getEnv('CLOUDBASE_STORAGE_DOMAIN');
+  if (configuredDomain) {
+    return configuredDomain;
+  }
+
+  const bucketId =
+    normalizeEnvValue(process.env.CLOUDBASE_BUCKET_ID) ||
+    normalizeEnvValue(process.env.NEXT_PUBLIC_CLOUDBASE_BUCKET_ID);
+
+  if (!bucketId) {
+    return '';
+  }
+
+  return `https://${bucketId}.tcb.qcloud.la`;
+}
+
 // 导出所有环境变量访问函数
 export const env = {
   // 应用配置
   APP_URL: () => getEnv('APP_URL'),
-
-  // Supabase 配置
-  SUPABASE_URL: () => getEnv('SUPABASE_URL'),
-  SUPABASE_PUBLISHABLE_KEY: () => getEnv('SUPABASE_PUBLISHABLE_KEY'),
-  SUPABASE_SERVICE_ROLE_KEY: () => process.env.SUPABASE_SERVICE_ROLE_KEY || '',
 
   // 高德地图配置
   AMAP_KEY: () => getEnv('AMAP_KEY'),
@@ -66,13 +77,15 @@ export const env = {
   TURNSTILE_SITE_KEY: () => getEnv('TURNSTILE_SITE_KEY'),
   TURNSTILE_SECRET_KEY: () => process.env.TURNSTILE_SECRET_KEY || '',
 
-  // 腾讯云 COS 配置（仅服务端）
-  COS_SECRET_ID: () => process.env.COS_SECRET_ID || '',
-  COS_SECRET_KEY: () => process.env.COS_SECRET_KEY || '',
-  COS_BUCKET: () => process.env.COS_BUCKET || '',
-  COS_REGION: () => process.env.COS_REGION || '',
-  COS_CDN_DOMAIN: () => process.env.COS_CDN_DOMAIN || '',
+  // 腾讯云 CloudBase 配置（服务端）
+  CLOUDBASE_ID: () => process.env.CLOUDBASE_ID || '',
+  CLOUDBASE_SECRET_ID: () => process.env.CLOUDBASE_SECRET_ID || '',
+  CLOUDBASE_SECRET_KEY: () => process.env.CLOUDBASE_SECRET_KEY || '',
+  CLOUDBASE_BUCKET_ID: () => process.env.CLOUDBASE_BUCKET_ID || process.env.NEXT_PUBLIC_CLOUDBASE_BUCKET_ID || '',
+  CLOUDBASE_STORAGE_DOMAIN: () => resolveCloudBaseStorageDomain(),
+  CLOUDBASE_SQL_DB_NAME: () => process.env.CLOUDBASE_SQL_DB_NAME || process.env.CLOUDBASE_DB_NAME || 'photo',
+  CLOUDBASE_SQL_REGION: () => process.env.CLOUDBASE_SQL_REGION || process.env.TENCENTCLOUD_REGION || 'ap-guangzhou',
 
-  // Cron 配置（仅服务端）
+  // Cron 配置（服务端）
   CRON_SECRET: () => process.env.CRON_SECRET || '',
 };

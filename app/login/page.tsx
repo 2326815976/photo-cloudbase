@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Phone, Lock } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 function LoginForm() {
   const router = useRouter();
@@ -45,8 +45,8 @@ function LoginForm() {
         return;
       }
 
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         setError('系统配置错误，请稍后重试');
         setIsLoading(false);
         return;
@@ -55,7 +55,7 @@ function LoginForm() {
       // 使用手机号作为邮箱格式登录（与注册时保持一致）
       const email = `${formData.phone}@slogan.app`;
 
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await dbClient.auth.signInWithPassword({
         email,
         password: formData.password,
       });
@@ -70,11 +70,17 @@ function LoginForm() {
         return;
       }
 
+      if (!data?.user) {
+        setError('登录失败，请重试');
+        setIsLoading(false);
+        return;
+      }
+
       // 检查是否有保存的重定向路径
       const savedRedirect = localStorage.getItem('login_redirect');
 
       // 获取用户角色
-      const { data: profile } = await supabase
+      const { data: profile } = await dbClient
         .from('profiles')
         .select('role')
         .eq('id', data.user.id)
@@ -217,3 +223,5 @@ export default function LoginPage() {
     </Suspense>
   );
 }
+
+

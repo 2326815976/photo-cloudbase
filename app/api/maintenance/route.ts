@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/cloudbase/server';
 
 export async function POST(request: NextRequest) {
   try {
     // 验证请求来源（可选：添加密钥验证）
     const authHeader = request.headers.get('authorization');
     const expectedToken = process.env.MAINTENANCE_TOKEN;
-    const supabase = await createClient();
+    const dbClient = await createClient();
 
     const tokenValid = expectedToken && authHeader === `Bearer ${expectedToken}`;
 
     if (!tokenValid) {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await dbClient.auth.getUser();
       if (!user) {
         return NextResponse.json(
           { error: '未授权访问' },
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { data: profile } = await supabase
+      const { data: profile } = await dbClient
         .from('profiles')
         .select('role')
         .eq('id', user.id)
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 调用维护函数
-    const { data, error } = await supabase.rpc('run_maintenance_tasks');
+    const { data, error } = await dbClient.rpc('run_maintenance_tasks');
 
     if (error) {
       console.error('维护任务执行失败:', error);
@@ -57,3 +57,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 import { ArrowLeft, Upload, CheckCircle, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -39,41 +39,48 @@ export default function NewReleasePage() {
     setUploading(true);
 
     try {
-      // 上传文件到Supabase Storage（APK专用桶）
-      const supabase = createClient();
-      if (!supabase) {
+      const dbClient = createClient();
+      if (!dbClient) {
         throw new Error('服务初始化失败，请刷新后重试');
       }
-      const filename = `${Date.now()}_${file.name}`;
-      const filePath = `releases/${filename}`;
-      const contentType = platform === 'Android'
-        ? (file.type || 'application/vnd.android.package-archive')
-        : file.type;
 
-      const { error: uploadError } = await supabase.storage
-        .from('apk-releases')
-        .upload(filePath, file, {
-          cacheControl: '31536000', // 缓存1年
-          upsert: false,
-          contentType,
-        });
+      const filename = `${Date.now()}_${file.name}`.replace(/\s+/g, '_');
+      const uploadForm = new FormData();
+      uploadForm.append('file', file);
+      uploadForm.append('folder', 'releases');
+      uploadForm.append('key', filename);
 
-      if (uploadError) throw uploadError;
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: uploadForm,
+      });
 
-      // 获取公开访问URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('apk-releases')
-        .getPublicUrl(filePath);
+      const uploadPayload = await uploadResponse.json();
+      if (!uploadResponse.ok) {
+        throw new Error(uploadPayload?.error || '安装包上传失败');
+      }
+
+      const provider = String(uploadPayload?.provider ?? '').trim().toLowerCase();
+      const downloadUrl = String(uploadPayload?.url ?? '').trim();
+      const storageFileId = String(uploadPayload?.fileId ?? '').trim();
+      if (provider !== 'cloudbase') {
+        throw new Error('安装包存储服务异常：当前仅支持 CloudBase');
+      }
+      if (!downloadUrl || !storageFileId) {
+        throw new Error('安装包上传失败：未返回有效的下载地址或文件标识');
+      }
 
       // 保存到数据库
-      const { error } = await supabase
+      const { error } = await dbClient
         .from('app_releases')
         .insert({
           version,
           platform,
-          download_url: publicUrl,
+          download_url: downloadUrl,
           update_log: updateLog,
           force_update: forceUpdate,
+          storage_provider: 'cloudbase',
+          storage_file_id: storageFileId,
         });
 
       if (error) throw error;
@@ -253,3 +260,4 @@ export default function NewReleasePage() {
     </div>
   );
 }
+

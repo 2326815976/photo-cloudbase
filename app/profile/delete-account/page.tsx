@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, AlertTriangle, CheckCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/cloudbase/client';
 
 export default function DeleteAccountPage() {
   const router = useRouter();
@@ -31,9 +31,9 @@ export default function DeleteAccountPage() {
       }
 
       // 删除成功，清除本地session
-      const supabase = createClient();
-      if (supabase) {
-        await supabase.auth.signOut();
+      const dbClient = createClient();
+      if (dbClient) {
+        await dbClient.auth.signOut();
       }
 
       setShowSuccess(true);
@@ -196,3 +196,5 @@ export default function DeleteAccountPage() {
     </div>
   );
 }
+
+

@@ -5,7 +5,7 @@
  *
  * 优化特性：
  * 1. BlurHash 占位符 - 即时显示模糊预览
- * 2. Supabase Image Transformations - 自动 WebP 转换和压缩
+ * 2. CloudBase 图片转换 - 自动 WebP 转换和压缩
  * 3. 渐进式加载 - 平滑过渡效果
  * 4. 懒加载 - 节省带宽
  * 5. 响应式尺寸 - 根据设备自动调整
@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { Blurhash } from 'react-blurhash';
-import { supabaseImageLoader, IMAGE_SIZES } from '@/lib/supabase/image-loader';
+import { cloudbaseImageLoader, IMAGE_SIZES } from '@/lib/cloudbase/image-loader';
 
 interface OptimizedImageProps {
   src: string;
@@ -89,7 +89,7 @@ export default function OptimizedImage({
           alt={alt}
           width={imageWidth}
           height={imageHeight}
-          loader={supabaseImageLoader}
+          loader={cloudbaseImageLoader}
           quality={75}
           priority={priority}
           className={`w-full h-auto transition-opacity duration-700 ${
@@ -106,3 +106,4 @@ export default function OptimizedImage({
     </div>
   );
 }
+
