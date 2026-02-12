@@ -90,7 +90,6 @@ CREATE TABLE IF NOT EXISTS profiles (
   id CHAR(36) NOT NULL,
   email VARCHAR(255) NULL,
   name VARCHAR(128) NULL,
-  nickname VARCHAR(128) NULL,
   avatar VARCHAR(1024) NULL,
   role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
   phone VARCHAR(32) NULL,

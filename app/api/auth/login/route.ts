@@ -15,14 +15,14 @@ function getClientIp(request: Request): string | undefined {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const email = String(body?.email ?? '').trim().toLowerCase();
+    const phone = String(body?.email ?? '').trim();
     const password = String(body?.password ?? '');
 
-    if (!email || !password) {
+    if (!phone || !password) {
       return NextResponse.json(
         {
           data: { user: null },
-          error: { message: 'Email and password are required' },
+          error: { message: 'Phone and password are required' },
         },
         { status: 400 }
       );
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     const userAgent = request.headers.get('user-agent') ?? undefined;
     const ipAddress = getClientIp(request);
 
-    const result = await signInWithPassword(email, password, userAgent, ipAddress);
+    const result = await signInWithPassword(phone, password, userAgent, ipAddress);
 
     if (result.error || !result.user || !result.sessionToken) {
       return NextResponse.json(

@@ -139,7 +139,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.like_count,
           p.view_count,
           p.created_at,
-          CASE WHEN pl.id IS NULL THEN 0 ELSE 1 END AS is_liked
+          CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
         FROM album_photos p
         LEFT JOIN photo_likes pl
           ON pl.photo_id = p.id
@@ -1203,7 +1203,7 @@ async function cleanupExpiredData() {
       WHERE id NOT IN (
         SELECT folder_id
         FROM album_photos
-        WHERE folder_id IS NOT NULL
+        WHERE !(folder_id <=> NULL)
       )
       AND created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
     `

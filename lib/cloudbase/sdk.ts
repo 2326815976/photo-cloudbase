@@ -47,5 +47,5 @@ export function getCloudBaseSqlModel(): any {
     throw new Error('CloudBase SQL 数据库名缺失：请设置 CLOUDBASE_SQL_DB_NAME');
   }
 
-  return getCloudBaseApp().models.sql().db(dbName);
+  return getCloudBaseApp().models;
 }

@@ -89,7 +89,7 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
       WHERE s.token_hash = {{token_hash}}
         AND s.is_revoked = 0
         AND s.expires_at > NOW()
-        AND u.deleted_at IS NULL
+        AND u.deleted_at <=> NULL
       LIMIT 1
     `,
     {

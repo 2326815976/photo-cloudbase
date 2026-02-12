@@ -52,11 +52,9 @@ function LoginForm() {
         return;
       }
 
-      // 使用手机号作为邮箱格式登录（与注册时保持一致）
-      const email = `${formData.phone}@slogan.app`;
-
+      // 直接使用手机号登录
       const { data, error: signInError } = await dbClient.auth.signInWithPassword({
-        email,
+        email: formData.phone,
         password: formData.password,
       });
 
@@ -79,15 +77,11 @@ function LoginForm() {
       // 检查是否有保存的重定向路径
       const savedRedirect = localStorage.getItem('login_redirect');
 
-      // 获取用户角色
-      const { data: profile } = await dbClient
-        .from('profiles')
-        .select('role')
-        .eq('id', data.user.id)
-        .single();
+      // 直接使用登录返回的用户角色
+      const userRole = data.user.role;
 
       // 根据角色和保存的路径跳转
-      if (profile?.role === 'admin') {
+      if (userRole === 'admin') {
         if (savedRedirect?.startsWith('/admin')) {
           localStorage.removeItem('login_redirect');
           router.push(savedRedirect);

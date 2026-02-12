@@ -28,7 +28,7 @@ const metadataList: TableMetadata[] = [
   },
   {
     name: 'profiles',
-    columns: ['id', 'email', 'name', 'nickname', 'avatar', 'role', 'phone', 'wechat', 'payment_qr_code', 'created_at', 'last_active_at'],
+    columns: ['id', 'email', 'name', 'avatar', 'role', 'phone', 'wechat', 'payment_qr_code', 'created_at', 'last_active_at'],
     primaryKey: 'id',
     primaryKeyKind: 'uuid',
   },

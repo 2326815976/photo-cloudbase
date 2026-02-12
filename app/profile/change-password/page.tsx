@@ -46,20 +46,26 @@ export default function ChangePasswordPage() {
         return;
       }
 
-      // 验证当前密码
+      // 验证当前密码 - 直接调用后端API
       const { data: { user } } = await dbClient.auth.getUser();
-      if (!user?.email) {
+      if (!user?.phone) {
         setError('未找到用户信息');
         setIsLoading(false);
         return;
       }
 
-      const { error: signInError } = await dbClient.auth.signInWithPassword({
-        email: user.email,
-        password: formData.currentPassword,
+      // 直接调用后端登录API验证密码
+      const verifyResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          email: user.phone,
+          password: formData.currentPassword,
+        }),
       });
 
-      if (signInError) {
+      if (!verifyResponse.ok) {
         setError('当前密码错误');
         setIsLoading(false);
         return;

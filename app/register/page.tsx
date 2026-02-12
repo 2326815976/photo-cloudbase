@@ -86,22 +86,19 @@ export default function RegisterPage() {
         return;
       }
 
-      // 注册成功，自动登录
-      const dbClient = createClient();
-      if (!dbClient) {
-        setError('服务初始化失败，请刷新页面后重试');
-        return;
-      }
-      const email = `${phone}@slogan.app`;
-
-      const { error: signInError } = await dbClient.auth.signInWithPassword({
-        email,
-        password,
+      // 注册成功，自动登录 - 直接调用后端API
+      const loginResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          email: phone,
+          password,
+        }),
       });
 
-      if (signInError) {
-        // 登录失败，跳转到登录页面
-        setTurnstileToken('');
+      if (!loginResponse.ok) {
+        setError('注册成功，但自动登录失败，请手动登录');
         router.push('/login');
         return;
       }
