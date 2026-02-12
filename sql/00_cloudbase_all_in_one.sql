@@ -339,6 +339,51 @@ CREATE TABLE IF NOT EXISTS allowed_cities (
   KEY idx_allowed_cities_city_name (city_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='允许预约城市';
 
+-- 兼容“部分执行后重跑”场景：先清理 bookings 上的旧命名外键，避免重复约束。
+SET @db_name := DATABASE();
+SET @has_bookings := (
+  SELECT COUNT(*)
+  FROM information_schema.tables
+  WHERE table_schema = @db_name
+    AND table_name = 'bookings'
+);
+
+SET @has_legacy_fk_bookings_user := (
+  SELECT COUNT(*)
+  FROM information_schema.table_constraints
+  WHERE constraint_schema = @db_name
+    AND table_name = 'bookings'
+    AND constraint_type = 'FOREIGN KEY'
+    AND constraint_name = 'fk_bookings_user'
+);
+
+SET @sql := IF(
+  @has_bookings = 1 AND @has_legacy_fk_bookings_user = 1,
+  'ALTER TABLE `bookings` DROP FOREIGN KEY `fk_bookings_user`',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @has_legacy_fk_bookings_type := (
+  SELECT COUNT(*)
+  FROM information_schema.table_constraints
+  WHERE constraint_schema = @db_name
+    AND table_name = 'bookings'
+    AND constraint_type = 'FOREIGN KEY'
+    AND constraint_name = 'fk_bookings_type'
+);
+
+SET @sql := IF(
+  @has_bookings = 1 AND @has_legacy_fk_bookings_type = 1,
+  'ALTER TABLE `bookings` DROP FOREIGN KEY `fk_bookings_type`',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 CREATE TABLE IF NOT EXISTS bookings (
   id CHAR(36) NOT NULL,
   user_id CHAR(36) NOT NULL,
@@ -379,11 +424,48 @@ CREATE TABLE IF NOT EXISTS bookings (
   KEY idx_bookings_booking_date (booking_date),
   KEY idx_bookings_status_date (status, booking_date),
   KEY idx_bookings_created_at (created_at),
-  CONSTRAINT fk_bookings_user
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_bookings_type
+  CONSTRAINT fk_bookings_user_restrict
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bookings_type_restrict
     FOREIGN KEY (type_id) REFERENCES booking_types(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='预约主表';
+
+-- 若 bookings 已存在（CREATE TABLE 被跳过），兜底补齐新命名外键。
+SET @has_fk_bookings_user_restrict := (
+  SELECT COUNT(*)
+  FROM information_schema.table_constraints
+  WHERE constraint_schema = @db_name
+    AND table_name = 'bookings'
+    AND constraint_type = 'FOREIGN KEY'
+    AND constraint_name = 'fk_bookings_user_restrict'
+);
+
+SET @sql := IF(
+  @has_bookings = 1 AND @has_fk_bookings_user_restrict = 0,
+  'ALTER TABLE `bookings` ADD CONSTRAINT `fk_bookings_user_restrict` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE RESTRICT',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @has_fk_bookings_type_restrict := (
+  SELECT COUNT(*)
+  FROM information_schema.table_constraints
+  WHERE constraint_schema = @db_name
+    AND table_name = 'bookings'
+    AND constraint_type = 'FOREIGN KEY'
+    AND constraint_name = 'fk_bookings_type_restrict'
+);
+
+SET @sql := IF(
+  @has_bookings = 1 AND @has_fk_bookings_type_restrict = 0,
+  'ALTER TABLE `bookings` ADD CONSTRAINT `fk_bookings_type_restrict` FOREIGN KEY (`type_id`) REFERENCES `booking_types`(`id`) ON DELETE RESTRICT',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS booking_blackouts (
   id INT NOT NULL AUTO_INCREMENT,

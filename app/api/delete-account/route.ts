@@ -18,6 +18,14 @@ export async function POST() {
 
     await executeSQL(
       `
+        DELETE FROM bookings
+        WHERE user_id = {{user_id}}
+      `,
+      { user_id: userId }
+    );
+
+    await executeSQL(
+      `
         DELETE FROM users
         WHERE id = {{user_id}}
       `,
