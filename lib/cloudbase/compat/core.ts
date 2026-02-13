@@ -31,6 +31,8 @@ type StorageRemoveExecutor = (
 interface AuthUser {
   id: string;
   email?: string;
+  phone?: string;
+  role?: string;
 }
 
 interface AuthClient {
