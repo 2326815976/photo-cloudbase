@@ -1257,6 +1257,20 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
 
   const cleanupResult = await cleanupExpiredData();
 
+  const sessionsResult = await executeSQL(
+    `
+      DELETE FROM user_sessions
+      WHERE expires_at < NOW() OR is_revoked = 1
+    `
+  );
+
+  const ipAttemptsResult = await executeSQL(
+    `
+      DELETE FROM ip_registration_attempts
+      WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
+    `
+  );
+
   await executeSQL(
     `
       DELETE FROM photo_views
@@ -1286,6 +1300,8 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
 
   return {
     cleanup_result: cleanupResult,
+    sessions_cleaned: sessionsResult.affectedRows,
+    ip_attempts_cleaned: ipAttemptsResult.affectedRows,
     photo_views_cleaned: true,
     bookings_updated: true,
     analytics_updated: true,
