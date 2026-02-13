@@ -2,7 +2,7 @@ export type SessionRole = 'anonymous' | 'user' | 'admin' | 'system';
 
 export interface AuthUser {
   id: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   role: 'user' | 'admin';
   name: string | null;

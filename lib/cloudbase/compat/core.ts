@@ -1,4 +1,5 @@
 import { DbQueryPayload } from '@/lib/cloudbase/query-types';
+import { AuthUser } from '@/lib/auth/types';
 
 interface CompatError {
   message: string;
@@ -27,13 +28,6 @@ type StorageRemoveExecutor = (
   bucket: string,
   paths: string[]
 ) => Promise<{ data: Array<Record<string, any>> | null; error: CompatError | null }>;
-
-interface AuthUser {
-  id: string;
-  email?: string | null;
-  phone?: string | null;
-  role?: string;
-}
 
 interface AuthClient {
   getUser: () => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;

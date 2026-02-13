@@ -55,7 +55,7 @@ function normalizeCompatError(input: unknown, fallback: string): CompatError {
   return { message: fallback };
 }
 
-function toCompatAuthUser(user: AuthUser | null): { id: string; email?: string } | null {
+function toCompatAuthUser(user: AuthUser | null): AuthUser | null {
   if (!user) {
     return null;
   }
@@ -63,6 +63,9 @@ function toCompatAuthUser(user: AuthUser | null): { id: string; email?: string }
   return {
     id: user.id,
     email: user.email,
+    phone: user.phone,
+    role: user.role,
+    name: user.name,
   };
 }
 
