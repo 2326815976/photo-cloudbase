@@ -36,7 +36,7 @@ interface AuthUser {
 interface AuthClient {
   getUser: () => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
   getSession: () => Promise<{ data: { session: { user: AuthUser } | null }; error: CompatError | null }>;
-  signInWithPassword: (params: { email: string; password: string }) => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
+  signInWithPassword: (params: { phone: string; password: string }) => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
   signOut: () => Promise<{ error: CompatError | null }>;
   updateUser: (params: { password?: string }) => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
   resetPasswordForEmail: (email: string, options?: { redirectTo?: string }) => Promise<{ data: null; error: CompatError | null }>;

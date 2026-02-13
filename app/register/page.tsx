@@ -87,15 +87,18 @@ export default function RegisterPage() {
       }
 
       // 注册成功，自动登录 - 直接调用后端API
+      const loginData = {
+        phone: phone,
+        password,
+      };
+      console.log('[前端] 准备发送登录请求，数据:', JSON.stringify(loginData));
       const loginResponse = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          email: phone,
-          password,
-        }),
+        body: JSON.stringify(loginData),
       });
+      console.log('[前端] 登录请求已发送，状态:', loginResponse.status);
 
       if (!loginResponse.ok) {
         setError('注册成功，但自动登录失败，请手动登录');

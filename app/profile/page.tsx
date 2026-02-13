@@ -28,16 +28,16 @@ export default function ProfilePage() {
       if (session?.user) {
         setIsLoggedIn(true);
         setUserEmail(session.user.email || '');
+        setUserPhone(session.user.phone || '');
 
-        // 从数据库profiles表获取用户名和手机号
+        // 从数据库profiles表获取用户名
         const { data: profile } = await dbClient
           .from('profiles')
-          .select('name, phone')
+          .select('name')
           .eq('id', session.user.id)
           .single();
 
-        setUserName(profile?.name || session.user.email?.split('@')[0] || '用户');
-        setUserPhone(profile?.phone || '');
+        setUserName(profile?.name || session.user.phone || '用户');
       }
 
       setIsLoading(false);

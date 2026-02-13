@@ -45,21 +45,21 @@ function LoginForm() {
         return;
       }
 
-      const dbClient = createClient();
-      if (!dbClient) {
-        setError('系统配置错误，请稍后重试');
-        setIsLoading(false);
-        return;
-      }
-
-      // 直接使用手机号登录
-      const { data, error: signInError } = await dbClient.auth.signInWithPassword({
-        email: formData.phone,
-        password: formData.password,
+      // 直接调用后端登录API
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          phone: formData.phone,
+          password: formData.password,
+        }),
       });
 
-      if (signInError) {
-        if (signInError.message.toLowerCase().includes('invalid login credentials')) {
+      const body = await response.json();
+
+      if (!response.ok || body?.error) {
+        if (body?.error?.message?.toLowerCase().includes('invalid login credentials')) {
           setError('手机号或密码错误');
         } else {
           setError('登录失败，请重试');
@@ -68,6 +68,7 @@ function LoginForm() {
         return;
       }
 
+      const data = body.data;
       if (!data?.user) {
         setError('登录失败，请重试');
         setIsLoading(false);

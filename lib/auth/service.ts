@@ -44,7 +44,7 @@ export async function findUserByEmail(email: string): Promise<Record<string, any
 export async function findUserByPhone(phone: string): Promise<Record<string, any> | null> {
   const result = await executeSQL(
     `
-      SELECT u.id, u.email, u.phone, u.password_hash, u.role, p.name
+      SELECT u.id, u.email, u.phone, u.password_hash, p.role, p.name
       FROM users u
       LEFT JOIN profiles p ON p.id = u.id
       WHERE u.phone = {{phone}} AND u.deleted_at <=> NULL

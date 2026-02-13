@@ -152,7 +152,7 @@ function buildAuthClient(
         };
       }
     },
-    signInWithPassword: async (params: { email: string; password: string }) => {
+    signInWithPassword: async (params: { phone: string; password: string }) => {
       try {
         let userAgent: string | undefined;
         let ipAddress: string | undefined;
@@ -164,7 +164,7 @@ function buildAuthClient(
           // ignore
         }
 
-        const result = await signInWithPassword(params.email, params.password, userAgent, ipAddress);
+        const result = await signInWithPassword(params.phone, params.password, userAgent, ipAddress);
         if (result.error || !result.user || !result.sessionToken) {
           return {
             data: { user: null },

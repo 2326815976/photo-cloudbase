@@ -229,7 +229,7 @@ function buildBrowserCompatClient(): CompatClient {
           };
         }
       },
-      signInWithPassword: async (params: { email: string; password: string }) => {
+      signInWithPassword: async (params: { phone: string; password: string }) => {
         try {
           const { ok, body } = await requestJson('/api/auth/login', {
             method: 'POST',

@@ -60,7 +60,7 @@ export default function ChangePasswordPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          email: user.phone,
+          phone: user.phone,
           password: formData.currentPassword,
         }),
       });
