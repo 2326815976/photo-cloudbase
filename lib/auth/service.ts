@@ -131,11 +131,9 @@ export async function signInWithPassword(
   userAgent?: string,
   ipAddress?: string
 ): Promise<{ user: AuthUser | null; sessionToken: string | null; error: string | null }> {
-  console.log('[SignIn Debug] 查询手机号:', phone);
   const userRecord = await findUserByPhone(phone);
 
   if (!userRecord) {
-    console.log('[SignIn Debug] 未找到用户');
     return {
       user: null,
       sessionToken: null,
@@ -143,16 +141,10 @@ export async function signInWithPassword(
     };
   }
 
-  console.log('[SignIn Debug] 找到用户:', userRecord.id);
   const passwordHash = String(userRecord.password_hash ?? '');
-  console.log('[SignIn Debug] 密码哈希存在:', !!passwordHash);
-  console.log('[SignIn Debug] 密码哈希前缀:', passwordHash.substring(0, 20));
-
   const isPasswordValid = verifyPassword(password, passwordHash);
-  console.log('[SignIn Debug] 密码验证结果:', isPasswordValid);
 
   if (!passwordHash || !isPasswordValid) {
-    console.log('[SignIn Debug] 密码验证失败');
     return {
       user: null,
       sessionToken: null,
@@ -163,7 +155,6 @@ export async function signInWithPassword(
   const user = toAuthUser(userRecord);
   const sessionToken = await createSession(user.id, userAgent, ipAddress);
 
-  console.log('[SignIn Debug] 登录成功');
   return {
     user,
     sessionToken,

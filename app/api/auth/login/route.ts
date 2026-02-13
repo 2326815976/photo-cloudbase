@@ -15,13 +15,10 @@ function getClientIp(request: Request): string | undefined {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    console.log('[Login API] 收到的请求体:', JSON.stringify(body));
     const phone = String(body?.phone ?? '').trim();
     const password = String(body?.password ?? '');
-    console.log('[Login API] 解析后的参数 - phone:', phone, 'password:', password ? '***' : '(空)');
 
     if (!phone || !password) {
-      console.log('[Login API] 参数验证失败');
       return NextResponse.json(
         {
           data: { user: null },
