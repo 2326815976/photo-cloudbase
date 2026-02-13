@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { Phone, Lock, ArrowLeft } from 'lucide-react';
+import { Phone, Lock, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { env } from '@/lib/env';
 
@@ -23,6 +23,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [turnstileKey, setTurnstileKey] = useState(0);
   const [turnstileLoading, setTurnstileLoading] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
 
   // 每次进入页面时强制刷新 Turnstile（清除缓存的 token）
   useEffect(() => {
@@ -170,13 +171,20 @@ export default function RegisterPage() {
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               placeholder="密码"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
+              className="w-full h-14 pl-12 pr-12 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
               required
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[#5D4037]/40 hover:text-[#5D4037] transition-colors"
+            >
+              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
           </div>
 
           {/* Turnstile 验证 */}

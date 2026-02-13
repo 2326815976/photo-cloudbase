@@ -556,11 +556,11 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
     };
   }
 
-  const setBuilder = new SqlValueBuilder();
+  const builder = new SqlValueBuilder();
   const setClauses: string[] = [];
   Object.entries(payload.values).forEach(([column, value]) => {
     assertColumnAllowed(payload.table, column);
-    const placeholder = setBuilder.add(normalizeWriteValue(value));
+    const placeholder = builder.add(normalizeWriteValue(value));
     setClauses.push(`${escapeIdentifier(column)} = ${placeholder}`);
   });
 
@@ -572,8 +572,7 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
     };
   }
 
-  const whereBuilder = new SqlValueBuilder();
-  const whereClause = buildWhereClause(payload.table, payload.filters, whereBuilder);
+  const whereClause = buildWhereClause(payload.table, payload.filters, builder);
   if (!whereClause) {
     return {
       data: null,
@@ -582,14 +581,12 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
     };
   }
 
-  setBuilder.merge(whereBuilder.build());
-
   const sql = `
     UPDATE ${escapeIdentifier(payload.table)}
     SET ${setClauses.join(', ')}
     ${whereClause}
   `;
-  await executeSQL(sql, setBuilder.build());
+  await executeSQL(sql, builder.build());
 
   if (!payload.selectAfterWrite) {
     return {

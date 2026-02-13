@@ -667,6 +667,95 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
   };
 }
 
+async function rpcPostAlbumComment(args: Record<string, unknown>, context: AuthContext) {
+  const accessKey = String(args.p_access_key ?? '').trim().toUpperCase();
+  const photoId = String(args.p_photo_id ?? '').trim();
+  const content = String(args.p_content ?? '').trim();
+
+  if (!content) {
+    throw new Error('评论内容不能为空');
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT a.id
+      FROM albums a
+      JOIN album_photos p ON p.album_id = a.id
+      WHERE a.access_key = {{access_key}}
+        AND p.id = {{photo_id}}
+      LIMIT 1
+    `,
+    {
+      access_key: accessKey,
+      photo_id: photoId,
+    }
+  );
+
+  if (!result.rows[0]) {
+    throw new Error('无权操作：密钥错误或照片不属于该空间');
+  }
+
+  let nickname = '访客';
+  let isAdminReply = false;
+
+  if (context.user?.id) {
+    const profileResult = await executeSQL(
+      `
+        SELECT name, role
+        FROM profiles
+        WHERE id = {{user_id}}
+        LIMIT 1
+      `,
+      {
+        user_id: context.user.id,
+      }
+    );
+
+    if (profileResult.rows[0]) {
+      nickname = profileResult.rows[0].name || '访客';
+      isAdminReply = profileResult.rows[0].role === 'admin';
+    }
+  }
+
+  await executeSQL(
+    `
+      INSERT INTO photo_comments (photo_id, user_id, nickname, content, is_admin_reply, created_at)
+      VALUES ({{photo_id}}, {{user_id}}, {{nickname}}, {{content}}, {{is_admin_reply}}, NOW())
+    `,
+    {
+      photo_id: photoId,
+      user_id: context.user?.id ?? null,
+      nickname,
+      content,
+      is_admin_reply: isAdminReply ? 1 : 0,
+    }
+  );
+
+  return null;
+}
+
+async function rpcValidateCity(args: Record<string, unknown>) {
+  const cityName = String(args.p_city_name ?? '').trim();
+  if (!cityName) {
+    return false;
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT id
+      FROM allowed_cities
+      WHERE city_name = {{city_name}}
+        AND is_active = 1
+      LIMIT 1
+    `,
+    {
+      city_name: cityName,
+    }
+  );
+
+  return result.rows.length > 0;
+}
+
 async function rpcCheckDateAvailability(args: Record<string, unknown>) {
   const targetDate = String(args.target_date ?? '').trim();
   if (!targetDate) {
@@ -1332,6 +1421,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
       case 'delete_album_photo':
         data = await rpcDeleteAlbumPhoto(args);
         break;
+      case 'post_album_comment':
+        data = await rpcPostAlbumComment(args, context);
+        break;
       case 'like_photo':
         data = await rpcLikePhoto(args, context);
         break;
@@ -1340,6 +1432,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
         break;
       case 'check_date_availability':
         data = await rpcCheckDateAvailability(args);
+        break;
+      case 'validate_city':
+        data = await rpcValidateCity(args);
         break;
       case 'increment_pose_view':
         data = await rpcIncrementPoseView(args);

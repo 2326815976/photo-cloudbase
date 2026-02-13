@@ -147,6 +147,64 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
       throw new Error('未授权操作');
     }
 
+    case 'users':
+    case 'user_sessions':
+    case 'password_reset_tokens':
+      throw new Error('未授权操作：请使用认证API');
+
+    case 'albums':
+    case 'album_folders':
+      throw new Error('未授权操作：请使用RPC函数');
+
+    case 'user_album_bindings': {
+      ensureAuthenticated(context);
+      if (!context.user) {
+        throw new Error('未授权操作');
+      }
+      forceUserFilter(scoped, context.user.id);
+      return scoped;
+    }
+
+    case 'photo_comments': {
+      if (scoped.action === 'select') {
+        return scoped;
+      }
+      throw new Error('未授权操作：请使用RPC函数');
+    }
+
+    case 'photo_likes': {
+      if (scoped.action === 'select') {
+        return scoped;
+      }
+
+      ensureAuthenticated(context);
+      if (!context.user) {
+        throw new Error('未授权操作');
+      }
+
+      if (scoped.action === 'insert') {
+        enforceUserIdInValues(scoped, context.user.id);
+        return scoped;
+      }
+
+      if (scoped.action === 'delete') {
+        forceUserFilter(scoped, context.user.id);
+        return scoped;
+      }
+
+      throw new Error('未授权操作');
+    }
+
+    case 'analytics_daily':
+      if (scoped.action === 'select') {
+        throw new Error('未授权操作：仅管理员可查看');
+      }
+      throw new Error('未授权操作');
+
+    case 'photo_views':
+    case 'user_active_logs':
+      return scoped;
+
     default:
       throw new Error('未授权操作');
   }
