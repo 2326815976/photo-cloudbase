@@ -24,6 +24,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const storageDomain = env.CLOUDBASE_STORAGE_DOMAIN();
+  const zqknnyWoff2Url = "/fonts/ZQKNNY-Medium-2.woff2";
+  const zqknnyTtfUrl = "/fonts/ZQKNNY-Medium-2.ttf";
+  const letterWoff2Url = "/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2";
 
   // 服务端注入运行时配置（优先读取无前缀变量，兼容 CloudBase）
   const runtimeConfig = {
@@ -48,16 +51,8 @@ export default function RootLayout({
           }}
         />
 
-        {/* 预连接优化 - 减少网络延迟 */}
-        {storageDomain && (
-          <>
-            <link rel="preconnect" href={storageDomain} />
-            <link rel="dns-prefetch" href={storageDomain} />
-          </>
-        )}
-
-        {/* 字体预加载 - 仅预加载首屏必需字体 */}
-        <link rel="preload" href="/fonts/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        {/* 字体预加载 - 使用同源字体，避免跨域 CORS 问题 */}
+        <link rel="preload" href={zqknnyWoff2Url} as="font" type="font/woff2" crossOrigin="anonymous" />
 
         {/* 腾讯地图 JS API */}
         <script
@@ -67,12 +62,12 @@ export default function RootLayout({
 
         {/* 自托管字体配置 */}
         <style dangerouslySetInnerHTML={{__html: `
-          @font-face{font-family:'ZQKNNY';src:local('ZQKNNY-Local'),url('/fonts/ZQKNNY-Medium-2.woff2') format('woff2'),url('/fonts/ZQKNNY-Medium-2.ttf') format('truetype');font-display:swap;font-weight:500;font-style:normal}
+          @font-face{font-family:'ZQKNNY';src:local('ZQKNNY-Local'),url('${zqknnyWoff2Url}') format('woff2'),url('/api/assets/font-file?name=zqknny') format('woff2'),url('${zqknnyTtfUrl}') format('truetype');font-display:swap;font-weight:500;font-style:normal}
           @font-face{font-family:'YouYuan-Fallback';src:local('YouYuan'),local('幼圆'),local('Microsoft YaHei'),local('微软雅黑');font-display:swap}
-          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2');unicode-range:U+0020-007F,U+00A0-00FF;font-display:swap;font-weight:normal}
-          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2');unicode-range:U+4E00-62FF;font-display:swap;font-weight:normal}
-          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2');unicode-range:U+6300-77FF;font-display:swap;font-weight:normal}
-          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2') format('woff2');unicode-range:U+7800-9FFF;font-display:swap;font-weight:normal}
+          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('${letterWoff2Url}') format('woff2'),url('/api/assets/font-file?name=letter') format('woff2');unicode-range:U+0020-007F,U+00A0-00FF;font-display:swap;font-weight:normal}
+          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('${letterWoff2Url}') format('woff2'),url('/api/assets/font-file?name=letter') format('woff2');unicode-range:U+4E00-62FF;font-display:swap;font-weight:normal}
+          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('${letterWoff2Url}') format('woff2'),url('/api/assets/font-file?name=letter') format('woff2');unicode-range:U+6300-77FF;font-display:swap;font-weight:normal}
+          @font-face{font-family:'Letter Font';src:local('Letter Font Local'),url('${letterWoff2Url}') format('woff2'),url('/api/assets/font-file?name=letter') format('woff2');unicode-range:U+7800-9FFF;font-display:swap;font-weight:normal}
         `}} />
       </head>
       <body className="antialiased" style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'YouYuan-Fallback', 'Microsoft YaHei', sans-serif" }}>

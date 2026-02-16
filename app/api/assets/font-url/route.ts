@@ -89,9 +89,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // 返回多个候选 URL：优先当前请求域名，再回退到 APP_URL，提升小程序端容错性。
-  const requestOrigin = normalizeFontOrigin(getRequestOrigin(req));
-  const configuredOrigin = normalizeFontOrigin(env.APP_URL());
+  // 返回多个候选 URL：优先同源地址，最后才回退到云存储地址，避免 Web 端跨域字体加载失败。
+  const storageOrigin = normalizeFontOrigin(env.CLOUDBASE_STORAGE_DOMAIN());
+  const requestOrigin = normalizeAbsoluteOrigin(getRequestOrigin(req));
+  const configuredOrigin = normalizeAbsoluteOrigin(env.APP_URL());
   const apiPath = buildFontApiPath(name);
   const candidates: string[] = [];
 
@@ -99,6 +100,10 @@ export async function GET(req: NextRequest) {
     candidates.push(joinUrl(origin, apiPath));
     candidates.push(joinUrl(origin, staticPath));
   });
+
+  if (storageOrigin) {
+    candidates.push(joinUrl(storageOrigin, staticPath));
+  }
 
   const uniqueCandidates = candidates.filter((item, index, arr) => arr.indexOf(item) === index);
   const url = uniqueCandidates[0] || '';

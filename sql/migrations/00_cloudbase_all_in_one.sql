@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS albums (
   id CHAR(36) NOT NULL,
   access_key VARCHAR(32) NOT NULL,
   title VARCHAR(255) NULL,
+  root_folder_name VARCHAR(255) NOT NULL DEFAULT '根目录',
   cover_url VARCHAR(1024) NULL,
   welcome_letter TEXT NULL,
   recipient_name VARCHAR(128) NOT NULL DEFAULT '拾光者',
@@ -573,8 +574,8 @@ UPDATE pose_tags t
 SET usage_count = (
   SELECT COUNT(*)
   FROM poses p
-  WHERE p.tags IS NOT NULL
-    AND JSON_SEARCH(p.tags, 'one', t.name) IS NOT NULL
+  WHERE !(p.tags <=> NULL)
+    AND !(JSON_SEARCH(p.tags, 'one', t.name) <=> NULL)
 );
 
 -- ================================================================================================
@@ -631,7 +632,7 @@ DEALLOCATE PREPARE stmt;
 -- 3) 若已存在 storage_provider，强制收敛到 cloudbase
 SET @sql := IF(
   @table_exists = 1 AND @has_storage_provider = 1,
-  'UPDATE `app_releases` SET `storage_provider` = ''cloudbase'' WHERE `storage_provider` <> ''cloudbase'' OR `storage_provider` IS NULL',
+  'UPDATE `app_releases` SET `storage_provider` = ''cloudbase'' WHERE `storage_provider` <> ''cloudbase'' OR (`storage_provider` <=> NULL)',
   'SELECT 1'
 );
 PREPARE stmt FROM @sql;

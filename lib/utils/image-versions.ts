@@ -12,6 +12,10 @@ export interface ImageVersion {
   height: number;
 }
 
+interface PoseImageGenerateOptions {
+  signal?: AbortSignal;
+}
+
 /**
  * 为照片墙生成图片版本（小红书式两级加载）
  * @param originalFile - 原始图片文件
@@ -161,21 +165,29 @@ async function getImageDimensions(file: File): Promise<{ width: number; height: 
  * @returns 优化后的文件
  */
 export async function generatePoseImage(
-  file: File
+  file: File,
+  options: PoseImageGenerateOptions = {}
 ): Promise<File> {
   // 如果文件小于500KB，直接返回原文件
   if (file.size <= 500 * 1024) {
     return file;
   }
 
+  const sourceSizeMb = file.size / (1024 * 1024);
+  const sourceType = String(file.type ?? '').toLowerCase();
+  const isHeavySource = sourceSizeMb >= 8 || sourceType === 'image/png';
+
   // 使用与照片墙列表一致的配置：1080px, 500KB, 质量0.8
   // 快速切换，流畅体验
   const compressedFile = await imageCompression(file, {
-    maxSizeMB: 0.5,
+    // 重图/PNG压缩时适度放宽目标体积，减少循环次数，降低超时概率。
+    maxSizeMB: isHeavySource ? 1.2 : 0.5,
     maxWidthOrHeight: 1080,
-    initialQuality: 0.8,
+    initialQuality: isHeavySource ? 0.72 : 0.8,
     fileType: 'image/webp',
-    useWebWorker: true
+    useWebWorker: true,
+    maxIteration: isHeavySource ? 6 : 10,
+    signal: options.signal,
   });
 
   return compressedFile;

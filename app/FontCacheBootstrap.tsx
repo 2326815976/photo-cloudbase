@@ -10,18 +10,20 @@ type FontEntry = {
   descriptors?: FontFaceDescriptors;
 };
 
-const FONT_ENTRIES: FontEntry[] = [
-  {
-    url: '/fonts/ZQKNNY-Medium-2.woff2',
-    family: 'ZQKNNY-Local',
-    descriptors: { weight: '500', style: 'normal', display: 'swap' },
-  },
-  {
-    url: '/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2',
-    family: 'Letter Font Local',
-    descriptors: { weight: '400', style: 'normal', display: 'swap' },
-  },
-];
+function buildFontEntries(): FontEntry[] {
+  return [
+    {
+      url: '/fonts/ZQKNNY-Medium-2.woff2',
+      family: 'ZQKNNY-Local',
+      descriptors: { weight: '500', style: 'normal', display: 'swap' },
+    },
+    {
+      url: '/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2',
+      family: 'Letter Font Local',
+      descriptors: { weight: '400', style: 'normal', display: 'swap' },
+    },
+  ];
+}
 
 async function getFontResponse(cache: Cache, url: string): Promise<Response | null> {
   const cached = await cache.match(url);
@@ -49,8 +51,9 @@ export default function FontCacheBootstrap() {
 
       try {
         const cache = await caches.open(FONT_CACHE_NAME);
+        const fontEntries = buildFontEntries();
 
-        const tasks = FONT_ENTRIES.map(async (entry) => {
+        const tasks = fontEntries.map(async (entry) => {
           const response = await getFontResponse(cache, entry.url);
           if (!response || canceled) {
             return;

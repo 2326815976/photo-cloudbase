@@ -3,13 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Sparkles, Plus, Calendar, Clipboard } from 'lucide-react';
+import { Lock, Sparkles, Plus, Calendar, Clipboard, Unlink2 } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
-import { useAlbums } from '@/lib/swr/hooks';
-import { mutate } from 'swr';
 import { getClipboardText } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
 import { formatDateDisplayUTC8, toTimestampUTC8 } from '@/lib/utils/date-helpers';
+import { normalizeAccessKey } from '@/lib/utils/access-key';
 
 interface BoundAlbum {
   id: string;
@@ -22,6 +21,18 @@ interface BoundAlbum {
   is_expired: boolean;
 }
 
+function isTransientConnectionError(message: string): boolean {
+  const normalized = String(message ?? '').toLowerCase();
+  return (
+    normalized.includes('connect timeout') ||
+    normalized.includes('request timeout') ||
+    normalized.includes('timed out') ||
+    normalized.includes('etimedout') ||
+    normalized.includes('esockettimedout') ||
+    normalized.includes('network')
+  );
+}
+
 export default function AlbumLoginPage() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -29,8 +40,10 @@ export default function AlbumLoginPage() {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [accessKey, setAccessKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [unbindingAlbumId, setUnbindingAlbumId] = useState<string | null>(null);
+  const [unbindTargetAlbum, setUnbindTargetAlbum] = useState<BoundAlbum | null>(null);
   const [error, setError] = useState('');
-  const [showToast, setShowToast] = useState(false);
+  const [listNotice, setListNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [isWechat, setIsWechat] = useState(false);
 
@@ -44,6 +57,16 @@ export default function AlbumLoginPage() {
     loadUserData();
   }, []);
 
+  useEffect(() => {
+    if (!listNotice) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setListNotice(null);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [listNotice]);
+
   const loadUserData = async () => {
     setPageLoading(true);
     const dbClient = createClient();
@@ -52,34 +75,112 @@ export default function AlbumLoginPage() {
       setError('服务初始化失败，请刷新页面后重试');
       return;
     }
-    const { data: { user } } = await dbClient.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await dbClient.auth.getUser();
+
+    if (userError) {
+      setIsLoggedIn(false);
+      setBoundAlbums([]);
+      setPageLoading(false);
+      setError(
+        isTransientConnectionError(userError.message || '')
+          ? '⚠️ 会话连接超时，请稍后重试'
+          : `⚠️ 会话校验失败：${userError.message || '未知错误'}`
+      );
+      return;
+    }
 
     setIsLoggedIn(!!user);
 
     if (user) {
       // 加载用户绑定的相册
-      const { data, error } = await dbClient.rpc('get_user_bound_albums');
-      if (!error && data) {
+      const { data, error: loadBindingsError } = await dbClient.rpc('get_user_bound_albums');
+      if (!loadBindingsError && data) {
         setBoundAlbums(data);
+      } else if (loadBindingsError) {
+        setBoundAlbums([]);
+        setListNotice({
+          type: 'error',
+          message: isTransientConnectionError(loadBindingsError.message || '')
+            ? '空间列表加载超时，请稍后重试'
+            : `空间列表加载失败：${loadBindingsError.message || '未知错误'}`,
+        });
       }
     }
     setPageLoading(false);
   };
 
   const handleAlbumClick = (accessKey: string) => {
-    router.push(`/album/${accessKey}`);
+    router.push(`/album/${normalizeAccessKey(accessKey)}`);
+  };
+
+  const handleRequestUnbindAlbum = (album: BoundAlbum) => {
+    if (unbindingAlbumId) {
+      return;
+    }
+    setUnbindTargetAlbum(album);
+  };
+
+  const handleCancelUnbindAlbum = () => {
+    if (unbindingAlbumId) {
+      return;
+    }
+    setUnbindTargetAlbum(null);
+  };
+
+  const handleConfirmUnbindAlbum = async () => {
+    if (!unbindTargetAlbum || unbindingAlbumId) {
+      return;
+    }
+
+    const targetAlbum = unbindTargetAlbum;
+    const albumTitle = targetAlbum.title || '未命名空间';
+
+    setListNotice(null);
+    setUnbindingAlbumId(targetAlbum.id);
+
+    const dbClient = createClient();
+    if (!dbClient) {
+      setUnbindingAlbumId(null);
+      setUnbindTargetAlbum(null);
+      setListNotice({ type: 'error', message: '服务初始化失败，请刷新页面后重试' });
+      return;
+    }
+
+    const { error: unbindError } = await dbClient.rpc('unbind_user_from_album', {
+      p_album_id: targetAlbum.id
+    });
+
+    if (unbindError) {
+      setUnbindingAlbumId(null);
+      setUnbindTargetAlbum(null);
+      setListNotice({
+        type: 'error',
+        message: `解除绑定失败：${unbindError.message || '未知错误'}`
+      });
+      return;
+    }
+
+    setBoundAlbums(prev => prev.filter((item) => item.id !== targetAlbum.id));
+    setUnbindingAlbumId(null);
+    setUnbindTargetAlbum(null);
+    setListNotice({ type: 'success', message: `已解除绑定「${albumTitle}」` });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!accessKey.trim()) {
+    const normalizedAccessKey = normalizeAccessKey(accessKey);
+    if (!normalizedAccessKey) {
       setError('请输入密钥');
       return;
     }
 
     setIsLoading(true);
+    setAccessKey(normalizedAccessKey);
 
     const dbClient = createClient();
     if (!dbClient) {
@@ -90,10 +191,34 @@ export default function AlbumLoginPage() {
 
     // 使用 get_album_content RPC 验证密钥（可以绕过 RLS）
     const { data, error: checkError } = await dbClient.rpc('get_album_content', {
-      input_key: accessKey.toUpperCase()
+      input_key: normalizedAccessKey
     });
 
-    if (checkError || !data) {
+    if (checkError) {
+      const rawMessage = String(
+        (checkError as { message?: unknown; details?: unknown })?.message ??
+        (checkError as { message?: unknown; details?: unknown })?.details ??
+        '验证失败'
+      );
+      const normalizedMessage = rawMessage.toLowerCase();
+      if (rawMessage.includes('密钥错误') || rawMessage.includes('密钥不存在')) {
+        setError('❌ 密钥不存在，请检查后重试');
+      } else if (
+        normalizedMessage.includes('timeout') ||
+        normalizedMessage.includes('timed out') ||
+        normalizedMessage.includes('connect') ||
+        normalizedMessage.includes('network') ||
+        rawMessage.includes('连接')
+      ) {
+        setError('⚠️ 服务连接异常，请稍后重试');
+      } else {
+        setError(`⚠️ 验证失败：${rawMessage}`);
+      }
+      setIsLoading(false);
+      return;
+    }
+
+    if (!data) {
       setError('❌ 密钥不存在，请检查后重试');
       setIsLoading(false);
       return;
@@ -109,18 +234,18 @@ export default function AlbumLoginPage() {
     // 如果已登录，先尝试绑定该相册
     if (isLoggedIn) {
       const { error: bindError } = await dbClient.rpc('bind_user_to_album', {
-        p_access_key: accessKey.toUpperCase()
+        p_access_key: normalizedAccessKey
       });
 
       if (!bindError) {
-        await loadUserData();
-        setShowToast(true);
-        setTimeout(() => setShowToast(false), 3000);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem(`album_bind_notice_${normalizedAccessKey}`, '1');
+        }
       }
     }
 
     // 验证通过，跳转到专属空间
-    router.push(`/album/${accessKey.toUpperCase()}`);
+    router.push(`/album/${normalizedAccessKey}`);
   };
 
   const hasBindings = isLoggedIn && boundAlbums.length > 0;
@@ -191,20 +316,6 @@ export default function AlbumLoginPage() {
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* Toast 提示 */}
-      <AnimatePresence>
-        {showToast && (
-          <motion.div
-            initial={{ opacity: 0, y: -50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -50 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#FFC857] text-[#5D4037] px-6 py-3 rounded-full shadow-lg border-2 border-[#5D4037]"
-          >
-            🎉 已自动绑定该空间到您的账号！
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -221,6 +332,18 @@ export default function AlbumLoginPage() {
 
       {/* 滚动区域 */}
       <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+        {listNotice && (
+          <div
+            className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+              listNotice.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-700'
+                : 'bg-red-50 border-red-200 text-red-700'
+            }`}
+          >
+            {listNotice.message}
+          </div>
+        )}
+
         {/* 场景一：已登录且有绑定相册 */}
         {hasBindings && !showKeyInput ? (
           <div className="space-y-4">
@@ -276,11 +399,24 @@ export default function AlbumLoginPage() {
                         </div>
                       </div>
 
-                      {/* 箭头 */}
-                      <div className="flex-none flex items-center">
+                      {/* 操作区 */}
+                      <div className="flex-none flex flex-col items-end justify-between gap-2">
                         <div className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
                           <span className="text-[#FFC857]">→</span>
                         </div>
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.95 }}
+                          disabled={unbindingAlbumId === album.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleRequestUnbindAlbum(album);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-600 disabled:opacity-60"
+                        >
+                          <Unlink2 className="h-3.5 w-3.5" />
+                          <span>{unbindingAlbumId === album.id ? '解除中...' : '解除绑定'}</span>
+                        </motion.button>
                       </div>
                     </div>
                   </motion.div>
@@ -332,7 +468,7 @@ export default function AlbumLoginPage() {
                       type="text"
                       placeholder="输入神秘密钥..."
                       value={accessKey}
-                      onChange={(e) => setAccessKey(e.target.value)}
+                      onChange={(e) => setAccessKey(normalizeAccessKey(e.target.value))}
                       disabled={isLoading}
                       className={`w-full px-4 py-3 ${!isWechat ? 'pr-12' : ''} text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50`}
                     />
@@ -344,7 +480,7 @@ export default function AlbumLoginPage() {
                           try {
                             const text = await getClipboardText();
                             if (text) {
-                              setAccessKey(text.trim().toUpperCase());
+                              setAccessKey(normalizeAccessKey(text));
                               setError('');
                             } else {
                               // 提示用户可以手动粘贴
@@ -402,7 +538,7 @@ export default function AlbumLoginPage() {
               {/* 提示信息 */}
               <div className="mt-6 pt-6 border-t border-[#5D4037]/10">
                 <p className="text-xs text-[#5D4037]/50 text-center mb-2 whitespace-nowrap overflow-x-auto">
-                  💡 提示：{isLoggedIn ? '输入密钥后将自动绑定到您的账号' : '登录后可绑定空间，下次无需输入密钥'}
+                  💡 提示：{isLoggedIn ? '输入密钥后将自动绑定并直接进入返图空间' : '登录后可绑定空间，下次无需输入密钥'}
                 </p>
                 <p className="text-xs text-[#5D4037]/50 text-center whitespace-nowrap overflow-x-auto">
                   密钥由摄影师提供，请妥善保管
@@ -425,6 +561,61 @@ export default function AlbumLoginPage() {
           </motion.div>
         )}
       </div>
+
+      {/* 解除绑定确认弹窗（对齐定格弹窗风格） */}
+      <AnimatePresence>
+        {unbindTargetAlbum && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={handleCancelUnbindAlbum}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Unlink2 className="w-8 h-8 text-[#FFC857]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-3">解除空间绑定？</h3>
+                <p className="text-sm text-[#5D4037]/70 leading-relaxed mb-2">
+                  解除后不会删除空间内容，你仍可通过密钥重新进入并再次绑定。
+                </p>
+                <p className="text-xs text-[#5D4037]/50">
+                  当前空间：{unbindTargetAlbum.title || '未命名空间'}
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  disabled={!!unbindingAlbumId}
+                  onClick={handleCancelUnbindAlbum}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#5D4037]/10 text-[#5D4037] hover:bg-[#5D4037]/20 transition-colors disabled:opacity-60"
+                >
+                  再想想
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  disabled={!!unbindingAlbumId}
+                  onClick={() => {
+                    void handleConfirmUnbindAlbum();
+                  }}
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all disabled:opacity-60"
+                >
+                  {unbindingAlbumId ? '解除中...' : '确认解除'}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

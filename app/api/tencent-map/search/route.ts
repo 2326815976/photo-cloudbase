@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
         cityName: String(item?.ad_info?.city ?? '').trim() || undefined,
         province: String(item?.ad_info?.province ?? '').trim() || undefined,
         district: String(item?.ad_info?.district ?? '').trim() || undefined,
-        adcode: String(item?.ad_info?.adcode ?? '').trim() || undefined,
+        adcode: String(item?.ad_info?.adcode ?? item?.ad_info?.citycode ?? '').trim() || undefined,
       }));
 
       return NextResponse.json({ results });

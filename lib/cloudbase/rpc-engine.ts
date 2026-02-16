@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { AuthContext } from '@/lib/auth/types';
 import { deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
+import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { executeSQL } from './sql-executor';
 
 interface RpcExecuteResult {
@@ -124,6 +125,8 @@ function requireAdmin(context: AuthContext): void {
 // 统一按 UTC+8（Asia/Shanghai）计算“当前时间/当天日期”，避免依赖 DB 会话时区
 const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
 const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
+const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
+const SYSTEM_WALL_ALBUM_ACCESS_KEY = 'WALL0000';
 
 async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthContext) {
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
@@ -213,7 +216,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
 }
 
 async function rpcGetAlbumContent(args: Record<string, unknown>) {
-  const inputKey = String(args.input_key ?? '').trim().toUpperCase();
+  const inputKey = normalizeAccessKey(args.input_key);
   if (!inputKey) {
     throw new Error('密钥错误');
   }
@@ -366,7 +369,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
 
 async function rpcBindUserToAlbum(args: Record<string, unknown>, context: AuthContext) {
   const userId = requireUser(context);
-  const accessKey = String(args.p_access_key ?? '').trim().toUpperCase();
+  const accessKey = normalizeAccessKey(args.p_access_key);
   if (!accessKey) {
     throw new Error('密钥错误');
   }
@@ -451,8 +454,56 @@ async function rpcGetUserBoundAlbums(context: AuthContext) {
   }));
 }
 
+async function rpcUnbindUserFromAlbum(args: Record<string, unknown>, context: AuthContext) {
+  const userId = requireUser(context);
+  const albumId = String(args.p_album_id ?? '').trim();
+  const accessKey = normalizeAccessKey(args.p_access_key);
+
+  let targetAlbumId = albumId;
+  if (!targetAlbumId) {
+    if (!accessKey) {
+      throw new Error('参数错误：缺少相册标识');
+    }
+
+    const albumResult = await executeSQL(
+      `
+        SELECT id
+        FROM albums
+        WHERE access_key = {{access_key}}
+        LIMIT 1
+      `,
+      {
+        access_key: accessKey,
+      }
+    );
+    const album = albumResult.rows[0];
+    if (!album) {
+      throw new Error('密钥错误');
+    }
+    targetAlbumId = String(album.id);
+  }
+
+  const deleteResult = await executeSQL(
+    `
+      DELETE FROM user_album_bindings
+      WHERE user_id = {{user_id}}
+        AND album_id = {{album_id}}
+      LIMIT 1
+    `,
+    {
+      user_id: userId,
+      album_id: targetAlbumId,
+    }
+  );
+
+  return {
+    album_id: targetAlbumId,
+    unbound: deleteResult.affectedRows > 0,
+  };
+}
+
 async function rpcPinPhotoToWall(args: Record<string, unknown>) {
-  const accessKey = String(args.p_access_key ?? '').trim().toUpperCase();
+  const accessKey = normalizeAccessKey(args.p_access_key);
   const photoId = String(args.p_photo_id ?? '').trim();
 
   const result = await executeSQL(
@@ -489,7 +540,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
 }
 
 async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
-  const accessKey = String(args.p_access_key ?? '').trim().toUpperCase();
+  const accessKey = normalizeAccessKey(args.p_access_key);
   const photoId = String(args.p_photo_id ?? '').trim();
 
   const result = await executeSQL(
@@ -723,7 +774,7 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
 }
 
 async function rpcPostAlbumComment(args: Record<string, unknown>, context: AuthContext) {
-  const accessKey = String(args.p_access_key ?? '').trim().toUpperCase();
+  const accessKey = normalizeAccessKey(args.p_access_key);
   const photoId = String(args.p_photo_id ?? '').trim();
   const content = String(args.p_content ?? '').trim();
 
@@ -995,8 +1046,88 @@ async function scalar(sql: string, values: Record<string, unknown> = {}, key: st
   return toNumber(result.rows[0]?.[key], 0);
 }
 
+interface ScalarQueryTask {
+  sql: string;
+  values?: Record<string, unknown>;
+  key?: string;
+}
+
+async function runScalarQueryTasks(tasks: ScalarQueryTask[], concurrency: number = 6): Promise<number[]> {
+  const safeConcurrency = Math.max(1, concurrency);
+  const values: number[] = [];
+
+  for (let index = 0; index < tasks.length; index += safeConcurrency) {
+    const chunk = tasks.slice(index, index + safeConcurrency);
+    const chunkValues = await Promise.all(
+      chunk.map((task) => scalar(task.sql, task.values ?? {}, task.key ?? 'value'))
+    );
+    values.push(...chunkValues);
+  }
+
+  return values;
+}
+
 async function rpcGetAdminDashboardStats(context: AuthContext) {
   requireAdmin(context);
+
+  const scalarTasks: ScalarQueryTask[] = [
+    { sql: 'SELECT COUNT(*) AS value FROM profiles' },
+    { sql: "SELECT COUNT(*) AS value FROM profiles WHERE role = 'admin'" },
+    { sql: "SELECT COUNT(*) AS value FROM profiles WHERE role = 'user'" },
+    { sql: `SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
+    { sql: `SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}` },
+    {
+      sql: 'SELECT COUNT(*) AS value FROM albums WHERE id <> {{system_wall_album_id}} AND access_key <> {{system_wall_album_access_key}}',
+      values: {
+        system_wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        system_wall_album_access_key: SYSTEM_WALL_ALBUM_ACCESS_KEY,
+      },
+    },
+    {
+      sql: `SELECT COUNT(*) AS value FROM albums WHERE id <> {{system_wall_album_id}} AND access_key <> {{system_wall_album_access_key}} AND DATE(created_at) = ${TODAY_UTC8_EXPR}`,
+      values: {
+        system_wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        system_wall_album_access_key: SYSTEM_WALL_ALBUM_ACCESS_KEY,
+      },
+    },
+    {
+      sql: `SELECT COUNT(*) AS value FROM albums WHERE id <> {{system_wall_album_id}} AND access_key <> {{system_wall_album_access_key}} AND COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}`,
+      values: {
+        system_wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        system_wall_album_access_key: SYSTEM_WALL_ALBUM_ACCESS_KEY,
+      },
+    },
+    {
+      sql: 'SELECT COUNT(*) AS value FROM albums WHERE id <> {{system_wall_album_id}} AND access_key <> {{system_wall_album_access_key}} AND enable_tipping = 1',
+      values: {
+        system_wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        system_wall_album_access_key: SYSTEM_WALL_ALBUM_ACCESS_KEY,
+      },
+    },
+    { sql: 'SELECT COUNT(*) AS value FROM album_photos' },
+    { sql: `SELECT COUNT(*) AS value FROM album_photos WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
+    { sql: 'SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 1' },
+    { sql: 'SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 0' },
+    { sql: 'SELECT COALESCE(SUM(view_count), 0) AS value FROM album_photos' },
+    { sql: 'SELECT COALESCE(SUM(like_count), 0) AS value FROM album_photos' },
+    { sql: 'SELECT COUNT(*) AS value FROM photo_comments' },
+    { sql: 'SELECT COALESCE(ROUND(AVG(rating), 2), 0) AS value FROM album_photos WHERE rating > 0' },
+    { sql: 'SELECT COUNT(*) AS value FROM bookings' },
+    { sql: `SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
+    { sql: "SELECT COUNT(*) AS value FROM bookings WHERE status = 'pending'" },
+    { sql: "SELECT COUNT(*) AS value FROM bookings WHERE status = 'confirmed'" },
+    { sql: "SELECT COUNT(*) AS value FROM bookings WHERE status = 'in_progress'" },
+    { sql: "SELECT COUNT(*) AS value FROM bookings WHERE status = 'finished'" },
+    { sql: "SELECT COUNT(*) AS value FROM bookings WHERE status = 'cancelled'" },
+    { sql: `SELECT COUNT(*) AS value FROM bookings WHERE status IN ('pending', 'confirmed') AND booking_date >= ${TODAY_UTC8_EXPR}` },
+    { sql: 'SELECT COUNT(*) AS value FROM poses' },
+    { sql: `SELECT COUNT(*) AS value FROM poses WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
+    { sql: 'SELECT COALESCE(SUM(view_count), 0) AS value FROM poses' },
+    { sql: 'SELECT COUNT(*) AS value FROM pose_tags' },
+    { sql: 'SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1' },
+    { sql: `SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}` },
+    { sql: 'SELECT COUNT(*) AS value FROM app_releases' },
+  ];
 
   const [
     usersTotal,
@@ -1020,6 +1151,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     bookingsNewToday,
     bookingsPending,
     bookingsConfirmed,
+    bookingsInProgress,
     bookingsFinished,
     bookingsCancelled,
     bookingsUpcoming,
@@ -1030,39 +1162,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     totalCities,
     totalBlackoutDates,
     totalReleases,
-  ] = await Promise.all([
-    scalar('SELECT COUNT(*) AS value FROM profiles'),
-    scalar("SELECT COUNT(*) AS value FROM profiles WHERE role = 'admin'"),
-    scalar("SELECT COUNT(*) AS value FROM profiles WHERE role = 'user'"),
-    scalar(`SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
-    scalar(`SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}`),
-    scalar('SELECT COUNT(*) AS value FROM albums'),
-    scalar(`SELECT COUNT(*) AS value FROM albums WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
-    scalar(`SELECT COUNT(*) AS value FROM albums WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}`),
-    scalar('SELECT COUNT(*) AS value FROM albums WHERE enable_tipping = 1'),
-    scalar('SELECT COUNT(*) AS value FROM album_photos'),
-    scalar(`SELECT COUNT(*) AS value FROM album_photos WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
-    scalar('SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 1'),
-    scalar('SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 0'),
-    scalar('SELECT COALESCE(SUM(view_count), 0) AS value FROM album_photos'),
-    scalar('SELECT COALESCE(SUM(like_count), 0) AS value FROM album_photos'),
-    scalar('SELECT COUNT(*) AS value FROM photo_comments'),
-    scalar('SELECT COALESCE(ROUND(AVG(rating), 2), 0) AS value FROM album_photos WHERE rating > 0'),
-    scalar('SELECT COUNT(*) AS value FROM bookings'),
-    scalar(`SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
-    scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'pending'"),
-    scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'confirmed'"),
-    scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'finished'"),
-    scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'cancelled'"),
-    scalar(`SELECT COUNT(*) AS value FROM bookings WHERE status IN ('pending', 'confirmed') AND booking_date >= ${TODAY_UTC8_EXPR}`),
-    scalar('SELECT COUNT(*) AS value FROM poses'),
-    scalar(`SELECT COUNT(*) AS value FROM poses WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
-    scalar('SELECT COALESCE(SUM(view_count), 0) AS value FROM poses'),
-    scalar('SELECT COUNT(*) AS value FROM pose_tags'),
-    scalar('SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1'),
-    scalar(`SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}`),
-    scalar('SELECT COUNT(*) AS value FROM app_releases'),
-  ]);
+  ] = await runScalarQueryTasks(scalarTasks, 6);
 
   const bookingsTypesResult = await executeSQL(
     `
@@ -1148,6 +1248,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       new_today: bookingsNewToday,
       pending: bookingsPending,
       confirmed: bookingsConfirmed,
+      in_progress: bookingsInProgress,
       finished: bookingsFinished,
       cancelled: bookingsCancelled,
       upcoming: bookingsUpcoming,
@@ -1603,6 +1704,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
         break;
       case 'get_user_bound_albums':
         data = await rpcGetUserBoundAlbums(context);
+        break;
+      case 'unbind_user_from_album':
+        data = await rpcUnbindUserFromAlbum(args, context);
         break;
       case 'pin_photo_to_wall':
         data = await rpcPinPhotoToWall(args);

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "rebuild:analytics:trend": "node scripts/rebuild-trend-analytics.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.2",

@@ -25,6 +25,6 @@ UPDATE pose_tags t
 SET usage_count = (
   SELECT COUNT(*)
   FROM poses p
-  WHERE p.tags IS NOT NULL
-    AND JSON_SEARCH(p.tags, 'one', t.name) IS NOT NULL
+  WHERE !(p.tags <=> NULL)
+    AND !(JSON_SEARCH(p.tags, 'one', t.name) <=> NULL)
 );

@@ -89,6 +89,7 @@ const metadataList: TableMetadata[] = [
       'id',
       'access_key',
       'title',
+      'root_folder_name',
       'cover_url',
       'welcome_letter',
       'recipient_name',

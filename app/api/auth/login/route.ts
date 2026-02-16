@@ -5,6 +5,27 @@ import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 export const dynamic = 'force-dynamic';
 
+function isConnectTimeoutError(error: unknown): boolean {
+  const message = (() => {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (error && typeof error === 'object') {
+      const value = (error as { message?: unknown }).message;
+      return typeof value === 'string' ? value : '';
+    }
+    return String(error ?? '');
+  })().toLowerCase();
+
+  return (
+    message.includes('connect timeout') ||
+    message.includes('request timeout') ||
+    message.includes('timed out') ||
+    message.includes('etimedout') ||
+    message.includes('esockettimedout')
+  );
+}
+
 function getClientIp(request: Request): string | undefined {
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) {
@@ -62,6 +83,18 @@ export async function POST(request: Request) {
     response.cookies.set(SESSION_COOKIE_NAME, result.sessionToken, getSessionCookieOptions());
     return response;
   } catch (error) {
+    if (isConnectTimeoutError(error)) {
+      return NextResponse.json(
+        {
+          data: { user: null },
+          error: {
+            message: '服务连接超时，请稍后重试',
+          },
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       {
         data: { user: null },

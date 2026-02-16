@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
@@ -13,6 +13,7 @@ interface Album {
   id: string;
   title: string;
   access_key: string;
+  root_folder_name?: string | null;
 }
 
 interface AlbumFolder {
@@ -62,6 +63,8 @@ export default function AlbumDetailPage() {
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
+  const [showEditRootModal, setShowEditRootModal] = useState(false);
+  const [newRootFolderName, setNewRootFolderName] = useState('');
 
   useEffect(() => {
     loadAlbumData();
@@ -174,6 +177,62 @@ export default function AlbumDetailPage() {
     }
   };
 
+  const handleOpenEditRootModal = () => {
+    const currentRootName = String(album?.root_folder_name ?? '').trim() || '根目录';
+    setNewRootFolderName(currentRootName);
+    setShowEditRootModal(true);
+  };
+
+  const handleUpdateRootFolderName = async () => {
+    const targetName = newRootFolderName.trim();
+    if (!targetName) {
+      setShowToast({ message: '请输入根目录名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (targetName.length > 30) {
+      setShowToast({ message: '根目录名称最多 30 个字符', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { data: updated, error } = await dbClient
+      .from('albums')
+      .update({ root_folder_name: targetName })
+      .eq('id', albumId)
+      .select('id, root_folder_name')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setAlbum((prev) => (prev ? { ...prev, root_folder_name: targetName } : prev));
+    setShowEditRootModal(false);
+    setShowToast({ message: '根目录名称已更新', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
   const handleDeleteFolder = async (folderId: string) => {
     const folder = folders.find(f => f.id === folderId);
     if (folder) {
@@ -218,7 +277,8 @@ export default function AlbumDetailPage() {
 
     if (!error) {
       loadAlbumData();
-      setShowToast({ message: '文件夹已删除，照片已移至根目录', type: 'success' });
+      const currentRootName = String(album?.root_folder_name ?? '').trim() || '根目录';
+      setShowToast({ message: `文件夹已删除，照片已移至${currentRootName}`, type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -622,6 +682,7 @@ export default function AlbumDetailPage() {
   const filteredPhotos = selectedFolder
     ? photos.filter((p) => p.folder_id === selectedFolder)
     : photos.filter((p) => !p.folder_id);
+  const rootFolderName = String(album?.root_folder_name ?? '').trim() || '根目录';
 
   if (loading) {
     return (
@@ -705,14 +766,27 @@ export default function AlbumDetailPage() {
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        <button
-          onClick={() => setSelectedFolder(null)}
-          className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
-            selectedFolder === null ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
-          }`}
-        >
-          根目录 ({photos.filter((p) => !p.folder_id).length})
-        </button>
+        <div className="relative group">
+          <button
+            onClick={() => setSelectedFolder(null)}
+            className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
+              selectedFolder === null ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
+            }`}
+          >
+            {rootFolderName} ({photos.filter((p) => !p.folder_id).length})
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenEditRootModal();
+            }}
+            className="absolute -top-2 -right-2 w-6 h-6 bg-[#5D4037] text-white rounded-full opacity-0 group-hover:opacity-100 md:opacity-100 md:scale-75 md:group-hover:scale-100 transition-all flex items-center justify-center active:scale-95"
+            aria-label="修改根目录名称"
+            title="修改根目录名称"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+        </div>
         {folders.map((folder) => (
           <div key={folder.id} className="relative group">
             <button
@@ -865,6 +939,49 @@ export default function AlbumDetailPage() {
                 className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
               >
                 {actionLoading ? '创建中...' : '创建'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditRootModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => !actionLoading && setShowEditRootModal(false)}
+        >
+          <div className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-[#5D4037] mb-4">修改根目录名称</h3>
+            <input
+              type="text"
+              value={newRootFolderName}
+              onChange={(e) => setNewRootFolderName(e.target.value)}
+              placeholder="输入根目录名称"
+              maxLength={30}
+              className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 mb-2 transition-all"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleUpdateRootFolderName();
+                }
+              }}
+            />
+            <p className="text-xs text-[#5D4037]/60 mb-4">建议 2-12 个字，最多 30 个字符</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowEditRootModal(false)}
+                disabled={actionLoading}
+                className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleUpdateRootFolderName}
+                disabled={actionLoading}
+                className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
+              >
+                {actionLoading ? '保存中...' : '保存'}
               </button>
             </div>
           </div>

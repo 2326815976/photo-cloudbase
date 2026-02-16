@@ -498,11 +498,19 @@ function buildWhereClause(table: string, filters: QueryFilter[] | undefined, bui
 
     switch (filter.operator) {
       case 'eq': {
+        if (filter.value === null) {
+          clauses.push(`${columnExpr} <=> NULL`);
+          break;
+        }
         const placeholder = builder.add(normalizeBooleanLike(filter.value));
         clauses.push(`${columnExpr} = ${placeholder}`);
         break;
       }
       case 'neq': {
+        if (filter.value === null) {
+          clauses.push(`!(${columnExpr} <=> NULL)`);
+          break;
+        }
         const placeholder = builder.add(normalizeBooleanLike(filter.value));
         clauses.push(`${columnExpr} <> ${placeholder}`);
         break;
@@ -750,8 +758,8 @@ async function rebuildPoseTagUsageCounts(): Promise<void> {
     SET usage_count = (
       SELECT COUNT(*)
       FROM poses p
-      WHERE p.tags IS NOT NULL
-        AND JSON_SEARCH(p.tags, 'one', t.name) IS NOT NULL
+      WHERE !(p.tags <=> NULL)
+        AND !(JSON_SEARCH(p.tags, 'one', t.name) <=> NULL)
     )
   `);
 }
@@ -784,8 +792,8 @@ async function fetchPosesContainingTag(tagName: string): Promise<Array<{ id: num
     `
       SELECT id, tags
       FROM poses
-      WHERE tags IS NOT NULL
-        AND JSON_SEARCH(tags, 'one', {{tag_name}}) IS NOT NULL
+      WHERE !(tags <=> NULL)
+        AND !(JSON_SEARCH(tags, 'one', {{tag_name}}) <=> NULL)
     `,
     { tag_name: tagName }
   );

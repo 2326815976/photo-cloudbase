@@ -731,11 +731,11 @@ export default function BookingsPage() {
     setShowCityModal(true);
   };
 
-  const handleCityMapSelect = (location: string, lat: number, lng: number, meta?: { cityName?: string; province?: string; adcode?: string }) => {
+  const handleCityMapSelect = (location: string, lat: number, lng: number, meta?: { cityName?: string; province?: string; adcode?: string; cityCode?: string }) => {
     const inferred = inferCityMetaFromLocation(location);
     const metaCityName = String(meta?.cityName ?? '').trim();
     const metaProvince = String(meta?.province ?? '').trim();
-    const metaAdcode = String(meta?.adcode ?? '').trim();
+    const metaAdcode = String(meta?.adcode ?? meta?.cityCode ?? '').trim();
 
     setShowCityMapPicker(false);
     setCityLocation({ latitude: lat, longitude: lng });

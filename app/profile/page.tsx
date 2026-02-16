@@ -4,7 +4,21 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Calendar, Lock, LogOut, User } from 'lucide-react';
+import LogoutConfirmModal from '@/components/LogoutConfirmModal';
 import { createClient } from '@/lib/cloudbase/client';
+import { logoutWithCleanup } from '@/lib/auth/logout-client';
+
+function isTransientConnectionError(message: string): boolean {
+  const normalized = String(message ?? '').toLowerCase();
+  return (
+    normalized.includes('connect timeout') ||
+    normalized.includes('request timeout') ||
+    normalized.includes('timed out') ||
+    normalized.includes('etimedout') ||
+    normalized.includes('esockettimedout') ||
+    normalized.includes('network')
+  );
+}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -13,6 +27,9 @@ export default function ProfilePage() {
   const [userName, setUserName] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [authCheckError, setAuthCheckError] = useState('');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // 检查登录状态
   useEffect(() => {
@@ -23,10 +40,24 @@ export default function ProfilePage() {
         return;
       }
 
-      const { data: { session } } = await dbClient.auth.getSession();
+      const {
+        data: { session },
+        error: sessionError,
+      } = await dbClient.auth.getSession();
+
+      if (sessionError) {
+        setAuthCheckError(
+          isTransientConnectionError(sessionError.message || '')
+            ? '会话服务连接超时，请稍后重试'
+            : `会话校验失败：${sessionError.message || '未知错误'}`
+        );
+        setIsLoading(false);
+        return;
+      }
 
       if (session?.user) {
         setIsLoggedIn(true);
+        setAuthCheckError('');
         setUserEmail(session.user.email || '');
         setUserPhone(session.user.phone || '');
 
@@ -95,6 +126,23 @@ export default function ProfilePage() {
   }
 
   if (!isLoggedIn) {
+    if (authCheckError) {
+      return (
+        <div className="min-h-screen bg-[#FFFBF0] flex items-center justify-center px-6">
+          <div className="max-w-sm w-full bg-white rounded-2xl border border-[#5D4037]/10 p-6 text-center">
+            <h2 className="text-lg font-bold text-[#5D4037] mb-2">暂时无法加载账号状态</h2>
+            <p className="text-sm text-[#5D4037]/70 mb-5">{authCheckError}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full h-11 rounded-full bg-[#FFC857] text-[#5D4037] font-bold border border-[#5D4037]/20"
+            >
+              重新加载
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col h-full w-full">
         {/* 手账风页头 */}
@@ -147,6 +195,22 @@ export default function ProfilePage() {
       </div>
     );
   }
+
+  const handleLogoutConfirm = async () => {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    await logoutWithCleanup();
+    setUserEmail('');
+    setUserName('');
+    setUserPhone('');
+    setIsLoggedIn(false);
+    setShowLogoutConfirm(false);
+    setIsLoggingOut(false);
+    router.replace('/login');
+  };
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -266,14 +330,7 @@ export default function ProfilePage() {
             transition={{ delay: 0.5 }}
             whileTap={{ scale: 0.98 }}
             whileHover={{ x: 4 }}
-            onClick={async () => {
-              const dbClient = createClient();
-              if (dbClient) {
-                await dbClient.auth.signOut();
-              }
-              setIsLoggedIn(false);
-              router.push('/login');
-            }}
+            onClick={() => setShowLogoutConfirm(true)}
             className="w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md transition-all"
           >
             <div className="w-10 h-10 rounded-full bg-[#5D4037]/10 flex items-center justify-center">
@@ -286,8 +343,15 @@ export default function ProfilePage() {
           </motion.button>
         </div>
       </div>
+
+      <LogoutConfirmModal
+        isOpen={showLogoutConfirm}
+        isLoading={isLoggingOut}
+        title="确认退出登录？"
+        description="退出后将清理当前登录会话，下次需重新登录。"
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={handleLogoutConfirm}
+      />
     </div>
   );
 }
-
-

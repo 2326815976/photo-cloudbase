@@ -574,7 +574,7 @@ export default function AdminGalleryPage() {
           <p className="text-[#5D4037]/60">暂无公开照片</p>
         </div>
       ) : (
-        <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           <AnimatePresence>
             {photos.map((photo) => (
               <motion.div
@@ -582,7 +582,7 @@ export default function AdminGalleryPage() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all mb-4 break-inside-avoid ${
+                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all ${
                   isSelectionMode
                     ? selectedPhotoIds.includes(photo.id)
                       ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
@@ -592,7 +592,7 @@ export default function AdminGalleryPage() {
                 onClick={() => isSelectionMode && togglePhotoSelection(photo.id)}
                 style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
               >
-                <div className="relative group">
+                <div className="relative group aspect-[4/5] bg-[#5D4037]/5">
                   {isSelectionMode && (
                     <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
                       selectedPhotoIds.includes(photo.id)
@@ -609,7 +609,7 @@ export default function AdminGalleryPage() {
                   <img
                     src={photo.thumbnail_url || photo.preview_url || photo.url}
                     alt="照片"
-                    className="w-full h-auto object-cover cursor-pointer"
+                    className="w-full h-full object-cover cursor-pointer"
                     onClick={(e) => {
                       if (!isSelectionMode) {
                         e.stopPropagation();

@@ -5,7 +5,8 @@ import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
 import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, AlertCircle, Heart, Upload, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { formatDateDisplayUTC8, getDateTimeAfterDaysUTC8, parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
+import { formatDateDisplayUTC8, formatDateUTC8, getDateAfterDaysUTC8, getDateTimeAfterDaysUTC8, getDaysDifference, getTodayUTC8, parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
+import { normalizeAccessKey } from '@/lib/utils/access-key';
 
 interface Album {
   id: string;
@@ -29,7 +30,9 @@ export default function AlbumsPage() {
   const [showQrModal, setShowQrModal] = useState<string | null>(null);
   const [newAccessKey, setNewAccessKey] = useState('');
   const [editingExpiry, setEditingExpiry] = useState<Album | null>(null);
+  const [expiryMode, setExpiryMode] = useState<'days' | 'date'>('days');
   const [newExpiryDays, setNewExpiryDays] = useState(7);
+  const [newExpiryDate, setNewExpiryDate] = useState(getDateAfterDaysUTC8(7));
   const [editingRecipient, setEditingRecipient] = useState<Album | null>(null);
   const [newRecipientName, setNewRecipientName] = useState('');
   const [newWelcomeLetter, setNewWelcomeLetter] = useState('');
@@ -41,6 +44,9 @@ export default function AlbumsPage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [editingTitle, setEditingTitle] = useState<Album | null>(null);
   const [newTitle, setNewTitle] = useState('');
+  const todayDate = getTodayUTC8();
+  const selectedExpiryDate = newExpiryDate || todayDate;
+  const customExpiryDays = Math.max(getDaysDifference(todayDate, selectedExpiryDate), 0);
 
   useEffect(() => {
     loadAlbums();
@@ -107,9 +113,10 @@ export default function AlbumsPage() {
 
   const handleUpdateKey = async () => {
     if (!editingAlbum || !newAccessKey) return;
+    const normalizedNewAccessKey = normalizeAccessKey(newAccessKey);
 
     // 验证密钥格式（8位字符，仅允许大写字母和数字）
-    if (!/^[A-Z0-9]{8}$/.test(newAccessKey)) {
+    if (!/^[A-Z0-9]{8}$/.test(normalizedNewAccessKey)) {
       setShowToast({ message: '访问密钥必须是8位大写字母或数字', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -126,7 +133,7 @@ export default function AlbumsPage() {
     const { data: existing, error: existingError } = await dbClient
       .from('albums')
       .select('id')
-      .eq('access_key', newAccessKey)
+      .eq('access_key', normalizedNewAccessKey)
       .neq('id', editingAlbum.id)
       .maybeSingle();
 
@@ -144,7 +151,7 @@ export default function AlbumsPage() {
 
     const { data: updated, error } = await dbClient
       .from('albums')
-      .update({ access_key: newAccessKey })
+      .update({ access_key: normalizedNewAccessKey })
       .eq('id', editingAlbum.id)
       .select('id')
       .maybeSingle();
@@ -178,7 +185,25 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const expiresAt = getDateTimeAfterDaysUTC8(newExpiryDays);
+    const safeDays = Math.max(1, newExpiryDays || 1);
+
+    if (expiryMode === 'date') {
+      const targetDate = String(selectedExpiryDate || '').trim();
+      if (!targetDate) {
+        setShowToast({ message: '请选择过期日期', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+      if (targetDate < todayDate) {
+        setShowToast({ message: '过期日期不能早于今天', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+    }
+
+    const expiresAt = expiryMode === 'date'
+      ? `${selectedExpiryDate} 23:59:59`
+      : getDateTimeAfterDaysUTC8(safeDays);
 
     const { data: updated, error } = await dbClient
       .from('albums')
@@ -200,7 +225,9 @@ export default function AlbumsPage() {
 
     if (!error) {
       setEditingExpiry(null);
+      setExpiryMode('days');
       setNewExpiryDays(7);
+      setNewExpiryDate(getDateAfterDaysUTC8(7));
       loadAlbums();
       setShowToast({ message: '有效期已更新', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
@@ -409,6 +436,7 @@ export default function AlbumsPage() {
       if (!dbClient) {
         await cleanupStorageByUrl(cdnUrl, '新赞赏码', false);
         setUploadingQrCode(false);
+        setEditingDonation(null);
         setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
         setTimeout(() => setShowToast(null), 3000);
         return;
@@ -433,11 +461,13 @@ export default function AlbumsPage() {
       await cleanupStorageByUrl(oldQrUrl, '旧赞赏码', false);
 
       setUploadingQrCode(false);
+      setEditingDonation(null);
       loadAlbums();
       setShowToast({ message: '赞赏码已上传', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setUploadingQrCode(false);
+      setEditingDonation(null);
       setShowToast({ message: `上传失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
@@ -553,128 +583,141 @@ export default function AlbumsPage() {
           <p className="text-[#5D4037]/60">暂无专属空间</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           <AnimatePresence>
-            {albums.map((album) => (
-              <motion.div
-                key={album.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="bg-white rounded-3xl overflow-hidden shadow-lg border-2 border-[#5D4037]/5 hover:shadow-2xl hover:border-[#FFC857]/30 transition-all duration-300"
-              >
-                {/* 封面区域 */}
-                {album.cover_url ? (
-                  <div className="aspect-video relative group overflow-hidden">
-                    <img
-                      src={album.cover_url}
-                      alt={album.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <button
-                      onClick={() => setEditingCover(album)}
-                      className="absolute top-3 right-3 w-10 h-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-lg hover:scale-110 hover:bg-white"
-                      title="更换封面"
-                    >
-                      <Upload className="w-5 h-5 text-[#5D4037]" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="aspect-video relative bg-gradient-to-br from-[#FFFBF0] to-[#FFC857]/20 flex items-center justify-center group">
-                    <button
-                      onClick={() => setEditingCover(album)}
-                      className="flex flex-col items-center gap-2 text-[#5D4037]/40 hover:text-[#5D4037] transition-colors"
-                    >
-                      <Upload className="w-12 h-12" />
-                      <span className="text-sm font-medium">添加封面</span>
-                    </button>
-                  </div>
-                )}
+            {albums.map((album) => {
+              const parsedExpiry = parseDateTimeUTC8(album.expires_at);
+              const daysRemaining = parsedExpiry
+                ? Math.ceil((parsedExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                : null;
+              const welcomeEnabled = album.enable_welcome_letter ?? true;
+              const recipientLabel = album.recipient_name || '拾光者';
 
-                <div className="p-5 space-y-4">
-                  {/* 标题区域 */}
-                  <div className="pb-3 border-b-2 border-dashed border-[#5D4037]/10">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-xl font-bold text-[#5D4037] flex-1" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-                        {album.title || '未命名空间'}
-                      </h3>
+              return (
+                <motion.div
+                  key={album.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="bg-white rounded-3xl overflow-hidden shadow-sm border border-[#5D4037]/10 hover:shadow-lg hover:border-[#FFC857]/30 transition-all"
+                >
+                  {album.cover_url ? (
+                    <div className="aspect-video relative group overflow-hidden">
+                      <img
+                        src={album.cover_url}
+                        alt={album.title}
+                        className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       <button
-                        onClick={() => {
-                          setEditingTitle(album);
-                          setNewTitle(album.title || '');
-                        }}
-                        className="w-8 h-8 rounded-lg bg-[#5D4037]/5 hover:bg-[#FFC857] text-[#5D4037] hover:text-white transition-all flex items-center justify-center flex-shrink-0"
-                        title="修改空间名称"
+                        onClick={() => setEditingCover(album)}
+                        className="absolute top-3 right-3 h-8 px-2.5 bg-white/95 rounded-full text-xs font-medium text-[#5D4037] opacity-0 group-hover:opacity-100 transition-all"
+                        title="更换封面"
                       >
-                        <Edit className="w-4 h-4" />
+                        更换封面
                       </button>
                     </div>
-                    <p className="text-xs text-[#5D4037]/40">
-                      创建于 {formatDateDisplayUTC8(album.created_at)}
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="aspect-video bg-gradient-to-br from-[#FFFBF0] to-[#FFC857]/20 flex items-center justify-center">
+                      <button
+                        onClick={() => setEditingCover(album)}
+                        className="flex items-center gap-2 text-sm font-medium text-[#5D4037]/70 hover:text-[#5D4037] transition-colors"
+                      >
+                        <Upload className="w-4 h-4" />
+                        添加封面
+                      </button>
+                    </div>
+                  )}
 
-                  {/* 信息卡片组 */}
-                  <div className="space-y-3">
-                    {/* 访问密钥 */}
-                    <div className="group/item p-3 bg-gradient-to-r from-[#FFFBF0] to-[#FFC857]/10 rounded-xl border border-[#FFC857]/20 hover:border-[#FFC857]/40 transition-all">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 bg-[#FFC857] rounded-lg flex items-center justify-center">
-                          <Key className="w-5 h-5 text-white" />
-                        </div>
-                        <span className="text-xs font-semibold text-[#5D4037]/60">访问密钥</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 text-sm text-[#5D4037] font-mono font-bold tracking-wider">
-                          {album.access_key}
-                        </code>
-                        <button
-                          onClick={async () => {
-                            const { setClipboardText } = await import('@/lib/android');
-                            const success = setClipboardText(album.access_key);
-                            if (success) {
-                              setShowToast({ message: '密钥已复制', type: 'success' });
-                            } else {
-                              setShowToast({ message: '复制失败，请重试', type: 'error' });
-                            }
-                            setTimeout(() => setShowToast(null), 3000);
-                          }}
-                          className="w-12 h-12 rounded-lg bg-white hover:bg-[#FFC857] text-[#5D4037] hover:text-white transition-all flex items-center justify-center shadow-sm"
-                          title="复制密钥"
+                  <div className="p-4 space-y-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3
+                          className="text-lg font-bold text-[#5D4037] truncate"
+                          style={{ fontFamily: "'ZQKNNY', cursive" }}
                         >
-                          <Copy className="w-7 h-7" />
-                        </button>
+                          {album.title || '未命名空间'}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="text-xs text-[#5D4037]/45">
+                            创建于 {formatDateDisplayUTC8(album.created_at)}
+                          </span>
+                          {album.expires_at && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                              daysRemaining !== null && daysRemaining <= 3
+                                ? 'bg-red-50 text-red-600 border-red-200'
+                                : 'bg-blue-50 text-blue-600 border-blue-200'
+                            }`}>
+                              到期 {formatDateDisplayUTC8(album.expires_at)}{daysRemaining !== null ? ` · ${Math.max(daysRemaining, 0)}天` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
                         <button
                           onClick={() => {
-                            setEditingAlbum(album);
-                            setNewAccessKey(album.access_key);
+                            setEditingTitle(album);
+                            setNewTitle(album.title || '');
                           }}
-                          className="w-12 h-12 rounded-lg bg-white hover:bg-[#FFC857] text-[#5D4037] hover:text-white transition-all flex items-center justify-center shadow-sm"
-                          title="修改密钥"
+                          className="w-8 h-8 rounded-lg bg-[#5D4037]/5 hover:bg-[#FFC857] text-[#5D4037] hover:text-white transition-colors flex items-center justify-center"
+                          title="修改空间名称"
                         >
-                          <Edit className="w-7 h-7" />
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(album.id, album.title)}
+                          className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors flex items-center justify-center"
+                          title="删除空间"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
 
-                    {/* 收件人和欢迎信 */}
-                    <div className="group/item p-3 bg-gradient-to-r from-pink-50 to-pink-100/30 rounded-xl border border-pink-200/50 hover:border-pink-300 transition-all">
-                      <div className="flex items-start gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <div className="w-8 h-8 bg-pink-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                              <Heart className="w-5 h-5 text-white fill-white" />
-                            </div>
-                            <span className="text-xs font-semibold text-pink-700">
-                              收件人: {album.recipient_name || '拾光者'}
-                            </span>
-                          </div>
-                          {album.welcome_letter && (
-                            <p className="text-xs text-[#5D4037]/70 line-clamp-2 pl-10 leading-relaxed">
-                              {album.welcome_letter}
-                            </p>
-                          )}
+                    <div className="rounded-xl border border-[#FFC857]/25 bg-[#FFFBF0] p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs text-[#5D4037]/55 mb-1">访问密钥</p>
+                          <code className="text-sm font-mono font-bold tracking-wider text-[#5D4037]">
+                            {album.access_key}
+                          </code>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={async () => {
+                              const { setClipboardText } = await import('@/lib/android');
+                              const success = setClipboardText(album.access_key);
+                              if (success) {
+                                setShowToast({ message: '密钥已复制', type: 'success' });
+                              } else {
+                                setShowToast({ message: '复制失败，请重试', type: 'error' });
+                              }
+                              setTimeout(() => setShowToast(null), 3000);
+                            }}
+                            className="h-8 px-2 rounded-lg bg-white border border-[#5D4037]/15 text-[#5D4037] hover:bg-[#FFC857]/20 transition-colors"
+                            title="复制密钥"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingAlbum(album);
+                              setNewAccessKey(album.access_key);
+                            }}
+                            className="h-8 px-2 rounded-lg bg-white border border-[#5D4037]/15 text-[#5D4037] hover:bg-[#FFC857]/20 transition-colors"
+                            title="修改密钥"
+                          >
+                            <Key className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-[#5D4037]/10 p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs text-[#5D4037]/55">收件人</p>
+                          <p className="text-sm font-medium text-[#5D4037]">{recipientLabel}</p>
                         </div>
                         <button
                           onClick={() => {
@@ -682,128 +725,117 @@ export default function AlbumsPage() {
                             setNewRecipientName(album.recipient_name || '');
                             setNewWelcomeLetter(album.welcome_letter || '');
                           }}
-                          className="w-12 h-12 rounded-lg bg-white hover:bg-pink-500 text-pink-600 hover:text-white transition-all flex items-center justify-center shadow-sm flex-shrink-0"
-                          title="编辑收件人和信内容"
+                          className="h-8 px-2.5 rounded-lg bg-[#5D4037]/5 hover:bg-[#5D4037]/10 text-xs text-[#5D4037] transition-colors"
+                          title="编辑收件人和欢迎信"
                         >
-                          <Edit className="w-7 h-7" />
+                          编辑文案
                         </button>
                       </div>
+                      <p className="text-xs text-[#5D4037]/65 line-clamp-2 min-h-[2.25rem]">
+                        {album.welcome_letter ? album.welcome_letter : '未设置欢迎信内容'}
+                      </p>
                     </div>
 
-                    {/* 有效期 */}
-                    {album.expires_at && (
-                      <div className="group/item p-3 bg-gradient-to-r from-blue-50 to-blue-100/30 rounded-xl border border-blue-200/50 hover:border-blue-300 transition-all">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                            <Calendar className="w-5 h-5 text-white" />
-                          </div>
-                          <span className="text-xs font-semibold text-blue-700 flex-1">
-                            有效期至 {formatDateDisplayUTC8(album.expires_at)}
-                          </span>
-                          <button
-                            onClick={() => {
-                              setEditingExpiry(album);
-                              const parsedExpiry = parseDateTimeUTC8(album.expires_at);
-                              const daysRemaining = parsedExpiry
-                                ? Math.ceil((parsedExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                                : 1;
-                              setNewExpiryDays(Math.max(1, daysRemaining));
-                            }}
-                            className="w-12 h-12 rounded-lg bg-white hover:bg-blue-500 text-blue-600 hover:text-white transition-all flex items-center justify-center shadow-sm"
-                          >
-                            <Edit className="w-7 h-7" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 欢迎信显示控制 */}
-                    <div className="group/item p-3 bg-gradient-to-r from-purple-50 to-purple-100/30 rounded-xl border border-purple-200/50 hover:border-purple-300 transition-all">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(album.enable_welcome_letter ?? true) ? 'bg-purple-500' : 'bg-purple-300'}`}>
-                          <Mail className={`w-5 h-5 text-white ${(album.enable_welcome_letter ?? true) ? 'fill-white' : ''}`} />
-                        </div>
-                        <span className="text-xs font-semibold text-purple-700 flex-1">
-                          欢迎信 {(album.enable_welcome_letter ?? true) ? '已开启' : '已关闭'}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleToggleWelcomeLetter(album)}
+                        className={`h-10 px-3 rounded-xl text-xs font-medium border transition-colors ${
+                          welcomeEnabled
+                            ? 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                            : 'border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                        }`}
+                        title={welcomeEnabled ? '关闭欢迎信显示' : '开启欢迎信显示'}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5" />
+                          欢迎信 {welcomeEnabled ? '开启' : '关闭'}
                         </span>
-                        <button
-                          onClick={() => handleToggleWelcomeLetter(album)}
-                          className="w-12 h-12 rounded-lg bg-white hover:bg-purple-500 text-purple-600 hover:text-white transition-all flex items-center justify-center shadow-sm"
-                          title={(album.enable_welcome_letter ?? true) ? '关闭欢迎信' : '开启欢迎信'}
-                        >
-                          {(album.enable_welcome_letter ?? true) ? <XCircle className="w-7 h-7" /> : <CheckCircle className="w-7 h-7" />}
-                        </button>
-                      </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleDonation(album)}
+                        className={`h-10 px-3 rounded-xl text-xs font-medium border transition-colors ${
+                          album.enable_tipping
+                            ? 'border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'
+                            : 'border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                        }`}
+                        title={album.enable_tipping ? '关闭打赏功能' : '开启打赏功能'}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <Heart className={`w-3.5 h-3.5 ${album.enable_tipping ? 'fill-current' : ''}`} />
+                          打赏 {album.enable_tipping ? '开启' : '关闭'}
+                        </span>
+                      </button>
                     </div>
 
-                    {/* 打赏功能 */}
-                    <div className="group/item p-3 bg-gradient-to-r from-orange-50 to-orange-100/30 rounded-xl border border-orange-200/50 hover:border-orange-300 transition-all">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${album.enable_tipping ? 'bg-orange-500' : 'bg-orange-300'}`}>
-                          <Heart className={`w-5 h-5 text-white ${album.enable_tipping ? 'fill-white' : ''}`} />
-                        </div>
-                        <span className="text-xs font-semibold text-orange-700 flex-1">
-                          打赏功能 {album.enable_tipping ? '已开启' : '已关闭'}
-                        </span>
-                        <button
-                          onClick={() => handleToggleDonation(album)}
-                          className="w-12 h-12 rounded-lg bg-white hover:bg-orange-500 text-orange-600 hover:text-white transition-all flex items-center justify-center shadow-sm"
-                          title={album.enable_tipping ? '关闭打赏' : '开启打赏'}
-                        >
-                          {album.enable_tipping ? <XCircle className="w-7 h-7" /> : <CheckCircle className="w-7 h-7" />}
-                        </button>
-                        {album.enable_tipping && (
-                          <label className="w-12 h-12 rounded-lg bg-white hover:bg-orange-500 text-orange-600 hover:text-white transition-all flex items-center justify-center shadow-sm cursor-pointer">
-                            <Upload className="w-7 h-7" />
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleUploadQrCode(album, file);
-                              }}
-                            />
-                          </label>
-                        )}
+                    <div className="rounded-xl border border-[#5D4037]/10 p-3 flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs text-[#5D4037]/55">赞赏码</p>
+                        <p className="text-xs text-[#5D4037]/75">
+                          {!album.enable_tipping
+                            ? '打赏关闭，暂不可上传'
+                            : album.donation_qr_code_url
+                            ? '已上传，可随时更新'
+                            : '未上传'}
+                        </p>
                       </div>
+                      <button
+                        onClick={() => setEditingDonation(album)}
+                        disabled={!album.enable_tipping}
+                        className={`h-8 px-2.5 rounded-lg text-xs inline-flex items-center gap-1.5 border ${
+                          album.enable_tipping
+                            ? 'bg-white border-[#5D4037]/15 text-[#5D4037] hover:bg-[#FFC857]/20'
+                            : 'cursor-not-allowed bg-[#5D4037]/5 border-[#5D4037]/10 text-[#5D4037]/40'
+                        }`}
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {album.donation_qr_code_url ? '更换' : '上传'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        onClick={() => router.push(`/admin/albums/${album.id}`)}
+                        className="h-10 px-3 bg-[#FFC857] text-[#5D4037] rounded-xl text-sm font-semibold hover:shadow-sm transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Eye className="w-4 h-4" />
+                        查看详情
+                      </button>
+                      <button
+                        onClick={() => copyAccessLink(album.access_key)}
+                        className="h-10 px-3 bg-[#5D4037]/5 text-[#5D4037] rounded-xl text-sm font-semibold hover:bg-[#5D4037]/10 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                        复制链接
+                      </button>
+                      <button
+                        onClick={() => setShowQrModal(album.access_key)}
+                        className="h-10 px-3 bg-blue-50 text-blue-600 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        二维码
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingExpiry(album);
+                          const expiry = parseDateTimeUTC8(album.expires_at);
+                          const fallbackDate = getDateAfterDaysUTC8(7);
+                          const rawTargetDate = expiry ? formatDateUTC8(expiry) : fallbackDate;
+                          const targetDate = rawTargetDate < todayDate ? todayDate : rawTargetDate;
+                          const remains = Math.max(getDaysDifference(todayDate, targetDate), 1);
+                          setExpiryMode('days');
+                          setNewExpiryDays(remains);
+                          setNewExpiryDate(targetDate);
+                        }}
+                        className="h-10 px-3 bg-[#5D4037]/5 text-[#5D4037] rounded-xl text-sm font-semibold hover:bg-[#5D4037]/10 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Calendar className="w-4 h-4" />
+                        改有效期
+                      </button>
                     </div>
                   </div>
-
-                  {/* 操作按钮区域 */}
-                  <div className="grid grid-cols-2 gap-2 pt-2">
-                    <button
-                      onClick={() => router.push(`/admin/albums/${album.id}`)}
-                      className="flex items-center justify-center gap-2 px-4 py-3 bg-[#FFC857] text-[#5D4037] rounded-xl text-sm font-bold hover:shadow-lg hover:scale-105 active:scale-95 transition-all"
-                    >
-                      <Eye className="w-4 h-4" />
-                      查看详情
-                    </button>
-                    <button
-                      onClick={() => copyAccessLink(album.access_key)}
-                      className="flex items-center justify-center gap-2 px-4 py-3 bg-[#5D4037]/5 text-[#5D4037] rounded-xl text-sm font-bold hover:bg-[#5D4037]/10 hover:scale-105 active:scale-95 transition-all"
-                    >
-                      <LinkIcon className="w-4 h-4" />
-                      复制链接
-                    </button>
-                    <button
-                      onClick={() => setShowQrModal(album.access_key)}
-                      className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-500/10 text-blue-600 rounded-xl text-sm font-bold hover:bg-blue-500/20 hover:scale-105 active:scale-95 transition-all"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      二维码
-                    </button>
-                    <button
-                      onClick={() => handleDelete(album.id, album.title)}
-                      className="flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 text-red-600 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:scale-105 active:scale-95 transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      删除
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
       )}
@@ -830,7 +862,7 @@ export default function AlbumsPage() {
             <input
               type="text"
               value={newAccessKey}
-              onChange={(e) => setNewAccessKey(e.target.value.toUpperCase())}
+              onChange={(e) => setNewAccessKey(normalizeAccessKey(e.target.value))}
               placeholder="输入新密钥（8位字符）"
               maxLength={8}
               className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 mb-4 font-mono text-lg tracking-wider transition-all"
@@ -875,42 +907,100 @@ export default function AlbumsPage() {
               <h3 className="text-xl font-bold text-[#5D4037] mb-4">修改有效期</h3>
               <p className="text-sm text-[#5D4037]/60 mb-4">空间：{editingExpiry.title}</p>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-[#5D4037] mb-3">
-                  快捷选项
-                </label>
-                <div className="grid grid-cols-4 gap-2 mb-4">
-                  {[7, 30, 90, 180].map((days) => (
-                    <button
-                      key={days}
-                      onClick={() => setNewExpiryDays(days)}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                        newExpiryDays === days
-                          ? 'bg-[#FFC857] text-[#5D4037] shadow-sm'
-                          : 'bg-[#5D4037]/5 text-[#5D4037]/60 hover:bg-[#5D4037]/10'
-                      }`}
-                    >
-                      {days}天
-                    </button>
-                  ))}
+                <label className="block text-sm font-medium text-[#5D4037] mb-2">有效期模式</label>
+                <div className="flex gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setExpiryMode('days')}
+                    className={`h-8 px-3 rounded-lg text-xs border transition-colors ${
+                      expiryMode === 'days'
+                        ? 'bg-[#FFC857]/20 border-[#FFC857]/40 text-[#5D4037]'
+                        : 'bg-white border-[#5D4037]/15 text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                    }`}
+                  >
+                    按天数
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpiryMode('date')}
+                    className={`h-8 px-3 rounded-lg text-xs border transition-colors ${
+                      expiryMode === 'date'
+                        ? 'bg-[#FFC857]/20 border-[#FFC857]/40 text-[#5D4037]'
+                        : 'bg-white border-[#5D4037]/15 text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                    }`}
+                  >
+                    指定日期
+                  </button>
                 </div>
-                <label className="block text-sm font-medium text-[#5D4037] mb-2">
-                  自定义天数
-                </label>
-                <input
-                  type="number"
-                  value={newExpiryDays}
-                  onChange={(e) => setNewExpiryDays(parseInt(e.target.value) || 1)}
-                  min="1"
-                  max="365"
-                  className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all"
-                />
-                <p className="text-xs text-[#5D4037]/60 mt-2">
-                  新的过期时间：{formatDateDisplayUTC8(new Date(Date.now() + newExpiryDays * 24 * 60 * 60 * 1000))}
-                </p>
+
+                {expiryMode === 'days' ? (
+                  <>
+                    <label className="block text-sm font-medium text-[#5D4037] mb-3">
+                      快捷选项
+                    </label>
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                      {[7, 30, 90, 180].map((days) => (
+                        <button
+                          key={days}
+                          onClick={() => {
+                            setNewExpiryDays(days);
+                            setNewExpiryDate(getDateAfterDaysUTC8(days));
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                            newExpiryDays === days
+                              ? 'bg-[#FFC857] text-[#5D4037] shadow-sm'
+                              : 'bg-[#5D4037]/5 text-[#5D4037]/60 hover:bg-[#5D4037]/10'
+                          }`}
+                        >
+                          {days}天
+                        </button>
+                      ))}
+                    </div>
+                    <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                      自定义天数
+                    </label>
+                    <input
+                      type="number"
+                      value={newExpiryDays}
+                      onChange={(e) => {
+                        const days = parseInt(e.target.value, 10) || 1;
+                        setNewExpiryDays(days);
+                        setNewExpiryDate(getDateAfterDaysUTC8(days));
+                      }}
+                      min="1"
+                      max="365"
+                      className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all"
+                    />
+                    <p className="text-xs text-[#5D4037]/60 mt-2">
+                      新的过期时间：{formatDateDisplayUTC8(getDateTimeAfterDaysUTC8(Math.max(1, newExpiryDays || 1)))}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                      过期日期
+                    </label>
+                    <input
+                      type="date"
+                      value={selectedExpiryDate}
+                      min={todayDate}
+                      onChange={(e) => setNewExpiryDate(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all"
+                    />
+                    <p className="text-xs text-[#5D4037]/60 mt-2">
+                      到期日期：{formatDateDisplayUTC8(`${selectedExpiryDate} 23:59:59`)}（{customExpiryDays} 天后）
+                    </p>
+                  </>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setEditingExpiry(null)}
+                  onClick={() => {
+                    setEditingExpiry(null);
+                    setExpiryMode('days');
+                    setNewExpiryDays(7);
+                    setNewExpiryDate(getDateAfterDaysUTC8(7));
+                  }}
                   className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium"
                 >
                   取消
@@ -1149,6 +1239,77 @@ export default function AlbumsPage() {
                 className="w-full px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
               >
                 {uploadingCover ? '上传中...' : '取消'}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 赞赏码编辑弹窗 */}
+      <AnimatePresence>
+        {editingDonation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !uploadingQrCode && setEditingDonation(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-[#5D4037] mb-4">更换赞赏码</h3>
+              <p className="text-sm text-[#5D4037]/60 mb-4">空间：{editingDonation.title}</p>
+
+              {editingDonation.donation_qr_code_url ? (
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-[#5D4037] mb-2">当前赞赏码：</p>
+                  <img
+                    src={editingDonation.donation_qr_code_url}
+                    alt="当前赞赏码"
+                    className="w-full h-40 object-contain rounded-lg border border-[#5D4037]/10 bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="mb-4 text-sm text-[#5D4037]/60 bg-[#FFFBF0] rounded-xl p-3">
+                  当前未上传赞赏码，上传后将展示在用户空间页面。
+                </div>
+              )}
+
+              <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer mb-4">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="donation-qr-upload-input"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleUploadQrCode(editingDonation, file);
+                  }}
+                  disabled={uploadingQrCode}
+                />
+                <label htmlFor="donation-qr-upload-input" className="cursor-pointer">
+                  <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                  <p className="text-sm text-[#5D4037]/60">
+                    {uploadingQrCode ? '上传中...' : '点击选择新的赞赏码图片'}
+                  </p>
+                  <p className="text-xs text-[#5D4037]/40 mt-1">
+                    支持 JPG、PNG、WebP 格式，最大 5MB
+                  </p>
+                </label>
+              </div>
+
+              <button
+                onClick={() => setEditingDonation(null)}
+                disabled={uploadingQrCode}
+                className="w-full px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+              >
+                {uploadingQrCode ? '上传中...' : '取消'}
               </button>
             </motion.div>
           </motion.div>

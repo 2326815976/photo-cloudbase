@@ -39,7 +39,13 @@ export default async function StatsPage() {
   const { data: stats, error } = await dbClient.rpc('get_admin_dashboard_stats');
 
   if (error) {
-    console.error('获取统计数据失败:', error);
+    const errorMessage = typeof error.message === 'string' && error.message.trim() !== ''
+      ? error.message
+      : '未知错误';
+    const errorCode = typeof error.code === 'string' && error.code.trim() !== ''
+      ? ` (${error.code})`
+      : '';
+    console.warn(`获取统计数据失败${errorCode}: ${errorMessage}`);
     return (
       <div className="space-y-6 pt-6">
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
@@ -224,12 +230,18 @@ export default async function StatsPage() {
             color="from-[#00CED1] to-[#00BFFF]"
           />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           <StatCard
             title="已确认"
             value={stats?.bookings?.confirmed || 0}
             icon={CheckCircle}
             color="from-[#32CD32] to-[#228B22]"
+          />
+          <StatCard
+            title="进行中"
+            value={stats?.bookings?.in_progress || 0}
+            icon={Activity}
+            color="from-[#1E90FF] to-[#4169E1]"
           />
           <StatCard
             title="已完成"

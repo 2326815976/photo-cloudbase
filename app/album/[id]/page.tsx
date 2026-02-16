@@ -12,6 +12,7 @@ import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
 import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
+import { normalizeAccessKey } from '@/lib/utils/access-key';
 
 interface Folder {
   id: string;
@@ -60,7 +61,9 @@ export default function AlbumDetailPage() {
   const router = useRouter();
   const params = useParams();
   const accessKey = params.id as string;
-  const welcomeStorageKey = useMemo(() => `album_welcome_seen_${accessKey.toUpperCase()}`, [accessKey]);
+  const normalizedAccessKey = useMemo(() => normalizeAccessKey(accessKey), [accessKey]);
+  const bindNoticeStorageKey = useMemo(() => `album_bind_notice_${normalizedAccessKey}`, [normalizedAccessKey]);
+  const welcomeStorageKey = useMemo(() => `album_welcome_seen_${normalizedAccessKey}`, [normalizedAccessKey]);
   const shouldReduceMotion = useReducedMotion();
 
   const [loading, setLoading] = useState(true);
@@ -88,7 +91,7 @@ export default function AlbumDetailPage() {
   // 加载相册数据
   useEffect(() => {
     loadAlbumData();
-  }, [accessKey]);
+  }, [normalizedAccessKey]);
 
   // Toast提示
   useEffect(() => {
@@ -100,8 +103,36 @@ export default function AlbumDetailPage() {
     }
   }, [loading, albumData]);
 
+  useEffect(() => {
+    if (loading || !normalizedAccessKey || typeof window === 'undefined') {
+      return;
+    }
+
+    const shouldShowBindNotice = sessionStorage.getItem(bindNoticeStorageKey);
+    if (!shouldShowBindNotice) {
+      return;
+    }
+
+    sessionStorage.removeItem(bindNoticeStorageKey);
+    const bindSuccessMessage = '🎉 已自动绑定该空间到您的账号';
+    setToast({ message: bindSuccessMessage, type: 'success' });
+
+    const timer = setTimeout(() => {
+      setToast((prev) => (prev?.message === bindSuccessMessage ? null : prev));
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [loading, normalizedAccessKey, bindNoticeStorageKey]);
+
   const loadAlbumData = async () => {
     setLoading(true);
+    if (!normalizedAccessKey) {
+      setLoading(false);
+      setToast({ message: '密钥格式无效，请重新输入', type: 'error' });
+      setTimeout(() => router.push('/album'), 2000);
+      return;
+    }
+
     const dbClient = createClient();
     if (!dbClient) {
       setLoading(false);
@@ -111,7 +142,7 @@ export default function AlbumDetailPage() {
 
     // 调用RPC获取相册内容（已包含三个URL字段）
     const { data, error } = await dbClient.rpc('get_album_content', {
-      input_key: accessKey
+      input_key: normalizedAccessKey
     });
 
 
@@ -187,7 +218,7 @@ export default function AlbumDetailPage() {
 
     // 使用RPC函数确保安全性
     const { error } = await dbClient.rpc('pin_photo_to_wall', {
-      p_access_key: accessKey,
+      p_access_key: normalizedAccessKey,
       p_photo_id: photoId
     });
 
@@ -293,7 +324,7 @@ export default function AlbumDetailPage() {
       if (!photos.some((p) => p.id === photoId)) continue;
 
       const { data, error: deleteError } = await dbClient.rpc('delete_album_photo', {
-        p_access_key: accessKey,
+        p_access_key: normalizedAccessKey,
         p_photo_id: photoId
       });
 

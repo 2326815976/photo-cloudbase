@@ -33,7 +33,7 @@ function normalizeSelectMeta(input: Record<string, unknown> | null | undefined):
   const cityName = String(input?.cityName ?? input?.city ?? '').trim();
   const province = String(input?.province ?? '').trim();
   const district = String(input?.district ?? '').trim();
-  const adcode = String(input?.adcode ?? '').trim();
+  const adcode = String(input?.adcode ?? input?.citycode ?? input?.cityCode ?? '').trim();
 
   return {
     cityName: cityName || undefined,

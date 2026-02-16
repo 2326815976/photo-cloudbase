@@ -62,8 +62,22 @@ function LoginForm() {
       const body = await response.json();
 
       if (!response.ok || body?.error) {
-        if (body?.error?.message?.toLowerCase().includes('invalid login credentials')) {
+        const rawMessage = String(body?.error?.message ?? '').trim();
+        const normalizedMessage = rawMessage.toLowerCase();
+
+        if (normalizedMessage.includes('invalid login credentials')) {
           setError('手机号或密码错误');
+        } else if (
+          response.status === 503 ||
+          normalizedMessage.includes('timeout') ||
+          normalizedMessage.includes('timed out') ||
+          normalizedMessage.includes('connect') ||
+          normalizedMessage.includes('network') ||
+          rawMessage.includes('连接')
+        ) {
+          setError('服务连接超时，请稍后重试');
+        } else if (rawMessage) {
+          setError(`登录失败：${rawMessage}`);
         } else {
           setError('登录失败，请重试');
         }

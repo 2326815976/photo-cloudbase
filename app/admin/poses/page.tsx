@@ -23,6 +23,151 @@ interface PoseTag {
   created_at: string;
 }
 
+function isDuplicateEntryError(error: any): boolean {
+  const errorCode = String(error?.code ?? error?.errno ?? '').trim().toLowerCase();
+  if (errorCode === '23505' || errorCode === '1062' || errorCode === 'er_dup_entry') {
+    return true;
+  }
+
+  const text = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.detailMessage,
+  ]
+    .map((item) => String(item ?? '').toLowerCase())
+    .join(' ');
+
+  return (
+    text.includes('duplicate entry') ||
+    text.includes('er_dup_entry') ||
+    text.includes('1062') ||
+    text.includes('uk_pose_tags_name')
+  );
+}
+
+function normalizeTagName(input: string): string {
+  return String(input ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function parseUniqueTagNames(rawInput: string): string[] {
+  const normalizedNames = rawInput
+    .split(/[,，]/)
+    .map((name) => normalizeTagName(name))
+    .filter((name) => name.length > 0);
+
+  const seen = new Set<string>();
+  const uniqueNames: string[] = [];
+
+  normalizedNames.forEach((name) => {
+    const key = name.toLocaleLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    uniqueNames.push(name);
+  });
+
+  return uniqueNames;
+}
+
+const IMAGE_INSERT_TIMEOUT_MS = 30 * 1000;
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim() !== '') {
+    return error.message;
+  }
+  if (error && typeof error === 'object') {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim() !== '') {
+      return maybeMessage;
+    }
+  }
+  return '未知错误';
+}
+
+function withTimeout<T>(
+  promiseLike: PromiseLike<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return Promise.resolve(promiseLike);
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    Promise.resolve(promiseLike)
+      .then((value) => resolve(value))
+      .catch((error) => reject(error))
+      .finally(() => clearTimeout(timeoutId));
+  });
+}
+
+function toFileSizeMb(file: File): number {
+  const sizeMb = file.size / (1024 * 1024);
+  return Number.isFinite(sizeMb) && sizeMb > 0 ? sizeMb : 0;
+}
+
+function resolveImageExtension(file: File): string {
+  const mime = String(file.type ?? '').trim().toLowerCase();
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+  if (mime.includes('gif')) return 'gif';
+
+  const lowerName = String(file.name ?? '').trim().toLowerCase();
+  const matched = lowerName.match(/\.([a-z0-9]+)$/);
+  const ext = matched?.[1];
+  if (ext === 'jpeg') return 'jpg';
+  if (ext && ['webp', 'png', 'jpg', 'gif'].includes(ext)) {
+    return ext;
+  }
+  return 'webp';
+}
+
+function getCompressTimeoutMs(file: File): number {
+  const sizeMb = toFileSizeMb(file);
+  const isPng = String(file.type ?? '').toLowerCase() === 'image/png';
+  // 大图（尤其 PNG）压缩耗时明显更长，按体积动态放宽超时，避免误判。
+  const baseMs = 30 * 1000 + Math.ceil(sizeMb) * 12 * 1000;
+  const dynamicMs = isPng ? baseMs + 25 * 1000 : baseMs;
+  return Math.max(30 * 1000, Math.min(dynamicMs, 5 * 60 * 1000));
+}
+
+function getUploadTimeoutMs(file: File): number {
+  const sizeMb = toFileSizeMb(file);
+  const dynamicMs = 60 * 1000 + Math.ceil(sizeMb) * 8 * 1000;
+  return Math.max(60 * 1000, Math.min(dynamicMs, 4 * 60 * 1000));
+}
+
+async function compressPoseImageWithTimeout(
+  file: File,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<File> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return generatePoseImage(file);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await generatePoseImage(file, { signal: controller.signal });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export default function PosesPage() {
   const [activeTab, setActiveTab] = useState<'poses' | 'tags'>('poses');
 
@@ -142,61 +287,119 @@ export default function PosesPage() {
       if (batchImages.length > 0) {
         setUploadProgress({ current: 0, total: batchImages.length });
         let successCount = 0;
+        const failedFileNames: string[] = [];
 
         for (let i = 0; i < batchImages.length; i++) {
           const file = batchImages[i];
+          const fileLabel = file.name || `第 ${i + 1} 张图片`;
+          const compressTimeoutMs = getCompressTimeoutMs(file);
           setUploadProgress({ current: i + 1, total: batchImages.length });
 
-          // 压缩图片（对标照片墙列表：1080px, 500KB, 质量0.8）
-          const compressedFile = await generatePoseImage(file);
+          let fileForUpload = file;
+          try {
+            fileForUpload = await compressPoseImageWithTimeout(
+              file,
+              compressTimeoutMs,
+              `第 ${i + 1} 张图片压缩超时`
+            );
+          } catch (compressError) {
+            // 压缩失败时回退到原图继续上传，避免整批卡住。
+            console.warn(`第 ${i + 1} 张图片压缩失败，回退原图继续上传:`, compressError);
+            fileForUpload = file;
+          }
 
           // 客户端上传图片到 CloudBase 云存储（poses 目录）
-          const fileName = `${Date.now()}_${i}.webp`;
+          const fileExt = resolveImageExtension(fileForUpload);
+          const fileName = `${Date.now()}_${i}.${fileExt}`;
           const storagePath = `poses/${fileName}`;
 
           try {
-            const publicUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'poses');
+            const uploadTimeoutMs = getUploadTimeoutMs(fileForUpload);
+            const publicUrl = await uploadToCloudBaseDirect(fileForUpload, fileName, 'poses', {
+              timeoutMs: uploadTimeoutMs,
+            });
 
             // 插入数据库
-            const { error: insertError } = await dbClient
-              .from('poses')
-              .insert({
-                image_url: publicUrl,
-                storage_path: storagePath,
-                tags: poseFormData.tags,
-              });
+            const { error: insertError } = await withTimeout(
+              dbClient
+                .from('poses')
+                .insert({
+                  image_url: publicUrl,
+                  storage_path: storagePath,
+                  tags: poseFormData.tags,
+                }),
+              IMAGE_INSERT_TIMEOUT_MS,
+              `第 ${i + 1} 张图片写入数据库超时`
+            );
 
             if (insertError) {
               console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
               await cleanupUploadedFiles([storagePath]);
+              failedFileNames.push(fileLabel);
             } else {
               successCount++;
             }
           } catch (uploadError) {
-            console.error(`上传第 ${i + 1} 张图片失败:`, uploadError);
+            console.error(`上传第 ${i + 1} 张图片失败（${fileLabel}）:`, uploadError);
+            failedFileNames.push(fileLabel);
             continue; // 继续上传其他图片
           }
         }
 
-        setShowToast({ message: `批量上传完成！成功上传 ${successCount} 张图片`, type: 'success' });
+        if (failedFileNames.length === 0) {
+          setShowToast({ message: `批量上传完成！成功上传 ${successCount} 张图片`, type: 'success' });
+        } else {
+          const sampleFiles = failedFileNames.slice(0, 2).join('、');
+          const sampleSuffix = sampleFiles ? `（例如：${sampleFiles}）` : '';
+          if (successCount > 0) {
+            setShowToast({
+              message: `批量上传完成：成功 ${successCount} 张，失败 ${failedFileNames.length} 张${sampleSuffix}`,
+              type: 'warning',
+            });
+          } else {
+            setShowToast({
+              message: `批量上传失败：${failedFileNames.length} 张都未上传成功${sampleSuffix}`,
+              type: 'error',
+            });
+          }
+        }
         setTimeout(() => setShowToast(null), 3000);
       } else {
         // 单张上传模式
-        // 压缩图片（对标照片墙列表：1080px, 500KB, 质量0.8）
-        const compressedFile = await generatePoseImage(poseFormData.image!);
+        const sourceFile = poseFormData.image!;
+        let fileForUpload = sourceFile;
+        try {
+          const compressTimeoutMs = getCompressTimeoutMs(sourceFile);
+          fileForUpload = await compressPoseImageWithTimeout(
+            sourceFile,
+            compressTimeoutMs,
+            '图片压缩超时'
+          );
+        } catch (compressError) {
+          console.warn('单图压缩失败，回退原图继续上传:', compressError);
+          fileForUpload = sourceFile;
+        }
 
-        const fileName = `${Date.now()}.webp`;
+        const fileExt = resolveImageExtension(fileForUpload);
+        const fileName = `${Date.now()}.${fileExt}`;
         const storagePath = `poses/${fileName}`;
+        const uploadTimeoutMs = getUploadTimeoutMs(fileForUpload);
 
-        const publicUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'poses');
+        const publicUrl = await uploadToCloudBaseDirect(fileForUpload, fileName, 'poses', {
+          timeoutMs: uploadTimeoutMs,
+        });
 
-        const { error: insertError } = await dbClient
-          .from('poses')
-          .insert({
-            image_url: publicUrl,
-            storage_path: storagePath,
-            tags: poseFormData.tags,
-          });
+        const { error: insertError } = await withTimeout(
+          dbClient
+            .from('poses')
+            .insert({
+              image_url: publicUrl,
+              storage_path: storagePath,
+              tags: poseFormData.tags,
+            }),
+          IMAGE_INSERT_TIMEOUT_MS,
+          '保存摆姿记录超时'
+        );
 
         if (insertError) {
           await cleanupUploadedFiles([storagePath]);
@@ -212,7 +415,7 @@ export default function PosesPage() {
       loadPoses();
       loadTags();
     } catch (error: any) {
-      setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `添加失败：${formatErrorMessage(error)}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     } finally {
       setUploading(false);
@@ -601,31 +804,68 @@ export default function PosesPage() {
     }
 
     try {
-      // 解析标签：支持中文逗号、英文逗号分隔
-      const tagNames = newTagName
-        .split(/[,，]/)
-        .map(name => name.trim())
-        .filter(name => name.length > 0);
-
-      if (tagNames.length === 0) {
+      const uniqueTagNames = parseUniqueTagNames(newTagName);
+      if (uniqueTagNames.length === 0) {
         setShowToast({ message: '请输入有效的标签名称', type: 'warning' });
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
 
-      // 批量插入标签（去重，避免同一批次重复导致唯一键冲突）
-      const uniqueTagNames = Array.from(new Set(tagNames));
-      const tagsToInsert = uniqueTagNames.map(name => ({ name }));
-      const { error } = await dbClient
+      const { data: existingRows, error: existingError } = await dbClient
         .from('pose_tags')
-        .insert(tagsToInsert);
+        .select('name')
+        .in('name', uniqueTagNames);
+      if (existingError) throw existingError;
 
-      if (error) throw error;
+      const existingNameSet = new Set(
+        (existingRows || []).map((row: any) => normalizeTagName(String(row.name ?? '')).toLocaleLowerCase())
+      );
+      const namesToInsert = uniqueTagNames.filter((name) => !existingNameSet.has(name.toLocaleLowerCase()));
+
+      let insertedCount = 0;
+      let skippedByInsertCount = 0;
+      if (namesToInsert.length > 0) {
+        const { error } = await dbClient
+          .from('pose_tags')
+          .insert(namesToInsert.map((name) => ({ name })));
+
+        if (!error) {
+          insertedCount = namesToInsert.length;
+        } else if (isDuplicateEntryError(error)) {
+          for (const name of namesToInsert) {
+            const { error: singleInsertError } = await dbClient
+              .from('pose_tags')
+              .insert({ name });
+
+            if (!singleInsertError) {
+              insertedCount += 1;
+              continue;
+            }
+
+            if (isDuplicateEntryError(singleInsertError)) {
+              skippedByInsertCount += 1;
+              continue;
+            }
+
+            throw singleInsertError;
+          }
+        } else {
+          throw error;
+        }
+      }
+
+      const skippedCount = uniqueTagNames.length - namesToInsert.length + skippedByInsertCount;
 
       setShowTagModal(false);
       setNewTagName('');
       loadTags();
-      setShowToast({ message: `成功添加 ${uniqueTagNames.length} 个标签！`, type: 'success' });
+      if (insertedCount === 0) {
+        setShowToast({ message: '标签已存在，未新增', type: 'warning' });
+      } else if (skippedCount > 0) {
+        setShowToast({ message: `成功添加 ${insertedCount} 个标签，跳过 ${skippedCount} 个已存在标签`, type: 'success' });
+      } else {
+        setShowToast({ message: `成功添加 ${insertedCount} 个标签！`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
@@ -654,7 +894,14 @@ export default function PosesPage() {
       return;
     }
 
-    if (editingTagName === editingTag.name) {
+    const normalizedTagName = normalizeTagName(editingTagName);
+    if (!normalizedTagName) {
+      setShowToast({ message: '请输入标签名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (normalizedTagName === normalizeTagName(editingTag.name)) {
       setEditingTag(null);
       setEditingTagName('');
       return;
@@ -670,14 +917,34 @@ export default function PosesPage() {
     }
 
     try {
+      const { data: existingTag, error: checkError } = await dbClient
+        .from('pose_tags')
+        .select('id')
+        .eq('name', normalizedTagName)
+        .neq('id', editingTag.id)
+        .maybeSingle();
+      if (checkError) throw checkError;
+      if (existingTag) {
+        setShowToast({ message: '标签名称已存在，请使用其他名称', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
       const { data: updatedTag, error } = await dbClient
         .from('pose_tags')
-        .update({ name: editingTagName.trim() })
+        .update({ name: normalizedTagName })
         .eq('id', editingTag.id)
         .select('id')
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        if (isDuplicateEntryError(error)) {
+          setShowToast({ message: '标签名称已存在，请使用其他名称', type: 'warning' });
+          setTimeout(() => setShowToast(null), 3000);
+          return;
+        }
+        throw error;
+      }
       if (!updatedTag) {
         throw new Error('标签不存在或已删除，请刷新后重试');
       }

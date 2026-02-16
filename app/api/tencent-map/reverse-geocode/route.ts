@@ -19,13 +19,14 @@ export async function POST(request: NextRequest) {
     if (webServiceResult.ok && webServiceResult.raw.result) {
       const result = webServiceResult.raw.result as Record<string, any>;
       const component = result.address_component ?? {};
+      const adInfo = result.ad_info ?? {};
       return NextResponse.json({
         formattedAddress: result.address,
         addressComponent: {
-          cityName: String(component.city ?? '').trim(),
-          province: String(component.province ?? '').trim(),
-          district: String(component.district ?? '').trim(),
-          adcode: String(component.adcode ?? '').trim(),
+          cityName: String(component.city ?? adInfo.city ?? '').trim(),
+          province: String(component.province ?? adInfo.province ?? '').trim(),
+          district: String(component.district ?? adInfo.district ?? '').trim(),
+          adcode: String(component.adcode ?? component.citycode ?? adInfo.adcode ?? adInfo.citycode ?? '').trim(),
         },
       });
     }

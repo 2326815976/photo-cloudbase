@@ -16,8 +16,9 @@ import {
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@/lib/cloudbase/client';
+import LogoutConfirmModal from '@/components/LogoutConfirmModal';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { logoutWithCleanup } from '@/lib/auth/logout-client';
 
 interface AdminSidebarProps {
   username: string;
@@ -38,6 +39,8 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     if (!isMobile) {
@@ -70,12 +73,21 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [mobileMenuOpen]);
 
-  const handleLogout = async () => {
-    const dbClient = createClient();
-    if (dbClient) {
-      await dbClient.auth.signOut();
+  const handleRequestLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    if (isLoggingOut) {
+      return;
     }
-    router.push('/login');
+
+    setIsLoggingOut(true);
+    await logoutWithCleanup();
+    setShowLogoutConfirm(false);
+    setMobileMenuOpen(false);
+    setIsLoggingOut(false);
+    router.replace('/login');
   };
 
   return (
@@ -148,7 +160,7 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
         </div>
 
         <button
-          onClick={handleLogout}
+          onClick={handleRequestLogout}
           className="w-full flex items-center gap-2 px-4 py-3 rounded-2xl text-[#5D4037]/60 hover:text-red-600 hover:bg-red-50 active:bg-red-100 transition-all active:scale-95"
         >
           <LogOut className="h-5 w-5 flex-shrink-0" />
@@ -201,7 +213,7 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
             </div>
 
             <button
-              onClick={handleLogout}
+              onClick={handleRequestLogout}
               className="w-full flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[#5D4037]/60 hover:text-red-600 hover:bg-red-50 transition-all"
             >
               <LogOut className="h-4 w-4 flex-shrink-0" />
@@ -211,6 +223,15 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <LogoutConfirmModal
+        isOpen={showLogoutConfirm}
+        isLoading={isLoggingOut}
+        title="确认退出管理后台？"
+        description="退出后将清理当前登录会话，需重新登录才能继续管理内容。"
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={handleConfirmLogout}
+      />
     </>
   );
 }
