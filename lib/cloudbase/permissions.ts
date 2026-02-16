@@ -1,4 +1,6 @@
 import { AuthContext } from '@/lib/auth/types';
+import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
+import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { DbQueryPayload, QueryFilter } from './query-types';
 
 function clonePayload(payload: DbQueryPayload): DbQueryPayload {
@@ -53,6 +55,55 @@ function enforceUserIdInValues(payload: DbQueryPayload, userId: string): void {
   };
 }
 
+function sanitizeChinaMobileInValues(
+  values: DbQueryPayload['values'],
+  options?: { require?: boolean; allowNull?: boolean }
+): void {
+  if (!values) {
+    return;
+  }
+
+  const sanitizeOne = (record: Record<string, unknown>) => {
+    const rawPhone = record.phone;
+    if (rawPhone === undefined) {
+      if (options?.require) {
+        throw new Error('手机号不能为空');
+      }
+      return;
+    }
+
+    const trimmed = typeof rawPhone === 'string' ? rawPhone.trim() : rawPhone;
+    if (trimmed === null || trimmed === undefined || trimmed === '') {
+      if (options?.allowNull) {
+        record.phone = null;
+        return;
+      }
+
+      throw new Error('手机号不能为空');
+    }
+
+    const normalized = normalizeChinaMobile(String(trimmed));
+    if (!isValidChinaMobile(normalized)) {
+      throw new Error('手机号格式不正确');
+    }
+    record.phone = normalized;
+  };
+
+  if (Array.isArray(values)) {
+    values.forEach((item) => sanitizeOne(item as Record<string, unknown>));
+    return;
+  }
+
+  sanitizeOne(values as Record<string, unknown>);
+}
+
+function ensureObjectValues(values: DbQueryPayload['values']): Record<string, unknown> {
+  if (!values || Array.isArray(values)) {
+    throw new Error('更新数据格式错误');
+  }
+  return values;
+}
+
 export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthContext): DbQueryPayload {
   const scoped = clonePayload(payload);
 
@@ -100,6 +151,10 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
         throw new Error('未授权操作');
       }
 
+      if (scoped.action === 'update') {
+        sanitizeChinaMobileInValues(scoped.values, { allowNull: true });
+      }
+
       addFilter(scoped, {
         column: 'id',
         operator: 'eq',
@@ -121,6 +176,7 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
 
       if (scoped.action === 'insert') {
         enforceUserIdInValues(scoped, context.user.id);
+        sanitizeChinaMobileInValues(scoped.values, { require: true, allowNull: false });
         return scoped;
       }
 
@@ -131,6 +187,21 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
           operator: 'in',
           value: ['pending', 'confirmed'],
         });
+        addFilter(scoped, {
+          column: 'booking_date',
+          operator: 'gt',
+          value: getTodayUTC8(),
+        });
+
+        const values = ensureObjectValues(scoped.values);
+        const keys = Object.keys(values);
+        if (keys.length !== 1 || !keys.includes('status')) {
+          throw new Error('未授权操作：仅允许取消预约');
+        }
+        if (values.status !== 'cancelled') {
+          throw new Error('未授权操作：仅允许将预约状态更新为已取消');
+        }
+
         return scoped;
       }
 
@@ -202,11 +273,47 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
       throw new Error('未授权操作');
 
     case 'photo_views':
+      if (scoped.action === 'insert') {
+        if (context.user) {
+          enforceUserIdInValues(scoped, context.user.id);
+        }
+        return scoped;
+      }
+
+      ensureAuthenticated(context);
+      if (!context.user) {
+        throw new Error('未授权操作');
+      }
+
+      if (scoped.action === 'select') {
+        forceUserFilter(scoped, context.user.id);
+        return scoped;
+      }
+      throw new Error('未授权操作');
+
     case 'user_active_logs':
-      return scoped;
+      ensureAuthenticated(context);
+      if (!context.user) {
+        throw new Error('未授权操作');
+      }
+
+      if (scoped.action === 'insert') {
+        enforceUserIdInValues(scoped, context.user.id);
+        return scoped;
+      }
+
+      if (scoped.action === 'select') {
+        addFilter(scoped, {
+          column: 'user_id',
+          operator: 'eq',
+          value: context.user.id,
+        });
+        return scoped;
+      }
+
+      throw new Error('未授权操作');
 
     default:
       throw new Error('未授权操作');
   }
 }
-

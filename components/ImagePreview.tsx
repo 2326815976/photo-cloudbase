@@ -9,6 +9,7 @@ import { downloadPhoto } from '@/lib/android';
 
 interface ImagePreviewProps {
   images: string[];
+  downloadUrls?: string[];
   currentIndex: number;
   isOpen: boolean;
   onClose: () => void;
@@ -24,6 +25,7 @@ interface ImagePreviewProps {
  */
 export default function ImagePreview({
   images,
+  downloadUrls,
   currentIndex,
   isOpen,
   onClose,
@@ -259,6 +261,20 @@ export default function ImagePreview({
     }
   }, [scale, x, y, getMinScale, getMaxScale, getBounds]);
 
+  const resolveDownloadUrl = useCallback(
+    (targetIndex: number): string => {
+      if (Array.isArray(downloadUrls)) {
+        const candidate = String(downloadUrls[targetIndex] ?? '').trim();
+        if (candidate) {
+          return candidate;
+        }
+      }
+
+      return String(images[targetIndex] ?? '').trim();
+    },
+    [downloadUrls, images]
+  );
+
   // 长按下载
   const startLongPress = useCallback(() => {
     if (isWechat || !enableLongPressDownload) return;
@@ -273,11 +289,11 @@ export default function ImagePreview({
     const timer = setTimeout(async () => {
       clearInterval(progressInterval);
       setLongPressProgress(0);
-      await downloadPhoto(images[index], `photo_${index + 1}.jpg`);
+      await downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
     }, 800);
 
     longPressTimerRef.current = timer;
-  }, [isWechat, enableLongPressDownload, images, index]);
+  }, [isWechat, enableLongPressDownload, index, resolveDownloadUrl]);
 
   const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -560,7 +576,7 @@ export default function ImagePreview({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              downloadPhoto(images[index], `photo_${index + 1}.jpg`);
+              downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
             }}
             className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/20 transition-colors z-10 flex items-center gap-2"
           >

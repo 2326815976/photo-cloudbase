@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
-import { Package, Plus, Trash2, Download, Smartphone, CheckCircle, XCircle } from 'lucide-react';
+import { Package, Plus, Trash2, Download, Smartphone, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Release {
   id: number;
@@ -21,7 +22,7 @@ export default function ReleasesPage() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingRelease, setDeletingRelease] = useState<Release | null>(null);
-  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
@@ -76,7 +77,12 @@ export default function ReleasesPage() {
 
       setDeletingRelease(null);
       await loadReleases();
-      setShowToast({ message: '版本已删除', type: 'success' });
+      const warningMessage = String(payload?.warning ?? '').trim();
+      if (warningMessage) {
+        setShowToast({ message: warningMessage, type: 'warning' });
+      } else {
+        setShowToast({ message: '版本已删除', type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error) {
       setShowToast({
@@ -165,7 +171,7 @@ export default function ReleasesPage() {
                         )}
                       </div>
                       <p className="text-xs text-[#5D4037]/60">
-                        发布于 {new Date(release.created_at).toLocaleDateString('zh-CN')}
+                        发布于 {formatDateDisplayUTC8(release.created_at)}
                       </p>
                     </div>
                   </div>
@@ -258,10 +264,14 @@ export default function ReleasesPage() {
             <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
               showToast.type === 'success'
                 ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
                 : 'bg-red-500/95 text-white'
             }`}>
               {showToast.type === 'success' ? (
                 <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
               ) : (
                 <XCircle className="w-5 h-5 flex-shrink-0" />
               )}

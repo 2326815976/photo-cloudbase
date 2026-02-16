@@ -10,8 +10,8 @@ import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import ImagePreview from '@/components/ImagePreview';
 import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
-import { isAndroidApp } from '@/lib/platform';
 import { isWechatBrowser } from '@/lib/wechat';
+import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 
 interface Folder {
   id: string;
@@ -68,13 +68,11 @@ export default function AlbumDetailPage() {
   const [showWelcomeLetter, setShowWelcomeLetter] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [previewMode, setPreviewMode] = useState<'preview' | 'original'>('preview'); // 预览模式
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
@@ -169,9 +167,9 @@ export default function AlbumDetailPage() {
   // 计算相册过期天数
   const expiryDays = useMemo(() => {
     if (!albumData?.album?.expires_at) return 7; // 默认7天
-    const expiryDate = new Date(albumData.album.expires_at);
-    const now = new Date();
-    const diffTime = expiryDate.getTime() - now.getTime();
+    const expiryDate = parseDateTimeUTC8(albumData.album.expires_at);
+    if (!expiryDate) return 7;
+    const diffTime = expiryDate.getTime() - Date.now();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays > 0 ? diffDays : 7; // 如果已过期或计算出错，默认7天
   }, [albumData]);
@@ -285,63 +283,56 @@ export default function AlbumDetailPage() {
       setTimeout(() => setToast(null), 3000);
       return;
     }
+
     let successCount = 0;
     let failCount = 0;
+    let storageWarningCount = 0;
+    const deletedPhotoIds = new Set<string>();
 
     for (const photoId of Array.from(selectedPhotos)) {
-      const photo = photos.find(p => p.id === photoId);
-      if (!photo) continue;
+      if (!photos.some((p) => p.id === photoId)) continue;
 
-      // 删除云存储中的所有版本文件（基于 accessKey + photoId 服务端校验）
-      let storageDeleteSuccess = true;
-      try {
-        const response = await fetch('/api/batch-delete', {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ accessKey, photoIds: [photoId] }),
-        });
-
-        if (!response.ok) {
-          throw new Error('删除云存储文件失败');
-        }
-      } catch (error) {
-        console.error('删除云存储文件失败:', error);
-        storageDeleteSuccess = false;
-      }
-
-      if (!storageDeleteSuccess) {
-        failCount++;
-        continue;
-      }
-
-      // 删除数据库记录
-      const { error: dbError } = await dbClient.rpc('delete_album_photo', {
+      const { data, error: deleteError } = await dbClient.rpc('delete_album_photo', {
         p_access_key: accessKey,
         p_photo_id: photoId
       });
 
-      if (dbError) {
+      if (deleteError) {
         failCount++;
       } else {
         successCount++;
+        deletedPhotoIds.add(photoId);
+
+        if (Boolean((data as any)?.storage_cleanup_failed)) {
+          storageWarningCount++;
+        }
       }
     }
 
     setShowDeleteConfirm(false);
 
     if (successCount > 0) {
-      setPhotos(prev => prev.filter(p => !selectedPhotos.has(p.id)));
-      setSelectedPhotos(new Set());
-      setToast({ message: `成功删除 ${successCount} 张照片`, type: 'success' });
-      setTimeout(() => setToast(null), 3000);
+      setPhotos(prev => prev.filter(p => !deletedPhotoIds.has(p.id)));
+      setSelectedPhotos(prev => new Set(Array.from(prev).filter(id => !deletedPhotoIds.has(id))));
     }
 
-    if (failCount > 0) {
-      setToast({ message: `删除完成：成功 ${successCount} 张，失败 ${failCount} 张`, type: 'error' });
-      setTimeout(() => setToast(null), 3000);
+    const warningParts: string[] = [];
+    if (storageWarningCount > 0) {
+      warningParts.push(`${storageWarningCount} 张云存储清理失败`);
     }
+    if (failCount > 0) {
+      warningParts.push(`失败 ${failCount} 张`);
+    }
+
+    if (warningParts.length > 0) {
+      setToast({
+        message: `删除完成：成功 ${successCount} 张，${warningParts.join('，')}`,
+        type: 'error',
+      });
+    } else {
+      setToast({ message: `成功删除 ${successCount} 张照片`, type: 'success' });
+    }
+    setTimeout(() => setToast(null), 3000);
   };
 
   if (loading) {
@@ -462,9 +453,16 @@ export default function AlbumDetailPage() {
                   );
                 }
 
-                const now = new Date();
-                const expiryDate = new Date(expiresAt);
-                const daysLeft = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                const expiryDate = parseDateTimeUTC8(expiresAt);
+                if (!expiryDate) {
+                  return (
+                    <>
+                      <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
+                      <span className="inline-block ml-8">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
+                    </>
+                  );
+                }
+                const daysLeft = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
                 const message = daysLeft > 0
                   ? `✨ 这里的照片只有 ${daysLeft} 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......`
@@ -795,131 +793,6 @@ export default function AlbumDetailPage() {
         recipientName={albumData.album.recipient_name}
       />
 
-      {/* 便利贴风格预览弹窗 */}
-      <AnimatePresence>
-        {selectedPhoto && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedPhoto(null)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-            />
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, rotate: -2 }}
-              animate={{ opacity: 1, scale: 1, rotate: 0 }}
-              exit={{ opacity: 0, scale: 0.9, rotate: 2 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
-            >
-              <div
-                className="bg-[#FFFBF0] rounded-2xl shadow-[0_12px_40px_rgba(93,64,55,0.25)] border-2 border-[#5D4037]/10 max-w-4xl max-h-[90vh] overflow-hidden pointer-events-auto relative"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* 便利贴胶带效果 */}
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#FFC857]/40 backdrop-blur-sm rounded-sm shadow-sm rotate-[-1deg] z-10" />
-
-                {/* 关闭按钮 */}
-                <button
-                  onClick={() => setSelectedPhoto(null)}
-                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
-                >
-                  <X className="w-5 h-5 text-[#5D4037]" />
-                </button>
-
-                {/* 图片容器 */}
-                <div className="p-4 pb-3">
-                  <div className="relative bg-white rounded-lg overflow-hidden shadow-inner">
-                    <img
-                      src={
-                        previewMode === 'original'
-                          ? photos.find(p => p.id === selectedPhoto)?.original_url
-                          : photos.find(p => p.id === selectedPhoto)?.preview_url
-                      }
-                      alt="预览"
-                      className="w-full h-auto max-h-[70vh] object-contain"
-                      loading="eager"
-                      decoding="async"
-                    />
-                  </div>
-                </div>
-
-                {/* 信息区域 */}
-                <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
-                  <div className="flex items-center justify-center gap-6 text-[#5D4037]">
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-
-                        // 检测是否在Android环境中
-                        const isAndroid = isAndroidApp();
-
-                        if (isAndroid && window.AndroidPhotoViewer) {
-                          // 使用Android原生图片查看器
-                          const currentIndex = photos.findIndex(p => p.id === selectedPhoto);
-                          const photoUrls = photos.map(p => p.original_url);
-
-                          try {
-                            window.AndroidPhotoViewer!.openPhotoViewer(
-                              JSON.stringify(photoUrls),
-                              currentIndex
-                            );
-                          } catch (error) {
-                            console.error('调用原生图片查看器失败:', error);
-                            // 降级到Web查看器
-                            setFullscreenPhoto(selectedPhoto);
-                          }
-                        } else {
-                          // Web环境使用原有的全屏查看器
-                          setFullscreenPhoto(selectedPhoto);
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#FFC857] text-[#5D4037] transition-colors"
-                    >
-                      查看原图
-                    </motion.button>
-
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-
-                        // 微信浏览器环境：显示引导弹窗
-                        if (isWechat) {
-                          const photo = photos.find(p => p.id === selectedPhoto);
-                          setShowWechatGuide(true);
-                          return;
-                        }
-
-                        const photo = photos.find(p => p.id === selectedPhoto);
-                        if (!photo) return;
-
-                        try {
-                          // 使用Android原生下载（自动降级到Web下载）
-                          await downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
-                          setToast({ message: '原图保存成功 📸', type: 'success' });
-                          setTimeout(() => setToast(null), 3000);
-                        } catch (error) {
-                          setToast({ message: '保存失败，请重试', type: 'error' });
-                          setTimeout(() => setToast(null), 3000);
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      下载原图
-                    </motion.button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* 定格确认弹窗 */}
       <AnimatePresence>
         {confirmPhotoId && (
@@ -1047,8 +920,8 @@ export default function AlbumDetailPage() {
       <WechatDownloadGuide
         isOpen={showWechatGuide}
         onClose={() => setShowWechatGuide(false)}
-        imageUrl={selectedPhoto ? photos.find(p => p.id === selectedPhoto)?.preview_url : undefined}
-        isBatchDownload={selectedPhotos.size > 0 || !selectedPhoto}
+        imageUrl={fullscreenPhoto ? photos.find((p) => p.id === fullscreenPhoto)?.preview_url : undefined}
+        isBatchDownload={selectedPhotos.size > 0 || !fullscreenPhoto}
         onTryDownload={executeBatchDownload}
       />
 

@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { Calendar, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle, Camera, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import MapPicker from '@/components/MapPicker';
-import { env } from '@/lib/env';
+import dynamic from 'next/dynamic';
+
+const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 
 interface Booking {
   id: string;
@@ -49,6 +50,39 @@ interface AllowedCity {
   created_at: string;
 }
 
+function inferCityMetaFromLocation(location: string): { cityName: string; province: string } {
+  const normalized = String(location ?? '').replace(/\s+/g, '');
+  if (!normalized) {
+    return { cityName: '', province: '' };
+  }
+
+  const provinceMatch = normalized.match(/([\u4e00-\u9fa5]{2,}?(?:省|自治区|特别行政区))/);
+  const municipalityMatch = normalized.match(/(北京市|上海市|天津市|重庆市)/);
+  const cityLikeMatch = normalized.match(/([\u4e00-\u9fa5]{2,}?(?:自治州|地区|盟|市))/);
+
+  if (municipalityMatch) {
+    const cityName = municipalityMatch[1];
+    return { cityName, province: provinceMatch?.[1] || cityName };
+  }
+
+  return {
+    cityName: cityLikeMatch?.[1] || '',
+    province: provinceMatch?.[1] || '',
+  };
+}
+
+function isDuplicateEntryError(error: any): boolean {
+  const errorCode = String(error?.code ?? '').trim();
+  const errorMessage = String(error?.message ?? '').toLowerCase();
+  return errorCode === '23505' || errorCode === '1062' || errorMessage.includes('duplicate entry');
+}
+
+function isForeignKeyConstraintError(error: any): boolean {
+  const errorCode = String(error?.code ?? '').trim();
+  const errorMessage = String(error?.message ?? '').toLowerCase();
+  return errorCode === '1451' || errorMessage.includes('foreign key constraint fails');
+}
+
 export default function BookingsPage() {
   const [activeTab, setActiveTab] = useState<'bookings' | 'types' | 'cities'>('bookings');
 
@@ -86,22 +120,6 @@ export default function BookingsPage() {
   useEffect(() => {
     loadBookingTypes();
     loadCities();
-
-    // 设置高德地图安全密钥
-    (window as any)._AMapSecurityConfig = {
-      securityJsCode: env.AMAP_SECURITY_CODE(),
-    };
-
-    // 加载高德地图脚本（避免重复注入）
-    const scriptId = 'amap-sdk-script';
-    const existing = document.getElementById(scriptId);
-    if (existing) return;
-
-    const script = document.createElement('script');
-    script.id = scriptId;
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${env.AMAP_KEY()}`;
-    script.async = true;
-    document.head.appendChild(script);
   }, []);
 
   useEffect(() => {
@@ -133,7 +151,7 @@ export default function BookingsPage() {
 
     if (error) {
       console.error('预约查询失败:', error);
-      setShowToast({ message: `查询失败: ${error.message}`, type: 'error' });
+      setShowToast({ message: `查询失败: ${error?.message || '未知错误'}`, type: 'error' });
     }
 
     if (!error && data && data.length > 0) {
@@ -199,20 +217,26 @@ export default function BookingsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: cancelledBooking, error } = await dbClient
       .from('bookings')
       .update({ status: 'cancelled' })
-      .eq('id', cancelingBooking.id);
+      .eq('id', cancelingBooking.id)
+      .in('status', ['pending', 'confirmed', 'in_progress'])
+      .select('id')
+      .maybeSingle();
 
     setActionLoading(false);
     setCancelingBooking(null);
 
-    if (!error) {
+    if (!error && cancelledBooking) {
       loadBookings();
       setShowToast({ message: '预约已取消', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
+    } else if (!error && !cancelledBooking) {
+      setShowToast({ message: '取消失败：预约状态已变化，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      setShowToast({ message: `取消失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `取消失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -232,18 +256,23 @@ export default function BookingsPage() {
       return;
     }
 
-    const { error } = await dbClient
+    const { data: updatedBooking, error } = await dbClient
       .from('bookings')
       .update({ status: 'confirmed' })
       .eq('id', id)
-      .eq('status', 'pending');
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle();
 
-    if (!error) {
+    if (!error && updatedBooking) {
       loadBookings();
       setShowToast({ message: '预约已确认', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
+    } else if (!error && !updatedBooking) {
+      setShowToast({ message: '确认失败：预约状态已变化，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      setShowToast({ message: `确认失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `确认失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -263,18 +292,23 @@ export default function BookingsPage() {
       return;
     }
 
-    const { error } = await dbClient
+    const { data: updatedBooking, error } = await dbClient
       .from('bookings')
       .update({ status: 'in_progress' })
       .eq('id', id)
-      .eq('status', 'confirmed');
+      .eq('status', 'confirmed')
+      .select('id')
+      .maybeSingle();
 
-    if (!error) {
+    if (!error && updatedBooking) {
       loadBookings();
       setShowToast({ message: '预约已开始', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
+    } else if (!error && !updatedBooking) {
+      setShowToast({ message: '开始失败：预约状态已变化，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      setShowToast({ message: `开始失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `开始失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -294,18 +328,23 @@ export default function BookingsPage() {
       return;
     }
 
-    const { error } = await dbClient
+    const { data: updatedBooking, error } = await dbClient
       .from('bookings')
       .update({ status: 'finished' })
       .eq('id', id)
-      .eq('status', 'in_progress');
+      .eq('status', 'in_progress')
+      .select('id')
+      .maybeSingle();
 
-    if (!error) {
+    if (!error && updatedBooking) {
       loadBookings();
       setShowToast({ message: '预约已完成', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
+    } else if (!error && !updatedBooking) {
+      setShowToast({ message: '完成失败：预约状态已变化，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      setShowToast({ message: `完成失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `完成失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -366,22 +405,83 @@ export default function BookingsPage() {
     }
 
     try {
+      const { data: selectedRows, error: fetchError } = await dbClient
+        .from('bookings')
+        .select('id, status')
+        .in('id', selectedBookingIds);
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      const rows = Array.isArray(selectedRows) ? selectedRows : [];
+      const missingCount = Math.max(0, selectedBookingIds.length - rows.length);
+      const deletableRows = rows.filter((row: any) => row.status === 'finished' || row.status === 'cancelled');
+      const blockedCount = rows.length - deletableRows.length;
+
+      if (blockedCount > 0) {
+        setActionLoading(false);
+        setShowToast({
+          message: missingCount > 0
+            ? `有 ${blockedCount} 个预约状态已变化、${missingCount} 个预约已不存在，无法删除（仅已完成/已取消可删）`
+            : `有 ${blockedCount} 个预约状态已变化，无法删除（仅已完成/已取消可删）`,
+          type: 'warning',
+        });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const deletableIds = deletableRows.map((row: any) => String(row.id));
+      if (deletableIds.length === 0) {
+        setActionLoading(false);
+        setShowToast({
+          message: missingCount > 0 ? `没有可删除的预约（${missingCount} 个预约已不存在）` : '没有可删除的预约',
+          type: 'warning'
+        });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
       const { error } = await dbClient
         .from('bookings')
         .delete()
-        .in('id', selectedBookingIds);
+        .in('id', deletableIds)
+        .in('status', ['finished', 'cancelled']);
 
       if (error) throw error;
+
+      const { data: remainingRows, error: verifyError } = await dbClient
+        .from('bookings')
+        .select('id')
+        .in('id', deletableIds);
+      if (verifyError) throw verifyError;
+
+      const remainingIdSet = new Set((remainingRows || []).map((row: any) => String(row.id)));
+      const deletedCount = deletableIds.filter((id) => !remainingIdSet.has(id)).length;
+      if (deletedCount === 0) {
+        throw new Error('批量删除失败，请稍后重试');
+      }
 
       setActionLoading(false);
       setSelectedBookingIds([]);
       setIsBookingSelectionMode(false);
       loadBookings();
-      setShowToast({ message: `成功删除 ${selectedBookingIds.length} 个预约`, type: 'success' });
+      if (remainingIdSet.size > 0) {
+        setShowToast({
+          message: missingCount > 0
+            ? `成功删除 ${deletedCount} 个预约，${remainingIdSet.size} 个删除失败，${missingCount} 个预约已不存在`
+            : `成功删除 ${deletedCount} 个预约，${remainingIdSet.size} 个删除失败`,
+          type: 'warning',
+        });
+      } else if (missingCount > 0) {
+        setShowToast({ message: `成功删除 ${deletedCount} 个预约（${missingCount} 个预约已不存在）`, type: 'success' });
+      } else {
+        setShowToast({ message: `成功删除 ${deletedCount} 个预约`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setActionLoading(false);
-      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `批量删除失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -435,7 +535,10 @@ export default function BookingsPage() {
   };
 
   const handleSaveType = async () => {
-    if (!typeFormData.name.trim()) {
+    const normalizedName = typeFormData.name.trim();
+    const normalizedDescription = typeFormData.description.trim();
+
+    if (!normalizedName) {
       setShowToast({ message: '请输入类型名称', type: 'warning' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -451,24 +554,33 @@ export default function BookingsPage() {
     }
 
     if (editingType) {
-      const { error } = await dbClient
+      const { data: updatedType, error } = await dbClient
         .from('booking_types')
-        .update({ name: typeFormData.name, description: typeFormData.description })
-        .eq('id', editingType.id);
+        .update({ name: normalizedName, description: normalizedDescription || null })
+        .eq('id', editingType.id)
+        .select('id')
+        .maybeSingle();
 
-      if (!error) {
+      if (!error && updatedType) {
         setShowTypeModal(false);
         loadBookingTypes();
         setShowToast({ message: '类型已更新', type: 'success' });
         setTimeout(() => setShowToast(null), 3000);
+      } else if (!error && !updatedType) {
+        setShowToast({ message: '更新失败：类型不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
       } else {
-        setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+        if (isDuplicateEntryError(error)) {
+          setShowToast({ message: '类型名称已存在，请使用其他名称', type: 'warning' });
+        } else {
+          setShowToast({ message: `更新失败：${error?.message || '未知错误'}`, type: 'error' });
+        }
         setTimeout(() => setShowToast(null), 3000);
       }
     } else {
       const { error } = await dbClient
         .from('booking_types')
-        .insert({ name: typeFormData.name, description: typeFormData.description });
+        .insert({ name: normalizedName, description: normalizedDescription || null });
 
       if (!error) {
         setShowTypeModal(false);
@@ -476,7 +588,11 @@ export default function BookingsPage() {
         setShowToast({ message: '类型已添加', type: 'success' });
         setTimeout(() => setShowToast(null), 3000);
       } else {
-        setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+        if (isDuplicateEntryError(error)) {
+          setShowToast({ message: '类型名称已存在，请使用其他名称', type: 'warning' });
+        } else {
+          setShowToast({ message: `添加失败：${error?.message || '未知错误'}`, type: 'error' });
+        }
         setTimeout(() => setShowToast(null), 3000);
       }
     }
@@ -490,17 +606,23 @@ export default function BookingsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: updatedType, error } = await dbClient
       .from('booking_types')
       .update({ is_active: !type.is_active })
-      .eq('id', type.id);
+      .eq('id', type.id)
+      .eq('is_active', type.is_active)
+      .select('id')
+      .maybeSingle();
 
-    if (!error) {
+    if (!error && updatedType) {
       loadBookingTypes();
       setShowToast({ message: type.is_active ? '类型已禁用' : '类型已启用', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
+    } else if (!error && !updatedType) {
+      setShowToast({ message: '操作失败：类型状态已变化或记录不存在，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `操作失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -523,12 +645,37 @@ export default function BookingsPage() {
     }
 
     try {
-      const { error } = await dbClient
+      const { data: snapshotType, error: snapshotError } = await dbClient
+        .from('booking_types')
+        .select('id')
+        .eq('id', deletingType.id)
+        .maybeSingle();
+
+      if (snapshotError) throw snapshotError;
+      if (!snapshotType) {
+        setActionLoading(false);
+        setDeletingType(null);
+        setShowToast({ message: '删除失败：类型不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const { error: deleteError } = await dbClient
         .from('booking_types')
         .delete()
         .eq('id', deletingType.id);
 
-      if (error) throw error;
+      if (deleteError) throw deleteError;
+
+      const { data: remainingType, error: verifyError } = await dbClient
+        .from('booking_types')
+        .select('id')
+        .eq('id', deletingType.id)
+        .maybeSingle();
+      if (verifyError) throw verifyError;
+      if (remainingType) {
+        throw new Error('删除失败，请稍后重试');
+      }
 
       setActionLoading(false);
       setDeletingType(null);
@@ -538,7 +685,11 @@ export default function BookingsPage() {
     } catch (error: any) {
       setActionLoading(false);
       setDeletingType(null);
-      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      if (isForeignKeyConstraintError(error)) {
+        setShowToast({ message: '删除失败：该类型仍被预约记录使用', type: 'warning' });
+      } else {
+        setShowToast({ message: `删除失败：${error?.message || '未知错误'}`, type: 'error' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -580,34 +731,29 @@ export default function BookingsPage() {
     setShowCityModal(true);
   };
 
-  const handleCityMapSelect = async (location: string, lat: number, lng: number) => {
-    // 使用高德地图逆地理编码获取城市信息
-    const AMap = (window as any).AMap;
-    if (AMap) {
-      AMap.plugin('AMap.Geocoder', () => {
-        const geocoder = new AMap.Geocoder();
-        geocoder.getAddress([lng, lat], (status: string, result: any) => {
-          if (status === 'complete' && result.info === 'OK') {
-            const addressComponent = result.regeocode.addressComponent;
-            const cityName = addressComponent.city || addressComponent.province;
-            const province = addressComponent.province;
-            const cityCode = addressComponent.citycode || addressComponent.adcode;
+  const handleCityMapSelect = (location: string, lat: number, lng: number, meta?: { cityName?: string; province?: string; adcode?: string }) => {
+    const inferred = inferCityMetaFromLocation(location);
+    const metaCityName = String(meta?.cityName ?? '').trim();
+    const metaProvince = String(meta?.province ?? '').trim();
+    const metaAdcode = String(meta?.adcode ?? '').trim();
 
-            setCityFormData({
-              city_name: cityName,
-              province: province,
-              city_code: cityCode,
-            });
-            setCityLocation({ latitude: lat, longitude: lng });
-          }
-        });
-      });
-    }
     setShowCityMapPicker(false);
+    setCityLocation({ latitude: lat, longitude: lng });
+
+    setCityFormData((prev) => ({
+      ...prev,
+      city_name: metaCityName || inferred.cityName || prev.city_name,
+      province: metaProvince || inferred.province || prev.province,
+      city_code: metaAdcode || prev.city_code,
+    }));
   };
 
   const handleSaveCity = async () => {
-    if (!cityFormData.city_name.trim()) {
+    const normalizedCityName = cityFormData.city_name.trim();
+    const normalizedProvince = cityFormData.province.trim();
+    const normalizedCityCode = cityFormData.city_code.trim();
+
+    if (!normalizedCityName) {
       setShowToast({ message: '请输入城市名称', type: 'warning' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -627,32 +773,41 @@ export default function BookingsPage() {
     };
 
     if (editingCity) {
-      const { error } = await dbClient
+      const { data: updatedCity, error } = await dbClient
         .from('allowed_cities')
         .update({
-          city_name: cityFormData.city_name,
-          province: cityFormData.province,
-          city_code: cityFormData.city_code,
+          city_name: normalizedCityName,
+          province: normalizedProvince || null,
+          city_code: normalizedCityCode || null,
           ...locationPayload,
         })
-        .eq('id', editingCity.id);
+        .eq('id', editingCity.id)
+        .select('id')
+        .maybeSingle();
 
-      if (!error) {
+      if (!error && updatedCity) {
         setShowCityModal(false);
         loadCities();
         setShowToast({ message: '城市已更新', type: 'success' });
         setTimeout(() => setShowToast(null), 3000);
+      } else if (!error && !updatedCity) {
+        setShowToast({ message: '更新失败：城市不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
       } else {
-        setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+        if (isDuplicateEntryError(error)) {
+          setShowToast({ message: '城市编码或城市名称冲突，请检查后重试', type: 'warning' });
+        } else {
+          setShowToast({ message: `更新失败：${error?.message || '未知错误'}`, type: 'error' });
+        }
         setTimeout(() => setShowToast(null), 3000);
       }
     } else {
       const { error } = await dbClient
         .from('allowed_cities')
         .insert({
-          city_name: cityFormData.city_name,
-          province: cityFormData.province,
-          city_code: cityFormData.city_code,
+          city_name: normalizedCityName,
+          province: normalizedProvince || null,
+          city_code: normalizedCityCode || null,
           ...locationPayload,
         });
 
@@ -662,7 +817,11 @@ export default function BookingsPage() {
         setShowToast({ message: '城市已添加', type: 'success' });
         setTimeout(() => setShowToast(null), 3000);
       } else {
-        setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+        if (isDuplicateEntryError(error)) {
+          setShowToast({ message: '城市编码或城市名称冲突，请检查后重试', type: 'warning' });
+        } else {
+          setShowToast({ message: `添加失败：${error?.message || '未知错误'}`, type: 'error' });
+        }
         setTimeout(() => setShowToast(null), 3000);
       }
     }
@@ -676,17 +835,23 @@ export default function BookingsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: updatedCity, error } = await dbClient
       .from('allowed_cities')
       .update({ is_active: !city.is_active })
-      .eq('id', city.id);
+      .eq('id', city.id)
+      .eq('is_active', city.is_active)
+      .select('id')
+      .maybeSingle();
 
-    if (!error) {
+    if (!error && updatedCity) {
       loadCities();
       setShowToast({ message: city.is_active ? '城市已禁用' : '城市已启用', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
+    } else if (!error && !updatedCity) {
+      setShowToast({ message: '操作失败：城市状态已变化或记录不存在，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
     } else {
-      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setShowToast({ message: `操作失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -709,12 +874,37 @@ export default function BookingsPage() {
     }
 
     try {
-      const { error } = await dbClient
+      const { data: snapshotCity, error: snapshotError } = await dbClient
+        .from('allowed_cities')
+        .select('id')
+        .eq('id', deletingCity.id)
+        .maybeSingle();
+
+      if (snapshotError) throw snapshotError;
+      if (!snapshotCity) {
+        setActionLoading(false);
+        setDeletingCity(null);
+        setShowToast({ message: '删除失败：城市不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const { error: deleteError } = await dbClient
         .from('allowed_cities')
         .delete()
         .eq('id', deletingCity.id);
 
-      if (error) throw error;
+      if (deleteError) throw deleteError;
+
+      const { data: remainingCity, error: verifyError } = await dbClient
+        .from('allowed_cities')
+        .select('id')
+        .eq('id', deletingCity.id)
+        .maybeSingle();
+      if (verifyError) throw verifyError;
+      if (remainingCity) {
+        throw new Error('删除失败，请稍后重试');
+      }
 
       setActionLoading(false);
       setDeletingCity(null);
@@ -724,7 +914,11 @@ export default function BookingsPage() {
     } catch (error: any) {
       setActionLoading(false);
       setDeletingCity(null);
-      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      if (isForeignKeyConstraintError(error)) {
+        setShowToast({ message: '删除失败：该城市仍被预约记录使用', type: 'warning' });
+      } else {
+        setShowToast({ message: `删除失败：${error?.message || '未知错误'}`, type: 'error' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -1294,7 +1488,7 @@ export default function BookingsPage() {
                     type="text"
                     value={cityFormData.city_code}
                     onChange={(e) => setCityFormData({ ...cityFormData, city_code: e.target.value })}
-                    placeholder="高德地图城市代码"
+                    placeholder="腾讯地图 adcode（可选）"
                     className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
                   />
                 </div>
@@ -1532,11 +1726,10 @@ export default function BookingsPage() {
           <MapPicker
             onSelect={handleCityMapSelect}
             onClose={() => setShowCityMapPicker(false)}
+            cityName={cityFormData.city_name}
           />
         )}
       </AnimatePresence>
     </div>
   );
 }
-
-

@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Phone, Lock, Eye, EyeOff } from 'lucide-react';
-import { createClient } from '@/lib/cloudbase/client';
+import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 function LoginForm() {
   const router = useRouter();
@@ -39,8 +39,10 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
+      const normalizedPhone = normalizeChinaMobile(formData.phone);
+
       // 验证手机号格式
-      if (!/^1[3-9]\d{9}$/.test(formData.phone)) {
+      if (!isValidChinaMobile(normalizedPhone)) {
         setError('请输入有效的手机号');
         setIsLoading(false);
         return;
@@ -52,7 +54,7 @@ function LoginForm() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          phone: formData.phone,
+          phone: normalizedPhone,
           password: formData.password,
         }),
       });
@@ -139,9 +141,12 @@ function LoginForm() {
               type="tel"
               placeholder="手机号"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, phone: clampChinaMobileInput(e.target.value) })}
               className="w-full h-14 pl-12 pr-4 rounded-full bg-white border-2 border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.1)] transition-all text-[#5D4037] placeholder:text-[#5D4037]/40 text-base"
               maxLength={11}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="tel"
               required
             />
           </div>
@@ -226,5 +231,3 @@ export default function LoginPage() {
     </Suspense>
   );
 }
-
-

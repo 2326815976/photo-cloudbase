@@ -193,17 +193,32 @@ export default function AlbumDetailPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient.from('album_folders').delete().eq('id', deletingFolder.id);
+    const { data: deletedFolder, error } = await dbClient
+      .from('album_folders')
+      .delete()
+      .eq('id', deletingFolder.id)
+      .select('id')
+      .maybeSingle();
 
     setActionLoading(false);
     setDeletingFolder(null);
 
+    if (error) {
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!deletedFolder) {
+      loadAlbumData();
+      setShowToast({ message: '文件夹不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
     if (!error) {
       loadAlbumData();
       setShowToast({ message: '文件夹已删除，照片已移至根目录', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -217,6 +232,25 @@ export default function AlbumDetailPage() {
       img.onerror = reject;
       img.src = URL.createObjectURL(file);
     });
+  };
+
+  const cleanupUploadedFiles = async (keys: string[]) => {
+    const normalized = Array.from(new Set(keys.map((item) => String(item ?? '').trim()).filter(Boolean)));
+    if (normalized.length === 0) {
+      return;
+    }
+
+    try {
+      await fetch('/api/batch-delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ keys: normalized }),
+      });
+    } catch (cleanupError) {
+      console.error('清理上传失败的云存储文件失败:', cleanupError);
+    }
   };
 
   const handleBatchImageSelect = (files: FileList | null) => {
@@ -265,6 +299,8 @@ export default function AlbumDetailPage() {
         let thumbnail_url = '';
         let preview_url = '';
         let original_url = '';
+        const uploadedKeys: string[] = [];
+        let uploadFailed = false;
 
         // 3. 客户端上传三个版本到 CloudBase 云存储（albums 目录）
         for (const version of versions) {
@@ -274,15 +310,22 @@ export default function AlbumDetailPage() {
 
           try {
             const publicUrl = await uploadToCloudBaseDirect(version.file, fileName, 'albums');
+            uploadedKeys.push(`albums/${fileName}`);
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
             else if (version.type === 'preview') preview_url = publicUrl;
             else if (version.type === 'original') original_url = publicUrl;
           } catch (uploadError) {
             console.error(`上传 ${version.type} 失败:`, uploadError);
-            failCount++;
+            uploadFailed = true;
             break;
           }
+        }
+
+        if (uploadFailed) {
+          failCount++;
+          await cleanupUploadedFiles(uploadedKeys);
+          continue;
         }
 
         // 4. 插入数据库
@@ -300,11 +343,13 @@ export default function AlbumDetailPage() {
 
           if (insertError) {
             failCount++;
+            await cleanupUploadedFiles(uploadedKeys);
           } else {
             successCount++;
           }
         } else {
           failCount++;
+          await cleanupUploadedFiles(uploadedKeys);
         }
       } catch (error) {
         failCount++;
@@ -350,18 +395,52 @@ export default function AlbumDetailPage() {
     }
 
     try {
-      // 从 URL 中提取存储路径
-      const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
+      const { data: targetPhoto, error: snapshotError } = await dbClient
+        .from('album_photos')
+        .select('id, thumbnail_url, preview_url, original_url')
+        .eq('id', deletingPhoto.id)
+        .eq('album_id', albumId)
+        .maybeSingle();
 
-      // 收集需要删除的文件路径（缩略图、预览图、原图）
+      if (snapshotError) {
+        throw snapshotError;
+      }
+      if (!targetPhoto) {
+        setActionLoading(false);
+        setDeletingPhoto(null);
+        setShowToast({ message: '照片不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
       const filesToDelete = [
-        deletingPhoto.thumbnail_url ? extractStorageKeyFromURL(deletingPhoto.thumbnail_url) : null,
-        deletingPhoto.preview_url ? extractStorageKeyFromURL(deletingPhoto.preview_url) : null,
-        deletingPhoto.original_url ? extractStorageKeyFromURL(deletingPhoto.original_url) : null
-      ].filter(Boolean) as string[];
+        String(targetPhoto.thumbnail_url ?? '').trim(),
+        String(targetPhoto.preview_url ?? '').trim(),
+        String(targetPhoto.original_url ?? '').trim(),
+      ].filter(Boolean);
 
-      // 删除云存储中的所有版本文件
-      let storageDeleteSuccess = true;
+      const { error: deleteError } = await dbClient
+        .from('album_photos')
+        .delete()
+        .eq('id', targetPhoto.id)
+        .eq('album_id', albumId);
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      const { data: remainingPhoto, error: verifyError } = await dbClient
+        .from('album_photos')
+        .select('id')
+        .eq('id', targetPhoto.id)
+        .maybeSingle();
+      if (verifyError) {
+        throw verifyError;
+      }
+      if (remainingPhoto) {
+        throw new Error('数据库记录删除失败，请稍后重试');
+      }
+
+      let storageCleanupFailed = false;
       if (filesToDelete.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -369,35 +448,27 @@ export default function AlbumDetailPage() {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ keys: filesToDelete }),
+            body: JSON.stringify({ urls: filesToDelete }),
           });
 
           if (!response.ok) {
-            console.error('删除云存储文件失败');
-            storageDeleteSuccess = false;
+            storageCleanupFailed = true;
           }
         } catch (error) {
           console.error('删除云存储文件时出错:', error);
-          storageDeleteSuccess = false;
+          storageCleanupFailed = true;
         }
       }
 
-      if (!storageDeleteSuccess) {
-        throw new Error('删除云存储文件失败，已中止数据库删除');
-      }
-
-      // 删除数据库记录
-      const { error } = await dbClient.from('album_photos').delete().eq('id', deletingPhoto.id);
-
       setActionLoading(false);
       setDeletingPhoto(null);
+      loadAlbumData();
 
-      if (!error) {
-        loadAlbumData();
-        setShowToast({ message: '照片已删除', type: 'success' });
+      if (storageCleanupFailed) {
+        setShowToast({ message: '照片记录已删除，但云存储清理失败，请稍后重试', type: 'warning' });
         setTimeout(() => setShowToast(null), 3000);
       } else {
-        setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+        setShowToast({ message: '照片已删除', type: 'success' });
         setTimeout(() => setShowToast(null), 3000);
       }
     } catch (error: any) {
@@ -446,24 +517,56 @@ export default function AlbumDetailPage() {
     }
 
     try {
-      // 1. 获取要删除的照片信息
-      const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
-
-      // 2. 收集所有需要删除的云存储文件路径
-      const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
-      const filesToDelete: string[] = [];
-
-      for (const photo of photosToDelete) {
-        const keys = [
-          photo.thumbnail_url ? extractStorageKeyFromURL(photo.thumbnail_url) : null,
-          photo.preview_url ? extractStorageKeyFromURL(photo.preview_url) : null,
-          photo.original_url ? extractStorageKeyFromURL(photo.original_url) : null
-        ].filter(Boolean) as string[];
-        filesToDelete.push(...keys);
+      const { data: selectedRows, error: snapshotError } = await dbClient
+        .from('album_photos')
+        .select('id, thumbnail_url, preview_url, original_url')
+        .eq('album_id', albumId)
+        .in('id', selectedPhotoIds);
+      if (snapshotError) {
+        throw snapshotError;
       }
 
-      // 3. 删除云存储中的文件
-      let storageDeleteSuccess = true;
+      const rows = Array.isArray(selectedRows) ? selectedRows : [];
+      const missingCount = Math.max(0, selectedPhotoIds.length - rows.length);
+      if (rows.length === 0) {
+        setActionLoading(false);
+        setShowToast({ message: '未找到可删除照片，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const { error: dbError } = await dbClient
+        .from('album_photos')
+        .delete()
+        .eq('album_id', albumId)
+        .in('id', rows.map((row: any) => String(row.id)));
+      if (dbError) {
+        throw dbError;
+      }
+
+      const targetIds = rows.map((row: any) => String(row.id));
+      const { data: remainingRows, error: verifyError } = await dbClient
+        .from('album_photos')
+        .select('id')
+        .eq('album_id', albumId)
+        .in('id', targetIds);
+      if (verifyError) {
+        throw verifyError;
+      }
+
+      const remainingIdSet = new Set((remainingRows || []).map((row: any) => String(row.id)));
+      const deletedRows = rows.filter((row: any) => !remainingIdSet.has(String(row.id)));
+      if (deletedRows.length === 0) {
+        throw new Error('照片删除失败，请刷新后重试');
+      }
+
+      const filesToDelete = deletedRows.flatMap((photo: any) => [
+        String(photo.thumbnail_url ?? '').trim() || null,
+        String(photo.preview_url ?? '').trim() || null,
+        String(photo.original_url ?? '').trim() || null,
+      ]).filter(Boolean) as string[];
+
+      let storageCleanupFailed = false;
       if (filesToDelete.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -471,35 +574,43 @@ export default function AlbumDetailPage() {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ keys: filesToDelete }),
+            body: JSON.stringify({ urls: filesToDelete }),
           });
 
           if (!response.ok) {
-            throw new Error('删除云存储文件失败');
+            storageCleanupFailed = true;
           }
         } catch (error) {
           console.error('删除云存储文件失败:', error);
-          storageDeleteSuccess = false;
+          storageCleanupFailed = true;
         }
       }
-
-      if (!storageDeleteSuccess) {
-        throw new Error('删除云存储文件失败，已中止数据库删除');
-      }
-
-      // 4. 删除数据库记录
-      const { error: dbError } = await dbClient
-        .from('album_photos')
-        .delete()
-        .in('id', selectedPhotoIds);
-
-      if (dbError) throw dbError;
 
       setActionLoading(false);
       setSelectedPhotoIds([]);
       setIsSelectionMode(false);
       loadAlbumData();
-      setShowToast({ message: `成功删除 ${selectedPhotoIds.length} 张照片`, type: 'success' });
+
+      const partialFailedCount = remainingIdSet.size;
+      const warningParts: string[] = [];
+      if (partialFailedCount > 0) {
+        warningParts.push(`有 ${partialFailedCount} 张照片删除失败`);
+      }
+      if (missingCount > 0) {
+        warningParts.push(`${missingCount} 张照片已不存在`);
+      }
+      if (storageCleanupFailed) {
+        warningParts.push('云存储清理失败');
+      }
+
+      if (warningParts.length > 0) {
+        setShowToast({
+          message: `成功删除 ${deletedRows.length} 张照片，${warningParts.join('，')}`,
+          type: 'warning',
+        });
+      } else {
+        setShowToast({ message: `成功删除 ${deletedRows.length} 张照片`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setActionLoading(false);

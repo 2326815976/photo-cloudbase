@@ -29,9 +29,7 @@ export default function RootLayout({
   const runtimeConfig = {
     NEXT_PUBLIC_APP_URL: env.APP_URL(),
     NEXT_PUBLIC_CLOUDBASE_STORAGE_DOMAIN: storageDomain,
-    NEXT_PUBLIC_AMAP_KEY: env.AMAP_KEY(),
-    NEXT_PUBLIC_AMAP_SECURITY_CODE: env.AMAP_SECURITY_CODE(),
-    NEXT_PUBLIC_TURNSTILE_SITE_KEY: env.TURNSTILE_SITE_KEY(),
+    NEXT_PUBLIC_TMAP_KEY: env.TMAP_KEY(),
   };
 
   return (
@@ -60,6 +58,12 @@ export default function RootLayout({
 
         {/* 字体预加载 - 仅预加载首屏必需字体 */}
         <link rel="preload" href="/fonts/ZQKNNY-Medium-2.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+
+        {/* 腾讯地图 JS API */}
+        <script
+          src={`https://map.qq.com/api/gljs?v=1.exp&libraries=service&key=${encodeURIComponent(env.TMAP_KEY())}`}
+          async
+        />
 
         {/* 自托管字体配置 */}
         <style dangerouslySetInnerHTML={{__html: `

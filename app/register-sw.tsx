@@ -5,6 +5,21 @@ import { isAndroidApp } from '@/lib/platform';
 
 export default function RegisterServiceWorker() {
   useEffect(() => {
+    // 开发环境禁用 SW，避免调试时缓存 API 造成状态错乱。
+    if (process.env.NODE_ENV !== 'production') {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((registration) => {
+            registration.unregister().catch(() => {
+              // 忽略反注册失败
+            });
+          });
+        });
+      }
+
+      return;
+    }
+
     if (isAndroidApp()) {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then((registrations) => {

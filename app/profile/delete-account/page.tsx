@@ -12,6 +12,7 @@ export default function DeleteAccountPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [postDeleteWarning, setPostDeleteWarning] = useState('');
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -29,6 +30,9 @@ export default function DeleteAccountPage() {
         setIsDeleting(false);
         return;
       }
+
+      const warningMessage = String(data?.warning ?? '').trim();
+      setPostDeleteWarning(warningMessage);
 
       // 删除成功，清除本地session
       const dbClient = createClient();
@@ -71,6 +75,12 @@ export default function DeleteAccountPage() {
             你的账户已经安全删除，所有数据都已清空。<br />
             期待未来某天能再次相遇~ ✨
           </p>
+
+          {postDeleteWarning && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              {postDeleteWarning}
+            </p>
+          )}
         </motion.div>
       </div>
     );

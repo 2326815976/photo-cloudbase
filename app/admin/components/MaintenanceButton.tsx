@@ -22,9 +22,19 @@ export default function MaintenanceButton() {
 
       if (response.ok) {
         const cleanup = data.result?.cleanup_result || {};
+        const warningList = Array.isArray(cleanup.storage_cleanup_warnings)
+          ? cleanup.storage_cleanup_warnings.filter((item: unknown) => String(item ?? '').trim() !== '')
+          : [];
+
+        const summary = `维护任务执行成功！清理了 ${cleanup.deleted_photos || 0} 张照片、${cleanup.deleted_folders || 0} 个文件夹、${cleanup.deleted_albums || 0} 个相册`;
+        const warningText =
+          warningList.length > 0
+            ? `；存储清理告警：${warningList.join('；')}`
+            : '';
+
         setResult({
           success: true,
-          message: `维护任务执行成功！清理了 ${cleanup.deleted_photos || 0} 张照片、${cleanup.deleted_folders || 0} 个文件夹、${cleanup.deleted_albums || 0} 个相册`
+          message: `${summary}${warningText}`,
         });
       } else {
         setResult({

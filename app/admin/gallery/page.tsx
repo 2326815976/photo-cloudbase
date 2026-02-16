@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { generateBlurHash } from '@/lib/utils/blurhash';
 import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
+import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Photo {
   id: string;
@@ -62,7 +63,15 @@ export default function AdminGalleryPage() {
       .order('created_at', { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
 
-    if (!error && data) {
+    if (error) {
+      setShowToast({ message: `加载失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      setPhotos([]);
+      setLoading(false);
+      return;
+    }
+
+    if (data) {
       setPhotos(data);
     }
     setLoading(false);
@@ -88,61 +97,85 @@ export default function AdminGalleryPage() {
       return;
     }
 
-    // 从 URL 中提取存储路径
-    const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
-
-    // 收集需要删除的文件路径
-    const filesToDelete = [
-      deletingPhoto.thumbnail_url ? extractStorageKeyFromURL(deletingPhoto.thumbnail_url) : null,
-      deletingPhoto.preview_url ? extractStorageKeyFromURL(deletingPhoto.preview_url) : null,
-      deletingPhoto.original_url ? extractStorageKeyFromURL(deletingPhoto.original_url) : null,
-      deletingPhoto.url ? extractStorageKeyFromURL(deletingPhoto.url) : null
-    ].filter(Boolean) as string[];
-
-    // 删除云存储中的所有版本文件
-    let storageDeleteSuccess = true;
-    if (filesToDelete.length > 0) {
-      try {
-        const response = await fetch('/api/batch-delete', {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ keys: filesToDelete }),
-        });
-
-        if (!response.ok) {
-          throw new Error('删除云存储文件失败');
-        }
-      } catch (error) {
-        console.error('删除云存储文件失败:', error);
-        storageDeleteSuccess = false;
+    try {
+      const { data: targetPhoto, error: snapshotError } = await dbClient
+        .from('album_photos')
+        .select('id, thumbnail_url, preview_url, original_url, url')
+        .eq('id', deletingPhoto.id)
+        .eq('is_public', true)
+        .maybeSingle();
+      if (snapshotError) {
+        throw snapshotError;
       }
-    }
+      if (!targetPhoto) {
+        setActionLoading(false);
+        setDeletingPhoto(null);
+        setShowToast({ message: '照片不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
 
-    if (!storageDeleteSuccess) {
+      const filesToDelete = [
+        String(targetPhoto.thumbnail_url ?? '').trim(),
+        String(targetPhoto.preview_url ?? '').trim(),
+        String(targetPhoto.original_url ?? '').trim(),
+        String(targetPhoto.url ?? '').trim(),
+      ].filter(Boolean);
+
+      const { error: dbError } = await dbClient
+        .from('album_photos')
+        .delete()
+        .eq('id', targetPhoto.id)
+        .eq('is_public', true);
+      if (dbError) {
+        throw dbError;
+      }
+
+      const { data: remainingPhoto, error: verifyError } = await dbClient
+        .from('album_photos')
+        .select('id')
+        .eq('id', targetPhoto.id)
+        .maybeSingle();
+      if (verifyError) {
+        throw verifyError;
+      }
+      if (remainingPhoto) {
+        throw new Error('数据库记录删除失败，请稍后重试');
+      }
+
+      let storageCleanupFailed = false;
+      if (filesToDelete.length > 0) {
+        try {
+          const response = await fetch('/api/batch-delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ urls: filesToDelete }),
+          });
+
+          if (!response.ok) {
+            storageCleanupFailed = true;
+          }
+        } catch (error) {
+          console.error('删除云存储文件失败:', error);
+          storageCleanupFailed = true;
+        }
+      }
+
       setActionLoading(false);
-      setShowToast({ message: '删除失败：云存储文件删除异常，已中止数据库删除', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-
-    // 删除数据库记录
-    const { error: dbError } = await dbClient
-      .from('album_photos')
-      .delete()
-      .eq('id', deletingPhoto.id);
-
-    setActionLoading(false);
-
-    if (!dbError) {
       setDeletingPhoto(null);
       loadPhotos();
-      setShowToast({ message: '照片已删除', type: 'success' });
+      if (storageCleanupFailed) {
+        setShowToast({ message: '照片记录已删除，但云存储清理失败，请稍后重试', type: 'warning' });
+      } else {
+        setShowToast({ message: '照片已删除', type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
-    } else {
+    } catch (error: any) {
+      setActionLoading(false);
       setDeletingPhoto(null);
-      setShowToast({ message: `删除失败：${dbError.message}`, type: 'error' });
+      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -168,21 +201,56 @@ export default function AdminGalleryPage() {
     }
 
     try {
-      const photosToDelete = photos.filter(p => selectedPhotoIds.includes(p.id));
+      const { data: selectedRows, error: snapshotError } = await dbClient
+        .from('album_photos')
+        .select('id, thumbnail_url, preview_url, original_url, url')
+        .eq('is_public', true)
+        .in('id', selectedPhotoIds);
+      if (snapshotError) {
+        throw snapshotError;
+      }
 
-      // 从 URL 中提取存储路径
-      const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
+      const rows = Array.isArray(selectedRows) ? selectedRows : [];
+      const missingCount = Math.max(0, selectedPhotoIds.length - rows.length);
+      if (rows.length === 0) {
+        setActionLoading(false);
+        setShowToast({ message: '未找到可删除照片，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
 
-      // 收集所有需要删除的文件路径（包括所有版本）
-      const filePaths = photosToDelete.flatMap(p => [
-        p.thumbnail_url ? extractStorageKeyFromURL(p.thumbnail_url) : null,
-        p.preview_url ? extractStorageKeyFromURL(p.preview_url) : null,
-        p.original_url ? extractStorageKeyFromURL(p.original_url) : null,
-        p.url ? extractStorageKeyFromURL(p.url) : null
+      const { error: dbError } = await dbClient
+        .from('album_photos')
+        .delete()
+        .eq('is_public', true)
+        .in('id', rows.map((row: any) => String(row.id)));
+      if (dbError) {
+        throw dbError;
+      }
+
+      const targetIds = rows.map((row: any) => String(row.id));
+      const { data: remainingRows, error: verifyError } = await dbClient
+        .from('album_photos')
+        .select('id')
+        .in('id', targetIds);
+      if (verifyError) {
+        throw verifyError;
+      }
+
+      const remainingIdSet = new Set((remainingRows || []).map((row: any) => String(row.id)));
+      const deletedRows = rows.filter((row: any) => !remainingIdSet.has(String(row.id)));
+      if (deletedRows.length === 0) {
+        throw new Error('照片删除失败，请刷新后重试');
+      }
+
+      const filePaths = deletedRows.flatMap((photo: any) => [
+        String(photo.thumbnail_url ?? '').trim() || null,
+        String(photo.preview_url ?? '').trim() || null,
+        String(photo.original_url ?? '').trim() || null,
+        String(photo.url ?? '').trim() || null,
       ]).filter(Boolean) as string[];
 
-      // 批量删除云存储文件
-      let storageDeleteSuccess = true;
+      let storageCleanupFailed = false;
       if (filePaths.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
@@ -190,35 +258,42 @@ export default function AdminGalleryPage() {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ keys: filePaths }),
+            body: JSON.stringify({ urls: filePaths }),
           });
 
           if (!response.ok) {
-            throw new Error('批量删除云存储文件失败');
+            storageCleanupFailed = true;
           }
         } catch (error) {
           console.error('批量删除云存储文件失败:', error);
-          storageDeleteSuccess = false;
+          storageCleanupFailed = true;
         }
       }
-
-      if (!storageDeleteSuccess) {
-        throw new Error('批量删除云存储文件失败，已中止数据库删除');
-      }
-
-      // 批量删除数据库记录
-      const { error: dbError } = await dbClient
-        .from('album_photos')
-        .delete()
-        .in('id', selectedPhotoIds);
-
-      if (dbError) throw dbError;
 
       setActionLoading(false);
       setSelectedPhotoIds([]);
       setIsSelectionMode(false);
       loadPhotos();
-      setShowToast({ message: `成功删除 ${selectedPhotoIds.length} 张照片`, type: 'success' });
+
+      const warningParts: string[] = [];
+      if (remainingIdSet.size > 0) {
+        warningParts.push(`有 ${remainingIdSet.size} 张照片删除失败`);
+      }
+      if (missingCount > 0) {
+        warningParts.push(`${missingCount} 张照片已不存在`);
+      }
+      if (storageCleanupFailed) {
+        warningParts.push('云存储清理失败');
+      }
+
+      if (warningParts.length > 0) {
+        setShowToast({
+          message: `成功删除 ${deletedRows.length} 张照片，${warningParts.join('，')}`,
+          type: 'warning',
+        });
+      } else {
+        setShowToast({ message: `成功删除 ${deletedRows.length} 张照片`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setActionLoading(false);
@@ -255,6 +330,25 @@ export default function AdminGalleryPage() {
       img.onerror = reject;
       img.src = URL.createObjectURL(file);
     });
+  };
+
+  const cleanupUploadedFiles = async (keys: string[]) => {
+    const normalized = Array.from(new Set(keys.map((item) => String(item ?? '').trim()).filter(Boolean)));
+    if (normalized.length === 0) {
+      return;
+    }
+
+    try {
+      await fetch('/api/batch-delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ keys: normalized }),
+      });
+    } catch (cleanupError) {
+      console.error('清理上传失败的云存储文件失败:', cleanupError);
+    }
   };
 
   const handleUpload = async () => {
@@ -296,6 +390,8 @@ export default function AdminGalleryPage() {
         let thumbnail_url = '';
         let preview_url = '';
         let original_url = '';
+        const uploadedKeys: string[] = [];
+        let uploadFailed = false;
 
         // 3. 客户端上传三个版本到 CloudBase 云存储（gallery 目录）
         for (const version of versions) {
@@ -304,15 +400,22 @@ export default function AdminGalleryPage() {
 
           try {
             const publicUrl = await uploadToCloudBaseDirect(version.file, fileName, 'gallery');
+            uploadedKeys.push(`gallery/${fileName}`);
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
             else if (version.type === 'preview') preview_url = publicUrl;
             else if (version.type === 'original') original_url = publicUrl;
           } catch (uploadError) {
             console.error(`上传 ${version.type} 失败:`, uploadError);
-            failCount++;
+            uploadFailed = true;
             break;
           }
+        }
+
+        if (uploadFailed) {
+          failCount++;
+          await cleanupUploadedFiles(uploadedKeys);
+          continue;
         }
 
         // 4. 插入数据库
@@ -330,11 +433,13 @@ export default function AdminGalleryPage() {
 
           if (insertError) {
             failCount++;
+            await cleanupUploadedFiles(uploadedKeys);
           } else {
             successCount++;
           }
         } else {
           failCount++;
+          await cleanupUploadedFiles(uploadedKeys);
         }
       } catch (error) {
         failCount++;
@@ -537,7 +642,7 @@ export default function AdminGalleryPage() {
                       </div>
                     </div>
                     <span className="text-[#5D4037]/40">
-                      {new Date(photo.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                      {formatDateDisplayUTC8(photo.created_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
                     </span>
                   </div>
                 </div>
@@ -824,10 +929,14 @@ export default function AdminGalleryPage() {
             <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
               showToast.type === 'success'
                 ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
                 : 'bg-red-500/95 text-white'
             }`}>
               {showToast.type === 'success' ? (
                 <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
               ) : (
                 <XCircle className="w-5 h-5 flex-shrink-0" />
               )}

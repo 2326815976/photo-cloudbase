@@ -89,21 +89,63 @@ export default function SchedulePage() {
       reason: formData.reason || '管理员锁定',
     }));
 
-    const { error } = await dbClient
-      .from('booking_blackouts')
-      .insert(records);
+    try {
+      const { data: existingRows, error: existingError } = await dbClient
+        .from('booking_blackouts')
+        .select('date')
+        .in('date', dates);
 
-    if (!error) {
+      if (existingError) {
+        throw existingError;
+      }
+
+      const existingSet = new Set(
+        (existingRows || []).map((row: any) => String(row.date ?? '').trim()).filter(Boolean)
+      );
+
+      const newRecords = records.filter((record) => !existingSet.has(record.date));
+      if (newRecords.length === 0) {
+        setShowToast({ message: '所选日期均已锁定，无需重复添加', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        setSubmitting(false);
+        return;
+      }
+
+      const { error } = await dbClient
+        .from('booking_blackouts')
+        .insert(newRecords);
+
+      if (error) {
+        const code = String((error as any)?.code ?? '').trim();
+        const message = String(error.message ?? '').toLowerCase();
+        if (code === '23505' || code === '1062' || message.includes('duplicate entry')) {
+          setShowToast({ message: '部分日期已被其他管理员锁定，请刷新后重试', type: 'warning' });
+        } else {
+          setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+        }
+        setTimeout(() => setShowToast(null), 3000);
+        setSubmitting(false);
+        await loadBlackouts();
+        return;
+      }
+
       setShowAddModal(false);
       setFormData({ startDate: '', endDate: '', reason: '' });
-      loadBlackouts();
-      setShowToast({ message: '档期已锁定', type: 'success' });
+      await loadBlackouts();
+
+      const skippedCount = records.length - newRecords.length;
+      if (skippedCount > 0) {
+        setShowToast({ message: `已锁定 ${newRecords.length} 天，跳过 ${skippedCount} 个已存在日期`, type: 'success' });
+      } else {
+        setShowToast({ message: '档期已锁定', type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+    } catch (error: any) {
+      setShowToast({ message: `添加失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   const handleDelete = async (id: number) => {
@@ -125,20 +167,52 @@ export default function SchedulePage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
-      .from('booking_blackouts')
-      .delete()
-      .eq('id', deletingBlackout.id);
+    try {
+      const { data: snapshotRow, error: snapshotError } = await dbClient
+        .from('booking_blackouts')
+        .select('id')
+        .eq('id', deletingBlackout.id)
+        .maybeSingle();
+      if (snapshotError) {
+        throw snapshotError;
+      }
+      if (!snapshotRow) {
+        setActionLoading(false);
+        setDeletingBlackout(null);
+        setShowToast({ message: '档期不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
 
-    setActionLoading(false);
-    setDeletingBlackout(null);
+      const { error: deleteError } = await dbClient
+        .from('booking_blackouts')
+        .delete()
+        .eq('id', deletingBlackout.id);
+      if (deleteError) {
+        throw deleteError;
+      }
 
-    if (!error) {
+      const { data: remainingRow, error: verifyError } = await dbClient
+        .from('booking_blackouts')
+        .select('id')
+        .eq('id', deletingBlackout.id)
+        .maybeSingle();
+      if (verifyError) {
+        throw verifyError;
+      }
+      if (remainingRow) {
+        throw new Error('删除失败，请稍后重试');
+      }
+
+      setActionLoading(false);
+      setDeletingBlackout(null);
       loadBlackouts();
       setShowToast({ message: '档期锁定已删除', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
+    } catch (error: any) {
+      setActionLoading(false);
+      setDeletingBlackout(null);
+      setShowToast({ message: `删除失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -164,21 +238,68 @@ export default function SchedulePage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
-      .from('booking_blackouts')
-      .delete()
-      .in('id', selectedIds);
+    try {
+      const { data: selectedRows, error: snapshotError } = await dbClient
+        .from('booking_blackouts')
+        .select('id')
+        .in('id', selectedIds);
+      if (snapshotError) {
+        throw snapshotError;
+      }
 
-    setActionLoading(false);
+      const rows = Array.isArray(selectedRows) ? selectedRows : [];
+      const missingCount = Math.max(0, selectedIds.length - rows.length);
+      if (rows.length === 0) {
+        setActionLoading(false);
+        setShowToast({ message: '未找到可删除档期，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
 
-    if (!error) {
+      const targetIds = rows.map((row: any) => Number(row.id));
+      const { error: deleteError } = await dbClient
+        .from('booking_blackouts')
+        .delete()
+        .in('id', targetIds);
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      const { data: remainingRows, error: verifyError } = await dbClient
+        .from('booking_blackouts')
+        .select('id')
+        .in('id', targetIds);
+      if (verifyError) {
+        throw verifyError;
+      }
+
+      const remainingIdSet = new Set((remainingRows || []).map((row: any) => Number(row.id)));
+      const deletedCount = targetIds.filter((id) => !remainingIdSet.has(id)).length;
+      if (deletedCount === 0) {
+        throw new Error('批量删除失败，请稍后重试');
+      }
+
+      setActionLoading(false);
       setSelectedIds([]);
       setIsSelectionMode(false);
       loadBlackouts();
-      setShowToast({ message: `成功删除 ${selectedIds.length} 个档期锁定`, type: 'success' });
+
+      if (remainingIdSet.size > 0) {
+        setShowToast({
+          message: missingCount > 0
+            ? `成功删除 ${deletedCount} 个档期锁定，${remainingIdSet.size} 个删除失败，${missingCount} 个已不存在`
+            : `成功删除 ${deletedCount} 个档期锁定，${remainingIdSet.size} 个删除失败`,
+          type: 'warning',
+        });
+      } else if (missingCount > 0) {
+        setShowToast({ message: `成功删除 ${deletedCount} 个档期锁定（${missingCount} 个已不存在）`, type: 'success' });
+      } else {
+        setShowToast({ message: `成功删除 ${deletedCount} 个档期锁定`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `批量删除失败：${error.message}`, type: 'error' });
+    } catch (error: any) {
+      setActionLoading(false);
+      setShowToast({ message: `批量删除失败：${error?.message || '未知错误'}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };

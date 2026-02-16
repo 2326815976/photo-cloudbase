@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
-import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, Heart, Upload, Mail } from 'lucide-react';
+import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, AlertCircle, Heart, Upload, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatDateDisplayUTC8, getDateTimeAfterDaysUTC8, parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 
 interface Album {
   id: string;
@@ -35,7 +36,7 @@ export default function AlbumsPage() {
   const [editingDonation, setEditingDonation] = useState<Album | null>(null);
   const [uploadingQrCode, setUploadingQrCode] = useState(false);
   const [deletingAlbum, setDeletingAlbum] = useState<Album | null>(null);
-  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [editingCover, setEditingCover] = useState<Album | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [editingTitle, setEditingTitle] = useState<Album | null>(null);
@@ -90,7 +91,12 @@ export default function AlbumsPage() {
       }
 
       loadAlbums();
-      setShowToast({ message: '专属空间已成功删除', type: 'success' });
+      const warningMessage = String(payload?.warning ?? '').trim();
+      if (warningMessage) {
+        setShowToast({ message: warningMessage, type: 'warning' });
+      } else {
+        setShowToast({ message: '专属空间已成功删除', type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error) {
       setDeletingAlbum(null);
@@ -117,12 +123,18 @@ export default function AlbumsPage() {
     }
 
     // 检查新密钥是否已被其他空间使用
-    const { data: existing } = await dbClient
+    const { data: existing, error: existingError } = await dbClient
       .from('albums')
       .select('id')
       .eq('access_key', newAccessKey)
       .neq('id', editingAlbum.id)
-      .single();
+      .maybeSingle();
+
+    if (existingError) {
+      setShowToast({ message: `检查密钥失败：${existingError.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (existing) {
       setShowToast({ message: '该访问密钥已被其他空间使用，请使用其他密钥', type: 'error' });
@@ -130,19 +142,29 @@ export default function AlbumsPage() {
       return;
     }
 
-    const { error } = await dbClient
+    const { data: updated, error } = await dbClient
       .from('albums')
       .update({ access_key: newAccessKey })
-      .eq('id', editingAlbum.id);
+      .eq('id', editingAlbum.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (!error) {
       setEditingAlbum(null);
       setNewAccessKey('');
       loadAlbums();
       setShowToast({ message: '访问密钥已更新', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -156,22 +178,31 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + newExpiryDays);
+    const expiresAt = getDateTimeAfterDaysUTC8(newExpiryDays);
 
-    const { error } = await dbClient
+    const { data: updated, error } = await dbClient
       .from('albums')
-      .update({ expires_at: expiresAt.toISOString() })
-      .eq('id', editingExpiry.id);
+      .update({ expires_at: expiresAt })
+      .eq('id', editingExpiry.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (!error) {
       setEditingExpiry(null);
       setNewExpiryDays(7);
       loadAlbums();
       setShowToast({ message: '有效期已更新', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -185,13 +216,26 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: updated, error } = await dbClient
       .from('albums')
       .update({
         recipient_name: newRecipientName || '拾光者',
         welcome_letter: newWelcomeLetter
       })
-      .eq('id', editingRecipient.id);
+      .eq('id', editingRecipient.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (!error) {
       setEditingRecipient(null);
@@ -199,9 +243,6 @@ export default function AlbumsPage() {
       setNewWelcomeLetter('');
       loadAlbums();
       setShowToast({ message: '收件人和信内容已更新', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -215,19 +256,29 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: updated, error } = await dbClient
       .from('albums')
       .update({ title: newTitle.trim() })
-      .eq('id', editingTitle.id);
+      .eq('id', editingTitle.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (!error) {
       setEditingTitle(null);
       setNewTitle('');
       loadAlbums();
       setShowToast({ message: '空间名称已更新', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -239,10 +290,23 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: updated, error } = await dbClient
       .from('albums')
       .update({ enable_welcome_letter: !(album.enable_welcome_letter ?? true) })
-      .eq('id', album.id);
+      .eq('id', album.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (!error) {
       loadAlbums();
@@ -250,9 +314,6 @@ export default function AlbumsPage() {
         message: (album.enable_welcome_letter ?? true) ? '欢迎信已关闭' : '欢迎信已开启',
         type: 'success'
       });
-      setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
     }
   };
@@ -264,10 +325,23 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { error } = await dbClient
+    const { data: updated, error } = await dbClient
       .from('albums')
       .update({ enable_tipping: !album.enable_tipping })
-      .eq('id', album.id);
+      .eq('id', album.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     if (!error) {
       loadAlbums();
@@ -276,9 +350,35 @@ export default function AlbumsPage() {
         type: 'success'
       });
       setTimeout(() => setShowToast(null), 3000);
-    } else {
-      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
+    }
+  };
+
+  const cleanupStorageByUrl = async (
+    url: string | null | undefined,
+    label: string,
+    strict: boolean = false
+  ) => {
+    const targetUrl = String(url ?? '').trim();
+    if (!targetUrl) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: targetUrl }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({} as any));
+        throw new Error(String(payload?.error ?? `删除${label}失败`));
+      }
+    } catch (error) {
+      console.error(`删除${label}失败:`, error);
+      if (strict) {
+        throw error;
+      }
     }
   };
 
@@ -294,23 +394,6 @@ export default function AlbumsPage() {
         return;
       }
 
-      // 删除旧赞赏码文件
-      if (album.donation_qr_code_url) {
-        try {
-          const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
-          const oldKey = extractStorageKeyFromURL(album.donation_qr_code_url);
-          if (oldKey) {
-            await fetch('/api/delete', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ key: oldKey }),
-            });
-          }
-        } catch (error) {
-          console.error('删除旧赞赏码失败:', error);
-        }
-      }
-
       // 使用统一的压缩工具
       const { compressImage } = await import('@/lib/utils/image-compression');
       const compressedFile = await compressImage(file);
@@ -319,30 +402,40 @@ export default function AlbumsPage() {
       const ext = compressedFile.name.split('.').pop();
       const fileName = `donation_qr_${album.id}_${Date.now()}.${ext}`;
 
+      const oldQrUrl = album.donation_qr_code_url;
       const cdnUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'albums');
 
       const dbClient = createClient();
       if (!dbClient) {
+        await cleanupStorageByUrl(cdnUrl, '新赞赏码', false);
         setUploadingQrCode(false);
         setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
-      const { error: updateError } = await dbClient
+      const { data: updated, error: updateError } = await dbClient
         .from('albums')
         .update({ donation_qr_code_url: cdnUrl })
-        .eq('id', album.id);
+        .eq('id', album.id)
+        .select('id')
+        .maybeSingle();
+
+      if (updateError) {
+        await cleanupStorageByUrl(cdnUrl, '新赞赏码', false);
+        throw new Error(updateError.message || '赞赏码更新失败');
+      }
+      if (!updated) {
+        await cleanupStorageByUrl(cdnUrl, '新赞赏码', false);
+        throw new Error('赞赏码更新失败：空间不存在或已删除');
+      }
+
+      // 新数据写入成功后，再清理旧文件，避免断链
+      await cleanupStorageByUrl(oldQrUrl, '旧赞赏码', false);
 
       setUploadingQrCode(false);
-
-      if (!updateError) {
-        loadAlbums();
-        setShowToast({ message: '赞赏码已上传', type: 'success' });
-        setTimeout(() => setShowToast(null), 3000);
-      } else {
-        setShowToast({ message: `更新失败：${updateError.message}`, type: 'error' });
-        setTimeout(() => setShowToast(null), 3000);
-      }
+      loadAlbums();
+      setShowToast({ message: '赞赏码已上传', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setUploadingQrCode(false);
       setShowToast({ message: `上传失败：${error.message}`, type: 'error' });
@@ -362,23 +455,6 @@ export default function AlbumsPage() {
         return;
       }
 
-      // 删除旧封面文件
-      if (album.cover_url) {
-        try {
-          const { extractStorageKeyFromURL } = await import('@/lib/storage/cloudbase-utils');
-          const oldKey = extractStorageKeyFromURL(album.cover_url);
-          if (oldKey) {
-            await fetch('/api/delete', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ key: oldKey }),
-            });
-          }
-        } catch (error) {
-          console.error('删除旧封面失败:', error);
-        }
-      }
-
       // 使用统一的压缩工具
       const { compressImage } = await import('@/lib/utils/image-compression');
       const compressedFile = await compressImage(file);
@@ -387,32 +463,42 @@ export default function AlbumsPage() {
       const ext = compressedFile.name.split('.').pop();
       const fileName = `cover_${album.id}_${Date.now()}.${ext}`;
 
+      const oldCoverUrl = album.cover_url;
       const cdnUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'albums');
 
       const dbClient = createClient();
       if (!dbClient) {
+        await cleanupStorageByUrl(cdnUrl, '新封面', false);
         setUploadingCover(false);
         setEditingCover(null);
         setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
-      const { error: updateError } = await dbClient
+      const { data: updated, error: updateError } = await dbClient
         .from('albums')
         .update({ cover_url: cdnUrl })
-        .eq('id', album.id);
+        .eq('id', album.id)
+        .select('id')
+        .maybeSingle();
+
+      if (updateError) {
+        await cleanupStorageByUrl(cdnUrl, '新封面', false);
+        throw new Error(updateError.message || '封面更新失败');
+      }
+      if (!updated) {
+        await cleanupStorageByUrl(cdnUrl, '新封面', false);
+        throw new Error('封面更新失败：空间不存在或已删除');
+      }
+
+      // 新数据写入成功后，再清理旧文件，避免断链
+      await cleanupStorageByUrl(oldCoverUrl, '旧封面', false);
 
       setUploadingCover(false);
       setEditingCover(null);
-
-      if (!updateError) {
-        loadAlbums();
-        setShowToast({ message: '封面已更新', type: 'success' });
-        setTimeout(() => setShowToast(null), 3000);
-      } else {
-        setShowToast({ message: `更新失败：${updateError.message}`, type: 'error' });
-        setTimeout(() => setShowToast(null), 3000);
-      }
+      loadAlbums();
+      setShowToast({ message: '封面已更新', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setUploadingCover(false);
       setEditingCover(null);
@@ -525,7 +611,7 @@ export default function AlbumsPage() {
                       </button>
                     </div>
                     <p className="text-xs text-[#5D4037]/40">
-                      创建于 {new Date(album.created_at).toLocaleDateString('zh-CN')}
+                      创建于 {formatDateDisplayUTC8(album.created_at)}
                     </p>
                   </div>
 
@@ -612,12 +698,15 @@ export default function AlbumsPage() {
                             <Calendar className="w-5 h-5 text-white" />
                           </div>
                           <span className="text-xs font-semibold text-blue-700 flex-1">
-                            有效期至 {new Date(album.expires_at).toLocaleDateString('zh-CN')}
+                            有效期至 {formatDateDisplayUTC8(album.expires_at)}
                           </span>
                           <button
                             onClick={() => {
                               setEditingExpiry(album);
-                              const daysRemaining = Math.ceil((new Date(album.expires_at!).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                              const parsedExpiry = parseDateTimeUTC8(album.expires_at);
+                              const daysRemaining = parsedExpiry
+                                ? Math.ceil((parsedExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                                : 1;
                               setNewExpiryDays(Math.max(1, daysRemaining));
                             }}
                             className="w-12 h-12 rounded-lg bg-white hover:bg-blue-500 text-blue-600 hover:text-white transition-all flex items-center justify-center shadow-sm"
@@ -816,7 +905,7 @@ export default function AlbumsPage() {
                   className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all"
                 />
                 <p className="text-xs text-[#5D4037]/60 mt-2">
-                  新的过期时间：{new Date(Date.now() + newExpiryDays * 24 * 60 * 60 * 1000).toLocaleDateString('zh-CN')}
+                  新的过期时间：{formatDateDisplayUTC8(new Date(Date.now() + newExpiryDays * 24 * 60 * 60 * 1000))}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -1132,10 +1221,14 @@ export default function AlbumsPage() {
             <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl shadow-lg backdrop-blur-sm ${
               showToast.type === 'success'
                 ? 'bg-green-500/95 text-white'
+                : showToast.type === 'warning'
+                ? 'bg-orange-500/95 text-white'
                 : 'bg-red-500/95 text-white'
             }`}>
               {showToast.type === 'success' ? (
                 <CheckCircle className="w-5 h-5 flex-shrink-0" />
+              ) : showToast.type === 'warning' ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
               ) : (
                 <XCircle className="w-5 h-5 flex-shrink-0" />
               )}

@@ -6,9 +6,7 @@ declare global {
     __RUNTIME_CONFIG__?: {
       NEXT_PUBLIC_APP_URL?: string;
       NEXT_PUBLIC_CLOUDBASE_STORAGE_DOMAIN?: string;
-      NEXT_PUBLIC_AMAP_KEY?: string;
-      NEXT_PUBLIC_AMAP_SECURITY_CODE?: string;
-      NEXT_PUBLIC_TURNSTILE_SITE_KEY?: string;
+      NEXT_PUBLIC_TMAP_KEY?: string;
     };
   }
 }
@@ -69,13 +67,9 @@ export const env = {
   // 应用配置
   APP_URL: () => getEnv('APP_URL'),
 
-  // 高德地图配置
-  AMAP_KEY: () => getEnv('AMAP_KEY'),
-  AMAP_SECURITY_CODE: () => getEnv('AMAP_SECURITY_CODE'),
-
-  // Cloudflare Turnstile 配置
-  TURNSTILE_SITE_KEY: () => getEnv('TURNSTILE_SITE_KEY'),
-  TURNSTILE_SECRET_KEY: () => process.env.TURNSTILE_SECRET_KEY || '',
+  // 腾讯地图配置
+  TMAP_KEY: () => getEnv('TMAP_KEY') || getEnv('TMAP_SERVER_KEY') || getEnv('TMAP_WEBSERVICE_KEY'),
+  TMAP_SERVER_KEY: () => getEnv('TMAP_SERVER_KEY') || getEnv('TMAP_WEBSERVICE_KEY') || getEnv('TMAP_KEY'),
 
   // 腾讯云 CloudBase 配置（服务端）
   CLOUDBASE_ID: () => process.env.CLOUDBASE_ID || '',

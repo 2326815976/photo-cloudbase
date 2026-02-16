@@ -158,6 +158,51 @@ export async function getCloudBaseTempFileUrl(fileId: string, maxAgeSeconds: num
   return String(fileInfo.tempFileURL);
 }
 
+export async function getCloudBaseTempFileUrls(
+  fileIds: string[],
+  maxAgeSeconds: number = 3600
+): Promise<Map<string, string>> {
+  const normalizedIds = Array.from(
+    new Set(
+      (fileIds ?? [])
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const resultMap = new Map<string, string>();
+  if (normalizedIds.length === 0) {
+    return resultMap;
+  }
+
+  const app = getCloudBaseApp();
+  const maxAge = Math.max(60, Math.floor(maxAgeSeconds));
+
+  // CloudBase 单次请求 fileList 有上限（通常为 50），这里做保守分批。
+  const chunkSize = 50;
+  for (let i = 0; i < normalizedIds.length; i += chunkSize) {
+    const chunk = normalizedIds.slice(i, i + chunkSize);
+    const res = await app.getTempFileURL({
+      fileList: chunk.map((fileID) => ({
+        fileID,
+        maxAge,
+      })),
+    });
+
+    const list = Array.isArray(res?.fileList) ? res.fileList : [];
+    list.forEach((item: any) => {
+      const fileID = String(item?.fileID ?? '').trim();
+      const code = String(item?.code ?? '').trim().toUpperCase();
+      const url = String(item?.tempFileURL ?? '').trim();
+      if (fileID && code === 'SUCCESS' && url) {
+        resultMap.set(fileID, url);
+      }
+    });
+  }
+
+  return resultMap;
+}
+
 export async function uploadFileToCloudBase(
   file: File | Blob | Buffer,
   key: string,
@@ -206,10 +251,6 @@ export async function deleteCloudBaseFiles(fileIds: string[]): Promise<void> {
   }
 
   const app = getCloudBaseApp();
-  const result = await app.deleteFile({
-    fileList: normalizedIds,
-  });
-
   const ignorableCodes = new Set([
     'FILE_NOT_EXIST',
     'STORAGE_FILE_NONEXIST',
@@ -217,21 +258,34 @@ export async function deleteCloudBaseFiles(fileIds: string[]): Promise<void> {
     'NOT_FOUND',
   ]);
 
-  const failed = (result?.fileList ?? []).filter((item: any) => {
-    const code = String(item?.code ?? '').trim().toUpperCase();
-    if (!code || code === 'SUCCESS') {
-      return false;
-    }
-    return !ignorableCodes.has(code);
-  });
+  const failed: Array<{ fileID: string; code: string }> = [];
+  const chunkSize = 500;
+
+  for (let i = 0; i < normalizedIds.length; i += chunkSize) {
+    const chunk = normalizedIds.slice(i, i + chunkSize);
+    const result = await app.deleteFile({
+      fileList: chunk,
+    });
+
+    (result?.fileList ?? []).forEach((item: any) => {
+      const code = String(item?.code ?? '').trim().toUpperCase();
+      if (!code || code === 'SUCCESS' || ignorableCodes.has(code)) {
+        return;
+      }
+      failed.push({
+        fileID: String(item?.fileID ?? ''),
+        code,
+      });
+    });
+  }
 
   if (failed.length > 0) {
-    const failCodes = failed.map((item: any) => `${item.fileID}:${item.code}`).join(', ');
+    const failCodes = failed.map((item) => `${item.fileID}:${item.code}`).join(', ');
     throw new Error(`CloudBase 删除文件失败: ${failCodes}`);
   }
 }
 
-function resolveToFileId(input: string): string | null {
+export function resolveCloudBaseFileId(input: string): string | null {
   const trimmed = String(input ?? '').trim();
   if (!trimmed) {
     return null;
@@ -253,7 +307,7 @@ export async function deleteCloudBaseObjects(inputs: string[]): Promise<void> {
   const fileIds = Array.from(
     new Set(
       inputs
-        .map((item) => resolveToFileId(item))
+        .map((item) => resolveCloudBaseFileId(item))
         .filter((item): item is string => Boolean(item))
     )
   );

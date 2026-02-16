@@ -97,6 +97,25 @@ export default function PosesPage() {
     setPosesLoading(false);
   };
 
+  const cleanupUploadedFiles = async (keys: string[]) => {
+    const normalized = Array.from(new Set(keys.map((item) => String(item ?? '').trim()).filter(Boolean)));
+    if (normalized.length === 0) {
+      return;
+    }
+
+    try {
+      await fetch('/api/batch-delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ keys: normalized }),
+      });
+    } catch (cleanupError) {
+      console.error('清理上传失败的云存储文件失败:', cleanupError);
+    }
+  };
+
   const handleAddPose = async () => {
     if (!poseFormData.image && batchImages.length === 0) {
       setShowToast({ message: '请选择图片', type: 'warning' });
@@ -133,6 +152,7 @@ export default function PosesPage() {
 
           // 客户端上传图片到 CloudBase 云存储（poses 目录）
           const fileName = `${Date.now()}_${i}.webp`;
+          const storagePath = `poses/${fileName}`;
 
           try {
             const publicUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'poses');
@@ -142,12 +162,13 @@ export default function PosesPage() {
               .from('poses')
               .insert({
                 image_url: publicUrl,
-                storage_path: `poses/${fileName}`,
+                storage_path: storagePath,
                 tags: poseFormData.tags,
               });
 
             if (insertError) {
               console.error(`保存第 ${i + 1} 张图片记录失败:`, insertError);
+              await cleanupUploadedFiles([storagePath]);
             } else {
               successCount++;
             }
@@ -165,6 +186,7 @@ export default function PosesPage() {
         const compressedFile = await generatePoseImage(poseFormData.image!);
 
         const fileName = `${Date.now()}.webp`;
+        const storagePath = `poses/${fileName}`;
 
         const publicUrl = await uploadToCloudBaseDirect(compressedFile, fileName, 'poses');
 
@@ -172,11 +194,14 @@ export default function PosesPage() {
           .from('poses')
           .insert({
             image_url: publicUrl,
-            storage_path: `poses/${fileName}`,
+            storage_path: storagePath,
             tags: poseFormData.tags,
           });
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          await cleanupUploadedFiles([storagePath]);
+          throw insertError;
+        }
       }
 
       setShowPoseModal(false);
@@ -212,12 +237,17 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await dbClient
+      const { data: updatedPose, error } = await dbClient
         .from('poses')
         .update({ tags: poseFormData.tags })
-        .eq('id', editingPose.id);
+        .eq('id', editingPose.id)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedPose) {
+        throw new Error('摆姿不存在或已删除，请刷新后重试');
+      }
 
       setShowPoseModal(false);
       setEditingPose(null);
@@ -255,44 +285,77 @@ export default function PosesPage() {
     }
 
     try {
-      // 删除云存储中的文件
-      let storageDeleteSuccess = true;
-      if (deletingPose.storage_path) {
+      const { data: targetPose, error: snapshotError } = await dbClient
+        .from('poses')
+        .select('id, storage_path, image_url')
+        .eq('id', deletingPose.id)
+        .maybeSingle();
+      if (snapshotError) {
+        throw snapshotError;
+      }
+      if (!targetPose) {
+        setActionLoading(false);
+        setDeletingPose(null);
+        setShowToast({ message: '摆姿不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const { error: dbError } = await dbClient
+        .from('poses')
+        .delete()
+        .eq('id', targetPose.id);
+      if (dbError) {
+        throw dbError;
+      }
+
+      const { data: remainingPose, error: verifyError } = await dbClient
+        .from('poses')
+        .select('id')
+        .eq('id', targetPose.id)
+        .maybeSingle();
+      if (verifyError) {
+        throw verifyError;
+      }
+      if (remainingPose) {
+        throw new Error('数据库记录删除失败，请稍后重试');
+      }
+
+      const storagePath = String(targetPose.storage_path ?? '').trim();
+      const imageUrl = String(targetPose.image_url ?? '').trim();
+
+      let storageCleanupFailed = false;
+      if (storagePath || imageUrl) {
         try {
-          const response = await fetch('/api/delete', {
+          const response = await fetch('/api/batch-delete', {
             method: 'DELETE',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ key: deletingPose.storage_path }),
+            body: JSON.stringify({
+              keys: storagePath ? [storagePath] : [],
+              urls: imageUrl ? [imageUrl] : [],
+            }),
           });
 
           if (!response.ok) {
-            throw new Error('删除云存储文件失败');
+            storageCleanupFailed = true;
           }
         } catch (error) {
           console.error('删除云存储文件失败:', error);
-          storageDeleteSuccess = false;
+          storageCleanupFailed = true;
         }
       }
-
-      if (!storageDeleteSuccess) {
-        throw new Error('删除云存储文件失败，已中止数据库删除');
-      }
-
-      // 删除数据库记录
-      const { error: dbError } = await dbClient
-        .from('poses')
-        .delete()
-        .eq('id', deletingPose.id);
-
-      if (dbError) throw dbError;
 
       setActionLoading(false);
       setDeletingPose(null);
       loadPoses();
       loadTags();
-      setShowToast({ message: '摆姿已删除', type: 'success' });
+      if (storageCleanupFailed) {
+        setShowToast({ message: '摆姿记录已删除，但云存储清理失败，请稍后重试', type: 'warning' });
+      } else {
+        setShowToast({ message: '摆姿已删除', type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setActionLoading(false);
@@ -325,49 +388,98 @@ export default function PosesPage() {
     }
 
     try {
-      // 获取要删除的摆姿的storage_path
-      const posesToDelete = poses.filter(p => selectedPoseIds.includes(p.id));
-      const storagePaths = posesToDelete.map(p => p.storage_path).filter(Boolean);
+      const { data: selectedRows, error: snapshotError } = await dbClient
+        .from('poses')
+        .select('id, storage_path, image_url')
+        .in('id', selectedPoseIds);
+      if (snapshotError) {
+        throw snapshotError;
+      }
 
-      // 批量删除云存储中的文件
-      let storageDeleteSuccess = true;
-      if (storagePaths.length > 0) {
+      const rows = Array.isArray(selectedRows) ? selectedRows : [];
+      const missingCount = Math.max(0, selectedPoseIds.length - rows.length);
+      if (rows.length === 0) {
+        setActionLoading(false);
+        setShowToast({ message: '未找到可删除摆姿，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const { error: dbError } = await dbClient
+        .from('poses')
+        .delete()
+        .in('id', rows.map((row: any) => Number(row.id)));
+      if (dbError) {
+        throw dbError;
+      }
+
+      const targetIds = rows.map((row: any) => Number(row.id));
+      const { data: remainingRows, error: verifyError } = await dbClient
+        .from('poses')
+        .select('id')
+        .in('id', targetIds);
+      if (verifyError) {
+        throw verifyError;
+      }
+
+      const remainingIdSet = new Set((remainingRows || []).map((row: any) => Number(row.id)));
+      const deletedRows = rows.filter((row: any) => !remainingIdSet.has(Number(row.id)));
+      if (deletedRows.length === 0) {
+        throw new Error('摆姿删除失败，请刷新后重试');
+      }
+
+      const storagePaths = deletedRows
+        .map((row: any) => String(row.storage_path ?? '').trim())
+        .filter(Boolean);
+      const imageUrls = deletedRows
+        .map((row: any) => String(row.image_url ?? '').trim())
+        .filter(Boolean);
+
+      let storageCleanupFailed = false;
+      if (storagePaths.length > 0 || imageUrls.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
             method: 'DELETE',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ keys: storagePaths }),
+            body: JSON.stringify({ keys: storagePaths, urls: imageUrls }),
           });
 
           if (!response.ok) {
-            throw new Error('批量删除云存储文件失败');
+            storageCleanupFailed = true;
           }
         } catch (error) {
           console.error('批量删除云存储文件失败:', error);
-          storageDeleteSuccess = false;
+          storageCleanupFailed = true;
         }
       }
-
-      if (!storageDeleteSuccess) {
-        throw new Error('批量删除云存储文件失败，已中止数据库删除');
-      }
-
-      // 批量删除数据库记录
-      const { error: dbError } = await dbClient
-        .from('poses')
-        .delete()
-        .in('id', selectedPoseIds);
-
-      if (dbError) throw dbError;
 
       setActionLoading(false);
       setSelectedPoseIds([]);
       setIsSelectionMode(false);
       loadPoses();
       loadTags();
-      setShowToast({ message: `成功删除 ${selectedPoseIds.length} 个摆姿`, type: 'success' });
+
+      const warningParts: string[] = [];
+      if (remainingIdSet.size > 0) {
+        warningParts.push(`有 ${remainingIdSet.size} 个摆姿删除失败`);
+      }
+      if (missingCount > 0) {
+        warningParts.push(`${missingCount} 个摆姿已不存在`);
+      }
+      if (storageCleanupFailed) {
+        warningParts.push('云存储清理失败');
+      }
+
+      if (warningParts.length > 0) {
+        setShowToast({
+          message: `成功删除 ${deletedRows.length} 个摆姿，${warningParts.join('，')}`,
+          type: 'warning',
+        });
+      } else {
+        setShowToast({ message: `成功删除 ${deletedRows.length} 个摆姿`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setActionLoading(false);
@@ -558,12 +670,17 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await dbClient
+      const { data: updatedTag, error } = await dbClient
         .from('pose_tags')
         .update({ name: editingTagName.trim() })
-        .eq('id', editingTag.id);
+        .eq('id', editingTag.id)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedTag) {
+        throw new Error('标签不存在或已删除，请刷新后重试');
+      }
 
       setEditingTag(null);
       setEditingTagName('');
@@ -592,12 +709,22 @@ export default function PosesPage() {
     }
 
     try {
-      const { error } = await dbClient
+      const { data: deletedTag, error } = await dbClient
         .from('pose_tags')
         .delete()
-        .eq('id', deletingTag.id);
+        .eq('id', deletingTag.id)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!deletedTag) {
+        setActionLoading(false);
+        setDeletingTag(null);
+        setShowToast({ message: '标签不存在或已删除，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        loadTags();
+        return;
+      }
 
       setActionLoading(false);
       setDeletingTag(null);
@@ -636,19 +763,62 @@ export default function PosesPage() {
     }
 
     try {
+      const { data: selectedRows, error: snapshotError } = await dbClient
+        .from('pose_tags')
+        .select('id')
+        .in('id', selectedTagIds);
+
+      if (snapshotError) throw snapshotError;
+
+      const rows = Array.isArray(selectedRows) ? selectedRows : [];
+      const missingCount = Math.max(0, selectedTagIds.length - rows.length);
+      if (rows.length === 0) {
+        setActionLoading(false);
+        setShowToast({ message: '未找到可删除标签，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        loadTags();
+        return;
+      }
+
+      const targetIds = rows.map((row: any) => Number(row.id)).filter((id) => Number.isFinite(id));
       const { error } = await dbClient
         .from('pose_tags')
         .delete()
-        .in('id', selectedTagIds);
+        .in('id', targetIds);
 
       if (error) throw error;
+
+      const { data: remainingRows, error: verifyError } = await dbClient
+        .from('pose_tags')
+        .select('id')
+        .in('id', targetIds);
+
+      if (verifyError) throw verifyError;
+
+      const remainingIdSet = new Set((remainingRows || []).map((row: any) => Number(row.id)));
+      const deletedCount = targetIds.filter((id) => !remainingIdSet.has(id)).length;
+      if (deletedCount === 0) {
+        throw new Error('批量删除失败，请稍后重试');
+      }
 
       setActionLoading(false);
       setSelectedTagIds([]);
       setIsTagSelectionMode(false);
       loadTags();
       loadPoses();
-      setShowToast({ message: `成功删除 ${selectedTagIds.length} 个标签`, type: 'success' });
+
+      if (remainingIdSet.size > 0) {
+        setShowToast({
+          message: missingCount > 0
+            ? `成功删除 ${deletedCount} 个标签，${remainingIdSet.size} 个删除失败，${missingCount} 个已不存在`
+            : `成功删除 ${deletedCount} 个标签，${remainingIdSet.size} 个删除失败`,
+          type: 'warning',
+        });
+      } else if (missingCount > 0) {
+        setShowToast({ message: `成功删除 ${deletedCount} 个标签（${missingCount} 个已不存在）`, type: 'success' });
+      } else {
+        setShowToast({ message: `成功删除 ${deletedCount} 个标签`, type: 'success' });
+      }
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
       setActionLoading(false);

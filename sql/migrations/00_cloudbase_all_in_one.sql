@@ -560,125 +560,22 @@ WHERE NOT EXISTS (
 );
 
 -- ================================================================================================
--- 8) 触发器与维护过程（替代 PG trigger 行为）
+-- 8) 摆姿标签维护（应用层）
 -- ================================================================================================
-
-DROP PROCEDURE IF EXISTS sp_rebuild_pose_tag_usage_counts;
-DELIMITER $$
-CREATE PROCEDURE sp_rebuild_pose_tag_usage_counts()
-BEGIN
-  UPDATE pose_tags t
-  SET usage_count = (
-    SELECT COUNT(*)
-    FROM poses p
-    WHERE p.tags IS NOT NULL
-      AND JSON_SEARCH(p.tags, 'one', t.name) IS NOT NULL
-  );
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_poses_set_rand_key;
-DELIMITER $$
-CREATE TRIGGER trg_poses_set_rand_key
-BEFORE INSERT ON poses
-FOR EACH ROW
-BEGIN
-  IF NEW.rand_key IS NULL THEN
-    SET NEW.rand_key = RAND();
-  END IF;
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_poses_after_insert;
-DELIMITER $$
-CREATE TRIGGER trg_poses_after_insert
-AFTER INSERT ON poses
-FOR EACH ROW
-BEGIN
-  CALL sp_rebuild_pose_tag_usage_counts();
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_poses_after_update;
-DELIMITER $$
-CREATE TRIGGER trg_poses_after_update
-AFTER UPDATE ON poses
-FOR EACH ROW
-BEGIN
-  CALL sp_rebuild_pose_tag_usage_counts();
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_poses_after_delete;
-DELIMITER $$
-CREATE TRIGGER trg_poses_after_delete
-AFTER DELETE ON poses
-FOR EACH ROW
-BEGIN
-  CALL sp_rebuild_pose_tag_usage_counts();
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_pose_tags_before_update;
-DELIMITER $$
-CREATE TRIGGER trg_pose_tags_before_update
-BEFORE UPDATE ON pose_tags
-FOR EACH ROW
-BEGIN
-  IF NEW.name <> OLD.name THEN
-    UPDATE poses
-    SET tags = JSON_SET(tags, JSON_UNQUOTE(JSON_SEARCH(tags, 'one', OLD.name)), NEW.name)
-    WHERE tags IS NOT NULL
-      AND JSON_SEARCH(tags, 'one', OLD.name) IS NOT NULL;
-  END IF;
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_pose_tags_before_delete;
-DELIMITER $$
-CREATE TRIGGER trg_pose_tags_before_delete
-BEFORE DELETE ON pose_tags
-FOR EACH ROW
-BEGIN
-  UPDATE poses
-  SET tags = JSON_REMOVE(tags, JSON_UNQUOTE(JSON_SEARCH(tags, 'one', OLD.name)))
-  WHERE tags IS NOT NULL
-    AND JSON_SEARCH(tags, 'one', OLD.name) IS NOT NULL;
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_pose_tags_after_insert;
-DELIMITER $$
-CREATE TRIGGER trg_pose_tags_after_insert
-AFTER INSERT ON pose_tags
-FOR EACH ROW
-BEGIN
-  CALL sp_rebuild_pose_tag_usage_counts();
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_pose_tags_after_update;
-DELIMITER $$
-CREATE TRIGGER trg_pose_tags_after_update
-AFTER UPDATE ON pose_tags
-FOR EACH ROW
-BEGIN
-  CALL sp_rebuild_pose_tag_usage_counts();
-END$$
-DELIMITER ;
-
-DROP TRIGGER IF EXISTS trg_pose_tags_after_delete;
-DELIMITER $$
-CREATE TRIGGER trg_pose_tags_after_delete
-AFTER DELETE ON pose_tags
-FOR EACH ROW
-BEGIN
-  CALL sp_rebuild_pose_tag_usage_counts();
-END$$
-DELIMITER ;
+-- 为避免 CloudBase SQL 跨环境迁移时出现 definer 失效问题，这里不再创建存储过程/触发器。
+-- 以下逻辑统一由应用层维护（lib/cloudbase/query-engine.ts）：
+-- 1. poses 插入时自动补 rand_key
+-- 2. pose_tags 改名/删除时同步 poses.tags
+-- 3. poses / pose_tags 写入后重建 pose_tags.usage_count
 
 -- 初始化一次 usage_count，确保老数据一致。
-CALL sp_rebuild_pose_tag_usage_counts();
+UPDATE pose_tags t
+SET usage_count = (
+  SELECT COUNT(*)
+  FROM poses p
+  WHERE p.tags IS NOT NULL
+    AND JSON_SEARCH(p.tags, 'one', t.name) IS NOT NULL
+);
 
 -- ================================================================================================
 -- 9) 备注（执行后）
@@ -810,4 +707,3 @@ SELECT
   @has_storage_file_id AS had_storage_file_id_before_patch,
   @has_storage_provider_idx AS had_storage_provider_index_before_patch,
   @has_legacy_deletion_queue AS had_legacy_deletion_queue_before_patch;
-

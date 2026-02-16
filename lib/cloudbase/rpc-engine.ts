@@ -3,6 +3,7 @@ import 'server-only';
 import { randomUUID } from 'crypto';
 import { AuthContext } from '@/lib/auth/types';
 import { deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
+import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { executeSQL } from './sql-executor';
 
 interface RpcExecuteResult {
@@ -120,6 +121,10 @@ function requireAdmin(context: AuthContext): void {
   }
 }
 
+// 统一按 UTC+8（Asia/Shanghai）计算“当前时间/当天日期”，避免依赖 DB 会话时区
+const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
+const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
+
 async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthContext) {
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
@@ -133,6 +138,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.id,
           COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
           COALESCE(p.preview_url, p.url) AS preview_url,
+          COALESCE(p.original_url, p.preview_url, p.url) AS original_url,
           p.width,
           p.height,
           p.blurhash,
@@ -162,6 +168,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.id,
           COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
           COALESCE(p.preview_url, p.url) AS preview_url,
+          COALESCE(p.original_url, p.preview_url, p.url) AS original_url,
           p.width,
           p.height,
           p.blurhash,
@@ -189,6 +196,8 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
       WHERE is_public = 1
     `
   );
+
+  await hydrateCloudBaseTempUrlsInRows(photos, ['thumbnail_url', 'preview_url', 'original_url']);
 
   return {
     photos: photos.map((row) => ({
@@ -223,7 +232,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
         created_at,
         COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) AS effective_expires_at,
         CASE
-          WHEN COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < NOW() THEN 1
+          WHEN COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR} THEN 1
           ELSE 0
         END AS is_expired
       FROM albums
@@ -239,6 +248,8 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
   if (!album) {
     throw new Error('密钥错误');
   }
+
+  await hydrateCloudBaseTempUrlsInRows([album], ['cover_url', 'donation_qr_code_url']);
 
   const foldersResult = await executeSQL(
     `
@@ -273,6 +284,8 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
       album_id: album.id,
     }
   );
+
+  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['thumbnail_url', 'preview_url', 'original_url']);
 
   const photoIds = photosResult.rows.map((row) => String(row.id));
   const commentsByPhotoId = new Map<string, Array<Record<string, any>>>();
@@ -375,10 +388,12 @@ async function rpcBindUserToAlbum(args: Record<string, unknown>, context: AuthCo
     throw new Error('密钥错误');
   }
 
+  await hydrateCloudBaseTempUrlsInRows([album], ['cover_url']);
+
   await executeSQL(
     `
       INSERT IGNORE INTO user_album_bindings (id, user_id, album_id, created_at)
-      VALUES ({{id}}, {{user_id}}, {{album_id}}, NOW())
+      VALUES ({{id}}, {{user_id}}, {{album_id}}, ${NOW_UTC8_EXPR})
     `,
     {
       id: randomUUID(),
@@ -409,7 +424,7 @@ async function rpcGetUserBoundAlbums(context: AuthContext) {
         b.created_at AS bound_at,
         COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) AS expires_at,
         CASE
-          WHEN COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < NOW() THEN 1
+          WHEN COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR} THEN 1
           ELSE 0
         END AS is_expired
       FROM user_album_bindings b
@@ -421,6 +436,8 @@ async function rpcGetUserBoundAlbums(context: AuthContext) {
       user_id: userId,
     }
   );
+
+  await hydrateCloudBaseTempUrlsInRows(result.rows, ['cover_url']);
 
   return result.rows.map((row) => ({
     id: String(row.id),
@@ -477,7 +494,7 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
 
   const result = await executeSQL(
     `
-      SELECT p.id
+      SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE a.access_key = {{access_key}}
@@ -494,6 +511,7 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
     throw new Error('无权操作：密钥错误或照片不属于该空间');
   }
 
+  const targetRow = result.rows[0];
   await executeSQL(
     `
       DELETE FROM album_photos
@@ -504,7 +522,44 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
     }
   );
 
-  return null;
+  const verifyResult = await executeSQL(
+    `
+      SELECT id
+      FROM album_photos
+      WHERE id = {{photo_id}}
+      LIMIT 1
+    `,
+    {
+      photo_id: photoId,
+    }
+  );
+  if (verifyResult.rows.length > 0) {
+    throw new Error('删除照片失败，请稍后重试');
+  }
+
+  const deleteTargets = [
+    String(targetRow.thumbnail_url ?? '').trim(),
+    String(targetRow.preview_url ?? '').trim(),
+    String(targetRow.original_url ?? '').trim(),
+    String(targetRow.url ?? '').trim(),
+  ].filter(Boolean);
+
+  let storageCleanupFailed = false;
+  let warning: string | null = null;
+  if (deleteTargets.length > 0) {
+    try {
+      await deleteCloudBaseObjects(deleteTargets);
+    } catch (error) {
+      storageCleanupFailed = true;
+      warning = `照片记录已删除，但云存储清理失败：${error instanceof Error ? error.message : '未知错误'}`;
+    }
+  }
+
+  return {
+    deleted: true,
+    storage_cleanup_failed: storageCleanupFailed,
+    warning,
+  };
 }
 
 async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext) {
@@ -556,7 +611,7 @@ async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext)
   await executeSQL(
     `
       INSERT INTO photo_likes (user_id, photo_id, created_at)
-      VALUES ({{user_id}}, {{photo_id}}, NOW())
+      VALUES ({{user_id}}, {{photo_id}}, ${NOW_UTC8_EXPR})
     `,
     {
       user_id: userId,
@@ -623,7 +678,7 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
       await executeSQL(
         `
           INSERT INTO photo_views (id, photo_id, user_id, session_id, viewed_at)
-          VALUES ({{id}}, {{photo_id}}, {{user_id}}, {{session_id}}, NOW())
+          VALUES ({{id}}, {{photo_id}}, {{user_id}}, {{session_id}}, ${NOW_UTC8_EXPR})
         `,
         {
           id: randomUUID(),
@@ -720,7 +775,7 @@ async function rpcPostAlbumComment(args: Record<string, unknown>, context: AuthC
   await executeSQL(
     `
       INSERT INTO photo_comments (photo_id, user_id, nickname, content, is_admin_reply, created_at)
-      VALUES ({{photo_id}}, {{user_id}}, {{nickname}}, {{content}}, {{is_admin_reply}}, NOW())
+      VALUES ({{photo_id}}, {{user_id}}, {{nickname}}, {{content}}, {{is_admin_reply}}, ${NOW_UTC8_EXPR})
     `,
     {
       photo_id: photoId,
@@ -895,6 +950,8 @@ async function rpcGetRandomPosesBatch(args: Record<string, unknown>) {
     };
   }
 
+  await hydrateCloudBaseTempUrlsInRows(result.rows, ['image_url']);
+
   return result.rows.map((row) => ({
     id: toNumber(row.id, 0),
     image_url: row.image_url ?? '',
@@ -912,7 +969,7 @@ async function rpcLogUserActivity(context: AuthContext) {
   await executeSQL(
     `
       INSERT IGNORE INTO user_active_logs (user_id, active_date, created_at)
-      VALUES ({{user_id}}, CURRENT_DATE(), NOW())
+      VALUES ({{user_id}}, ${TODAY_UTC8_EXPR}, ${NOW_UTC8_EXPR})
     `,
     {
       user_id: userId,
@@ -922,7 +979,7 @@ async function rpcLogUserActivity(context: AuthContext) {
   await executeSQL(
     `
       UPDATE profiles
-      SET last_active_at = NOW()
+      SET last_active_at = ${NOW_UTC8_EXPR}
       WHERE id = {{user_id}}
     `,
     {
@@ -977,14 +1034,14 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     scalar('SELECT COUNT(*) AS value FROM profiles'),
     scalar("SELECT COUNT(*) AS value FROM profiles WHERE role = 'admin'"),
     scalar("SELECT COUNT(*) AS value FROM profiles WHERE role = 'user'"),
-    scalar('SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = CURRENT_DATE()'),
-    scalar('SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = CURRENT_DATE()'),
+    scalar(`SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
+    scalar(`SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}`),
     scalar('SELECT COUNT(*) AS value FROM albums'),
-    scalar('SELECT COUNT(*) AS value FROM albums WHERE DATE(created_at) = CURRENT_DATE()'),
-    scalar('SELECT COUNT(*) AS value FROM albums WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < NOW()'),
+    scalar(`SELECT COUNT(*) AS value FROM albums WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
+    scalar(`SELECT COUNT(*) AS value FROM albums WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}`),
     scalar('SELECT COUNT(*) AS value FROM albums WHERE enable_tipping = 1'),
     scalar('SELECT COUNT(*) AS value FROM album_photos'),
-    scalar('SELECT COUNT(*) AS value FROM album_photos WHERE DATE(created_at) = CURRENT_DATE()'),
+    scalar(`SELECT COUNT(*) AS value FROM album_photos WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
     scalar('SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 1'),
     scalar('SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 0'),
     scalar('SELECT COALESCE(SUM(view_count), 0) AS value FROM album_photos'),
@@ -992,18 +1049,18 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     scalar('SELECT COUNT(*) AS value FROM photo_comments'),
     scalar('SELECT COALESCE(ROUND(AVG(rating), 2), 0) AS value FROM album_photos WHERE rating > 0'),
     scalar('SELECT COUNT(*) AS value FROM bookings'),
-    scalar('SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = CURRENT_DATE()'),
+    scalar(`SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
     scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'pending'"),
     scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'confirmed'"),
     scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'finished'"),
     scalar("SELECT COUNT(*) AS value FROM bookings WHERE status = 'cancelled'"),
-    scalar("SELECT COUNT(*) AS value FROM bookings WHERE status IN ('pending', 'confirmed') AND booking_date >= CURRENT_DATE()"),
+    scalar(`SELECT COUNT(*) AS value FROM bookings WHERE status IN ('pending', 'confirmed') AND booking_date >= ${TODAY_UTC8_EXPR}`),
     scalar('SELECT COUNT(*) AS value FROM poses'),
-    scalar('SELECT COUNT(*) AS value FROM poses WHERE DATE(created_at) = CURRENT_DATE()'),
+    scalar(`SELECT COUNT(*) AS value FROM poses WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}`),
     scalar('SELECT COALESCE(SUM(view_count), 0) AS value FROM poses'),
     scalar('SELECT COUNT(*) AS value FROM pose_tags'),
     scalar('SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1'),
-    scalar('SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= CURRENT_DATE()'),
+    scalar(`SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}`),
     scalar('SELECT COUNT(*) AS value FROM app_releases'),
   ]);
 
@@ -1039,7 +1096,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     `
       SELECT date, new_users_count AS count
       FROM analytics_daily
-      WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
       ORDER BY date DESC
     `
   );
@@ -1048,7 +1105,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     `
       SELECT date, active_users_count AS count
       FROM analytics_daily
-      WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
       ORDER BY date DESC
     `
   );
@@ -1057,7 +1114,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     `
       SELECT date, new_bookings_count AS count
       FROM analytics_daily
-      WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
       ORDER BY date DESC
     `
   );
@@ -1165,7 +1222,7 @@ async function updateDailyAnalyticsSnapshot() {
         total_pose_tags_count,
         total_pose_views
       ) VALUES (
-        CURRENT_DATE(),
+        ${TODAY_UTC8_EXPR},
         {{new_users_count}},
         {{active_users_count}},
         {{total_users_count}},
@@ -1250,41 +1307,106 @@ async function updateDailyAnalyticsSnapshot() {
 }
 
 async function cleanupExpiredData() {
+  const storageCleanupWarnings: string[] = [];
+  const deleteChunkSize = 200;
+
   const expiredPhotoAssets = await executeSQL(
     `
-      SELECT p.thumbnail_url, p.preview_url, p.original_url, p.url
+      SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE p.is_public = 0
-        AND COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < NOW()
+        AND COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
     `
   );
 
+  const photoRows = expiredPhotoAssets.rows.map((row) => ({
+    id: String(row.id ?? '').trim(),
+    thumbnail_url: String(row.thumbnail_url ?? '').trim(),
+    preview_url: String(row.preview_url ?? '').trim(),
+    original_url: String(row.original_url ?? '').trim(),
+    url: String(row.url ?? '').trim(),
+  })).filter((row) => row.id);
+
+  const photoIds = Array.from(new Set(photoRows.map((row) => row.id)));
+  let deletedPhotosCount = 0;
+  let deletedPhotoStorageTargetsCount = 0;
+
+  if (photoIds.length > 0) {
+    for (let i = 0; i < photoIds.length; i += deleteChunkSize) {
+      const chunk = photoIds.slice(i, i + deleteChunkSize);
+      const placeholders: string[] = [];
+      const values: Record<string, unknown> = {};
+      chunk.forEach((id, index) => {
+        const key = `expired_photo_id_${i}_${index}`;
+        placeholders.push(`{{${key}}}`);
+        values[key] = id;
+      });
+
+      const deleteResult = await executeSQL(
+        `
+          DELETE p
+          FROM album_photos p
+          JOIN albums a ON a.id = p.album_id
+          WHERE p.id IN (${placeholders.join(', ')})
+            AND p.is_public = 0
+            AND COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
+        `,
+        values
+      );
+      deletedPhotosCount += deleteResult.affectedRows;
+    }
+  }
+
+  const existingPhotoIdSet = new Set<string>();
+  if (photoIds.length > 0) {
+    for (let i = 0; i < photoIds.length; i += deleteChunkSize) {
+      const chunk = photoIds.slice(i, i + deleteChunkSize);
+      const placeholders: string[] = [];
+      const values: Record<string, unknown> = {};
+      chunk.forEach((id, index) => {
+        const key = `remaining_photo_id_${i}_${index}`;
+        placeholders.push(`{{${key}}}`);
+        values[key] = id;
+      });
+
+      const remainingRows = await executeSQL(
+        `
+          SELECT id
+          FROM album_photos
+          WHERE id IN (${placeholders.join(', ')})
+        `,
+        values
+      );
+      remainingRows.rows.forEach((row) => {
+        const id = String(row.id ?? '').trim();
+        if (id) {
+          existingPhotoIdSet.add(id);
+        }
+      });
+    }
+  }
+
   const photoDeleteTargets = new Set<string>();
-  expiredPhotoAssets.rows.forEach((row) => {
-    [
-      String(row.thumbnail_url ?? '').trim(),
-      String(row.preview_url ?? '').trim(),
-      String(row.original_url ?? '').trim(),
-      String(row.url ?? '').trim(),
-    ]
+  photoRows.forEach((row) => {
+    if (existingPhotoIdSet.has(row.id)) {
+      return;
+    }
+    [row.thumbnail_url, row.preview_url, row.original_url, row.url]
       .filter(Boolean)
       .forEach((item) => photoDeleteTargets.add(item));
   });
+  deletedPhotoStorageTargetsCount = photoDeleteTargets.size;
 
   if (photoDeleteTargets.size > 0) {
-    await deleteCloudBaseObjects(Array.from(photoDeleteTargets));
+    try {
+      await deleteCloudBaseObjects(Array.from(photoDeleteTargets));
+    } catch (error) {
+      storageCleanupWarnings.push(
+        `清理过期照片存储文件失败：${error instanceof Error ? error.message : '未知错误'}`
+      );
+    }
   }
-
-  const deletedPhotos = await executeSQL(
-    `
-      DELETE p
-      FROM album_photos p
-      JOIN albums a ON a.id = p.album_id
-      WHERE p.is_public = 0
-        AND COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < NOW()
-    `
-  );
 
   const deletedFolders = await executeSQL(
     `
@@ -1294,15 +1416,15 @@ async function cleanupExpiredData() {
         FROM album_photos
         WHERE !(folder_id <=> NULL)
       )
-      AND created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      AND created_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 24 HOUR)
     `
   );
 
   const expiredAlbumAssets = await executeSQL(
     `
-      SELECT cover_url, donation_qr_code_url
+      SELECT id, cover_url, donation_qr_code_url
       FROM albums
-      WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < NOW()
+      WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
         AND id NOT IN (
           SELECT album_id
           FROM album_photos
@@ -1310,33 +1432,100 @@ async function cleanupExpiredData() {
     `
   );
 
+  const albumRows = expiredAlbumAssets.rows.map((row) => ({
+    id: String(row.id ?? '').trim(),
+    cover_url: String(row.cover_url ?? '').trim(),
+    donation_qr_code_url: String(row.donation_qr_code_url ?? '').trim(),
+  })).filter((row) => row.id);
+
+  const albumIds = Array.from(new Set(albumRows.map((row) => row.id)));
+  let deletedAlbumsCount = 0;
+  let deletedAlbumStorageTargetsCount = 0;
+
+  if (albumIds.length > 0) {
+    for (let i = 0; i < albumIds.length; i += deleteChunkSize) {
+      const chunk = albumIds.slice(i, i + deleteChunkSize);
+      const placeholders: string[] = [];
+      const values: Record<string, unknown> = {};
+      chunk.forEach((id, index) => {
+        const key = `expired_album_id_${i}_${index}`;
+        placeholders.push(`{{${key}}}`);
+        values[key] = id;
+      });
+
+      const deleteResult = await executeSQL(
+        `
+          DELETE FROM albums
+          WHERE id IN (${placeholders.join(', ')})
+            AND COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
+            AND id NOT IN (
+              SELECT album_id
+              FROM album_photos
+            )
+        `,
+        values
+      );
+      deletedAlbumsCount += deleteResult.affectedRows;
+    }
+  }
+
+  const existingAlbumIdSet = new Set<string>();
+  if (albumIds.length > 0) {
+    for (let i = 0; i < albumIds.length; i += deleteChunkSize) {
+      const chunk = albumIds.slice(i, i + deleteChunkSize);
+      const placeholders: string[] = [];
+      const values: Record<string, unknown> = {};
+      chunk.forEach((id, index) => {
+        const key = `remaining_album_id_${i}_${index}`;
+        placeholders.push(`{{${key}}}`);
+        values[key] = id;
+      });
+
+      const remainingRows = await executeSQL(
+        `
+          SELECT id
+          FROM albums
+          WHERE id IN (${placeholders.join(', ')})
+        `,
+        values
+      );
+      remainingRows.rows.forEach((row) => {
+        const id = String(row.id ?? '').trim();
+        if (id) {
+          existingAlbumIdSet.add(id);
+        }
+      });
+    }
+  }
+
   const albumDeleteTargets = new Set<string>();
-  expiredAlbumAssets.rows.forEach((row) => {
-    [String(row.cover_url ?? '').trim(), String(row.donation_qr_code_url ?? '').trim()]
+  albumRows.forEach((row) => {
+    if (existingAlbumIdSet.has(row.id)) {
+      return;
+    }
+    [row.cover_url, row.donation_qr_code_url]
       .filter(Boolean)
       .forEach((item) => albumDeleteTargets.add(item));
   });
+  deletedAlbumStorageTargetsCount = albumDeleteTargets.size;
 
   if (albumDeleteTargets.size > 0) {
-    await deleteCloudBaseObjects(Array.from(albumDeleteTargets));
+    try {
+      await deleteCloudBaseObjects(Array.from(albumDeleteTargets));
+    } catch (error) {
+      storageCleanupWarnings.push(
+        `清理过期相册存储文件失败：${error instanceof Error ? error.message : '未知错误'}`
+      );
+    }
   }
 
-  const deletedAlbums = await executeSQL(
-    `
-      DELETE FROM albums
-      WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < NOW()
-        AND id NOT IN (
-          SELECT album_id
-          FROM album_photos
-        )
-    `
-  );
-
   return {
-    deleted_photos: deletedPhotos.affectedRows,
+    deleted_photos: deletedPhotosCount,
     deleted_folders: deletedFolders.affectedRows,
-    deleted_albums: deletedAlbums.affectedRows,
-    deleted_storage_files: photoDeleteTargets.size + albumDeleteTargets.size,
+    deleted_albums: deletedAlbumsCount,
+    deleted_storage_files: deletedPhotoStorageTargetsCount + deletedAlbumStorageTargetsCount,
+    storage_cleanup_failed: storageCleanupWarnings.length > 0,
+    storage_cleanup_warnings: storageCleanupWarnings,
     timestamp: new Date().toISOString(),
   };
 }
@@ -1349,21 +1538,21 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
   const sessionsResult = await executeSQL(
     `
       DELETE FROM user_sessions
-      WHERE expires_at < NOW() OR is_revoked = 1
+      WHERE expires_at < UTC_TIMESTAMP() OR is_revoked = 1
     `
   );
 
   const ipAttemptsResult = await executeSQL(
     `
       DELETE FROM ip_registration_attempts
-      WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
+      WHERE attempted_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 7 DAY)
     `
   );
 
   await executeSQL(
     `
       DELETE FROM photo_views
-      WHERE viewed_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+      WHERE viewed_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 90 DAY)
     `
   );
 
@@ -1372,7 +1561,7 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
       UPDATE bookings
       SET status = 'in_progress'
       WHERE status = 'confirmed'
-        AND booking_date = CURRENT_DATE()
+        AND booking_date = ${TODAY_UTC8_EXPR}
     `
   );
 
@@ -1381,7 +1570,7 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
       UPDATE bookings
       SET status = 'finished'
       WHERE status IN ('pending', 'confirmed', 'in_progress')
-        AND booking_date < CURRENT_DATE()
+        AND booking_date < ${TODAY_UTC8_EXPR}
     `
   );
 

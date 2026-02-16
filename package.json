@@ -21,7 +21,6 @@
     "@capacitor/splash-screen": "^8.0.0",
     "@capacitor/status-bar": "^8.0.0",
     "@cloudbase/node-sdk": "^3.18.0",
-    "@marsidev/react-turnstile": "^1.4.2",
     "@types/react-window": "^1.8.8",
     "@use-gesture/react": "^10.3.1",
     "blurhash": "^2.0.5",
@@ -34,6 +33,7 @@
     "react-blurhash": "^0.3.0",
     "react-dom": "^19",
     "react-window": "^2.2.6",
+    "svg-captcha": "^1.4.0",
     "swr": "^2.4.0",
     "tailwind-merge": "^3.4.0"
   },

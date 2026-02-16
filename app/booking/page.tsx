@@ -4,12 +4,14 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
-import MapPicker from '@/components/MapPicker';
+import dynamic from 'next/dynamic';
+
+const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
 import { createClient } from '@/lib/cloudbase/client';
 import { getDateAfterDaysUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
-import { env } from '@/lib/env';
+import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 interface BookingType {
   id: number;
@@ -21,6 +23,8 @@ interface AllowedCity {
   id: number;
   city_name: string;
   province: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 const emojiMap: Record<string, string> = {
@@ -29,6 +33,87 @@ const emojiMap: Record<string, string> = {
   '婚礼跟拍': '💒',
   '活动记录': '🎉',
 };
+
+function inferCityNameFromLocation(location: string): string {
+  const normalized = String(location ?? '').replace(/\s+/g, '');
+  if (!normalized) return '';
+
+  const municipalityMatch = normalized.match(/(北京市|上海市|天津市|重庆市)/);
+  if (municipalityMatch) {
+    return municipalityMatch[1];
+  }
+
+  const cityLikeMatch = normalized.match(/([\u4e00-\u9fa5]{2,}?(?:自治州|地区|盟|市))/);
+  if (cityLikeMatch) {
+    return cityLikeMatch[1];
+  }
+
+  const provinceMatch = normalized.match(/([\u4e00-\u9fa5]{2,}?(?:省|自治区|特别行政区))/);
+  if (provinceMatch) {
+    return provinceMatch[1];
+  }
+
+  return '';
+}
+
+function normalizeCityNameForMatch(name: string): string {
+  return String(name ?? '')
+    .replace(/市$/, '')
+    .replace(/自治区$/, '')
+    .replace(/特别行政区$/, '')
+    .trim();
+}
+
+function toRad(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function calculateDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const earthRadiusKm = 6371;
+  const latDiff = toRad(lat2 - lat1);
+  const lngDiff = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(latDiff / 2) * Math.sin(latDiff / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(lngDiff / 2) * Math.sin(lngDiff / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+function inferNearestAllowedCityByCoordinates(
+  lat: number,
+  lng: number,
+  allowedCities: AllowedCity[],
+  maxDistanceKm: number = 120
+): string {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return '';
+  }
+
+  let nearestCityName = '';
+  let minDistance = Number.POSITIVE_INFINITY;
+
+  allowedCities.forEach((city) => {
+    const cityLat = Number(city.latitude);
+    const cityLng = Number(city.longitude);
+    if (!Number.isFinite(cityLat) || !Number.isFinite(cityLng)) {
+      return;
+    }
+
+    const distance = calculateDistanceKm(lat, lng, cityLat, cityLng);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestCityName = city.city_name;
+    }
+  });
+
+  if (!nearestCityName || minDistance > maxDistanceKm) {
+    return '';
+  }
+
+  return nearestCityName;
+}
 
 export default function BookingPage() {
   const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
@@ -81,23 +166,6 @@ export default function BookingPage() {
     loadBookingTypes();
     loadAllowedCities();
     loadBlockedDates();
-
-    // 设置高德地图安全密钥
-    (window as any)._AMapSecurityConfig = {
-      securityJsCode: env.AMAP_SECURITY_CODE(),
-    };
-
-    // 加载高德地图脚本（避免重复注入）
-    const scriptId = 'amap-sdk-script';
-    const existing = document.getElementById(scriptId);
-
-    if (!existing) {
-      const script = document.createElement('script');
-      script.id = scriptId;
-      script.src = `https://webapi.amap.com/maps?v=2.0&key=${env.AMAP_KEY()}`;
-      script.async = true;
-      document.head.appendChild(script);
-    }
   }, []);
 
   const loadBookingTypes = async () => {
@@ -241,33 +309,38 @@ export default function BookingPage() {
       return;
     }
 
+    const normalizedPhone = normalizeChinaMobile(formData.phone);
+    if (!isValidChinaMobile(normalizedPhone)) {
+      setError('请输入有效的手机号');
+      setIsSubmitting(false);
+      return;
+    }
+
     if (!formData.wechat) {
       setError('请填写微信号');
       setIsSubmitting(false);
       return;
     }
 
+    const inferredCityByCoordinates = inferNearestAllowedCityByCoordinates(
+      formData.latitude,
+      formData.longitude,
+      allowedCities
+    );
+    const resolvedCityName = String(formData.cityName || inferredCityByCoordinates || '').trim();
+
     // 验证城市
-    if (!formData.cityName) {
+    if (!resolvedCityName) {
       setError('无法识别城市，请重新选择地点');
       setIsSubmitting(false);
       return;
     }
 
-    // 城市验证：标准化城市名称进行匹配
-    const normalizeCity = (name: string) => {
-      return name
-        .replace(/市$/, '')
-        .replace(/自治区$/, '')
-        .replace(/特别行政区$/, '')
-        .trim();
-    };
-
-    const userCity = normalizeCity(formData.cityName);
+    const userCity = normalizeCityNameForMatch(resolvedCityName);
     const isCityAllowed = allowedCities.some(city => {
-      const allowedCity = normalizeCity(city.city_name);
+      const allowedCity = normalizeCityNameForMatch(city.city_name);
       // 优先精确匹配，避免误匹配（如"北京"匹配"北京市"）
-      if (userCity === allowedCity || formData.cityName === city.city_name) {
+      if (userCity === allowedCity || resolvedCityName === city.city_name) {
         return true;
       }
       // 降级到包含匹配，但要求匹配长度足够（避免"海"匹配"上海"）
@@ -330,8 +403,8 @@ export default function BookingPage() {
         location: formData.location,
         latitude: formData.latitude,
         longitude: formData.longitude,
-        city_name: formData.cityName,
-        phone: formData.phone,
+        city_name: resolvedCityName,
+        phone: normalizedPhone,
         wechat: formData.wechat,
         notes: formData.notes,
         status: 'pending'
@@ -350,7 +423,21 @@ export default function BookingPage() {
         /duplicate entry/i.test(errorMessage);
 
       if (isDuplicateError) {
-        setError('您已有进行中的预约，请先取消或等待完成');
+        const lowerMessage = errorMessage.toLowerCase();
+        const isDateConflict =
+          lowerMessage.includes('uk_bookings_active_date') ||
+          lowerMessage.includes('active_booking_date');
+        const isUserConflict =
+          lowerMessage.includes('uk_bookings_active_user') ||
+          lowerMessage.includes('active_booking_user_id');
+
+        if (isDateConflict && !isUserConflict) {
+          setError('抱歉，该日期已被预约，请选择其他日期');
+        } else if (isUserConflict && !isDateConflict) {
+          setError('您已有进行中的预约，请先取消或等待完成');
+        } else {
+          setError('预约失败：该日期已被预约或您已有进行中的预约，请稍后重试');
+        }
       } else {
         setError(error.message);
       }
@@ -424,10 +511,12 @@ export default function BookingPage() {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'phone' ? clampChinaMobileInput(value) : value,
+    }));
   };
 
   const handleTypeSelect = (typeId: number) => {
@@ -437,29 +526,20 @@ export default function BookingPage() {
     });
   };
 
-  const handleMapSelect = async (location: string, lat: number, lng: number) => {
-    // 使用高德地图逆地理编码获取城市信息
-    const AMap = (window as any).AMap;
-    if (AMap) {
-      AMap.plugin('AMap.Geocoder', () => {
-        const geocoder = new AMap.Geocoder();
-        geocoder.getAddress([lng, lat], (status: string, result: any) => {
-          if (status === 'complete' && result.info === 'OK') {
-            const addressComponent = result.regeocode.addressComponent;
-            const cityName = addressComponent.city || addressComponent.province;
+  const handleMapSelect = (location: string, lat: number, lng: number, meta?: { cityName?: string; province?: string }) => {
+    const metaCityName = String(meta?.cityName ?? '').trim();
+    const metaProvince = String(meta?.province ?? '').trim();
+    const inferredCityName = inferCityNameFromLocation(location);
+    const nearestAllowedCity = inferNearestAllowedCityByCoordinates(lat, lng, allowedCities);
 
-            setFormData({
-              ...formData,
-              location,
-              latitude: lat,
-              longitude: lng,
-              cityName,
-            });
-          }
-        });
-      });
-    }
     setShowMapPicker(false);
+    setFormData((prev) => ({
+      ...prev,
+      location,
+      latitude: lat,
+      longitude: lng,
+      cityName: metaCityName || metaProvince || inferredCityName || nearestAllowedCity || prev.cityName || '',
+    }));
   };
 
   if (loading) {
@@ -660,6 +740,10 @@ export default function BookingPage() {
                           onChange={handleChange}
                           required
                           className="w-full px-0 py-2 bg-transparent border-0 border-b-2 border-[#5D4037]/20 text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:border-b-[3px] transition-all text-base"
+                          maxLength={11}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoComplete="tel"
                         />
                       </div>
                       <div>

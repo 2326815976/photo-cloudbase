@@ -55,7 +55,9 @@ export async function executeSQL(
   const sqlModel = getCloudBaseSqlModel();
   const response: any = await sqlModel.$runSQL(sql, values);
 
-  const executeResultList = response?.data?.executeResultList ?? [];
+  const executeResultList = Array.isArray(response?.data?.executeResultList)
+    ? response.data.executeResultList
+    : [];
 
   // CloudBase返回的数据直接在executeResultList数组中,不是records字段
   const rows = executeResultList.map((item: any) => toPlainObject(item));
@@ -68,11 +70,17 @@ export async function executeSQL(
     insertId = toNumber(rows[0].insertId, 0);
   }
 
+  const hasAffectedRows = executeResultList.some(
+    (item: any) => item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'affectedRows')
+  );
+  const affectedRows = hasAffectedRows
+    ? executeResultList.reduce((sum: number, item: any) => sum + toNumber(item?.affectedRows, 0), 0)
+    : toNumber(response?.data?.total ?? rows.length, 0);
+
   return {
     rows,
-    affectedRows: toNumber(response?.data?.total ?? rows.length, 0),
+    affectedRows,
     insertId,
     raw: response,
   };
 }
-

@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
+const isWindows = process.platform === 'win32';
+
 const nextConfig = {
-  // 保持 standalone 模式，支持 API 路由和服务器部署
-  output: 'standalone',
+  // standalone 模式会在 build 阶段生成 symlink（Windows 下常见 EPERM），因此仅在非 Windows 环境启用。
+  ...(isWindows ? {} : { output: 'standalone' }),
 
   async headers() {
     return [

@@ -38,6 +38,9 @@ export async function DELETE(
     if (!albumId) {
       return NextResponse.json({ error: '相册 ID 非法' }, { status: 400 });
     }
+    if (albumId === '00000000-0000-0000-0000-000000000000') {
+      return NextResponse.json({ error: '系统相册不允许删除' }, { status: 400 });
+    }
 
     const dbClient = await createClient();
 
@@ -76,31 +79,52 @@ export async function DELETE(
     }
 
     const deleteTargets = collectAlbumAssetTargets(album, photos || []);
+    const { data: deletedAlbum, error: deleteError } = await dbClient
+      .from('albums')
+      .delete()
+      .eq('id', albumId)
+      .select('id')
+      .maybeSingle();
+
+    if (deleteError) {
+      return NextResponse.json({ error: `删除相册记录失败：${deleteError.message}` }, { status: 500 });
+    }
+    if (!deletedAlbum) {
+      return NextResponse.json({ error: '相册不存在或已被删除，请刷新后重试' }, { status: 409 });
+    }
+
+    const { data: remainingAlbum, error: verifyError } = await dbClient
+      .from('albums')
+      .select('id')
+      .eq('id', albumId)
+      .maybeSingle();
+
+    if (verifyError) {
+      return NextResponse.json({ error: `删除结果校验失败：${verifyError.message}` }, { status: 500 });
+    }
+    if (remainingAlbum) {
+      return NextResponse.json({ error: '删除相册记录失败，请稍后重试' }, { status: 500 });
+    }
+
+    let storageCleanupFailed = false;
+    let storageCleanupMessage: string | null = null;
     if (deleteTargets.length > 0) {
       try {
         await deleteCloudBaseObjects(deleteTargets);
       } catch (error) {
-        return NextResponse.json(
-          {
-            error: `删除云存储文件失败：${error instanceof Error ? error.message : '未知错误'}`,
-          },
-          { status: 500 }
-        );
+        storageCleanupFailed = true;
+        storageCleanupMessage = error instanceof Error ? error.message : '未知错误';
+        console.error('相册删除后清理云存储失败:', error);
       }
-    }
-
-    const { error: deleteError } = await dbClient
-      .from('albums')
-      .delete()
-      .eq('id', albumId);
-
-    if (deleteError) {
-      return NextResponse.json({ error: `删除相册记录失败：${deleteError.message}` }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
       deletedFiles: deleteTargets.length,
+      storageCleanupFailed,
+      warning: storageCleanupFailed
+        ? `相册记录已删除，但部分云存储文件清理失败：${storageCleanupMessage}`
+        : null,
     });
   } catch (error) {
     console.error('删除相册失败:', error);

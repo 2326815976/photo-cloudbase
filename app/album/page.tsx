@@ -9,6 +9,7 @@ import { useAlbums } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
 import { getClipboardText } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
+import { formatDateDisplayUTC8, toTimestampUTC8 } from '@/lib/utils/date-helpers';
 
 interface BoundAlbum {
   id: string;
@@ -126,15 +127,16 @@ export default function AlbumLoginPage() {
 
   // 格式化日期
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatDateDisplayUTC8(dateStr, { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
 
   // 计算剩余天数
   const getDaysRemaining = (expiresAt: string) => {
-    const now = new Date();
-    const expiry = new Date(expiresAt);
-    const diff = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const expiryTime = toTimestampUTC8(expiresAt);
+    if (expiryTime <= 0) {
+      return 0;
+    }
+    const diff = Math.ceil((expiryTime - Date.now()) / (1000 * 60 * 60 * 24));
     return diff;
   };
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/cloudbase/server';
-import { getCloudBaseTempFileUrl } from '@/lib/cloudbase/storage';
+import { getCloudBaseTempFileUrl, resolveCloudBaseFileId } from '@/lib/cloudbase/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,9 +28,18 @@ export async function GET(
 
     let downloadUrl = String((release as any).download_url ?? '').trim();
     const storageFileId = String((release as any).storage_file_id ?? '').trim();
+    let effectiveFileId = storageFileId;
 
-    if (storageFileId) {
-      downloadUrl = await getCloudBaseTempFileUrl(storageFileId, 60 * 60);
+    if (!effectiveFileId && downloadUrl) {
+      try {
+        effectiveFileId = resolveCloudBaseFileId(downloadUrl) || '';
+      } catch {
+        effectiveFileId = '';
+      }
+    }
+
+    if (effectiveFileId) {
+      downloadUrl = await getCloudBaseTempFileUrl(effectiveFileId, 60 * 60);
     }
 
     if (!downloadUrl) {

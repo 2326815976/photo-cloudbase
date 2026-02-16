@@ -38,6 +38,8 @@ export default function NewReleasePage() {
 
     setUploading(true);
 
+    let uploadedFileId = '';
+
     try {
       const dbClient = createClient();
       if (!dbClient) {
@@ -69,6 +71,7 @@ export default function NewReleasePage() {
       if (!downloadUrl || !storageFileId) {
         throw new Error('安装包上传失败：未返回有效的下载地址或文件标识');
       }
+      uploadedFileId = storageFileId;
 
       // 保存到数据库
       const { error } = await dbClient
@@ -83,7 +86,19 @@ export default function NewReleasePage() {
           storage_file_id: storageFileId,
         });
 
-      if (error) throw error;
+      if (error) {
+        try {
+          await fetch('/api/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: uploadedFileId }),
+          });
+        } catch (cleanupError) {
+          console.error('发布失败后清理安装包失败:', cleanupError);
+        }
+
+        throw new Error(error.message || '版本信息入库失败');
+      }
 
       setShowToast({ message: '版本发布成功', type: 'success' });
       setTimeout(() => {
@@ -91,7 +106,10 @@ export default function NewReleasePage() {
       }, 1500);
     } catch (error) {
       console.error('发布失败:', error);
-      setShowToast({ message: '发布失败，请重试', type: 'error' });
+      setShowToast({
+        message: error instanceof Error ? `发布失败：${error.message}` : '发布失败，请重试',
+        type: 'error',
+      });
       setTimeout(() => setShowToast(null), 3000);
     } finally {
       setUploading(false);

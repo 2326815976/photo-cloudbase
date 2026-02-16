@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkIPRateLimit, recordIPAttempt, getClientIP } from '@/lib/security/rate-limit';
+import { consumeSliderCaptchaToken } from '@/lib/security/slider-captcha';
+import { createSession } from '@/lib/auth/session-store';
+import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
 import { registerUserWithPhone } from '@/lib/auth/service';
+import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,14 +29,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { phone, password, turnstileToken } = await request.json();
+    const { phone, password, captchaId, captchaToken } = await request.json();
+    const normalizedPhone = normalizeChinaMobile(String(phone ?? ''));
 
-    if (!phone || !password || !turnstileToken) {
+    if (!normalizedPhone || !password || !captchaId || !captchaToken) {
       await recordIPAttempt(clientIP, false, userAgent);
       return NextResponse.json({ error: '请填写完整信息' }, { status: 400 });
     }
 
-    if (!/^1[3-9]\d{9}$/.test(phone)) {
+    if (!isValidChinaMobile(normalizedPhone)) {
       await recordIPAttempt(clientIP, false, userAgent);
       return NextResponse.json({ error: '手机号格式不正确' }, { status: 400 });
     }
@@ -42,26 +47,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '密码至少需要 6 位' }, { status: 400 });
     }
 
-    if (process.env.NODE_ENV === 'production') {
-      const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: process.env.TURNSTILE_SECRET_KEY,
-          response: turnstileToken,
-        }),
-      });
+    const captchaValid = await consumeSliderCaptchaToken(
+      String(captchaId),
+      String(captchaToken),
+      clientIP,
+      userAgent
+    );
 
-      const turnstileData = await turnstileResponse.json();
-      if (!turnstileData.success) {
-        await recordIPAttempt(clientIP, false, userAgent);
-        return NextResponse.json({ error: '人机验证失败，请重试' }, { status: 400 });
-      }
-    } else {
-      console.log('开发环境：跳过 Turnstile 验证');
+    if (!captchaValid) {
+      await recordIPAttempt(clientIP, false, userAgent);
+      return NextResponse.json({ error: '验证码错误或已过期，请重新验证' }, { status: 400 });
     }
 
-    const result = await registerUserWithPhone(phone, password);
+    const result = await registerUserWithPhone(normalizedPhone, password);
     if (result.error || !result.user) {
       await recordIPAttempt(clientIP, false, userAgent);
 
@@ -75,14 +73,24 @@ export async function POST(request: NextRequest) {
 
     await recordIPAttempt(clientIP, true, userAgent);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: '注册成功',
       user: {
         id: result.user.id,
-        phone,
+        phone: normalizedPhone,
       },
     });
+
+    try {
+      const sessionToken = await createSession(result.user.id, userAgent, clientIP);
+      response.cookies.set(SESSION_COOKIE_NAME, sessionToken, getSessionCookieOptions());
+    } catch (sessionError) {
+      console.error('注册后自动登录失败:', sessionError);
+      // 保持注册成功语义；未写入会话时前端可提示手动登录
+    }
+
+    return response;
   } catch (error) {
     console.error('注册错误:', error);
 

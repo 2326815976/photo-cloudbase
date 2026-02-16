@@ -2,16 +2,20 @@ import 'server-only';
 
 import { randomUUID } from 'crypto';
 import { executeSQL } from '@/lib/cloudbase/sql-executor';
+import { normalizeChinaMobile } from '@/lib/utils/phone';
 import { hashPassword, verifyPassword } from './password';
 import { createSession } from './session-store';
 import { AuthUser } from './types';
+
+const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
+const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
 
 function normalizeEmail(input: string): string {
   return input.trim().toLowerCase();
 }
 
 function normalizePhone(input: string): string {
-  return input.trim();
+  return normalizeChinaMobile(input);
 }
 
 function toAuthUser(row: Record<string, any>): AuthUser {
@@ -27,7 +31,7 @@ function toAuthUser(row: Record<string, any>): AuthUser {
 export async function findUserByEmail(email: string): Promise<Record<string, any> | null> {
   const result = await executeSQL(
     `
-      SELECT u.id, u.email, u.phone, u.password_hash, u.role, p.name
+      SELECT u.id, u.email, u.phone, u.password_hash, COALESCE(p.role, u.role, 'user') AS role, p.name
       FROM users u
       LEFT JOIN profiles p ON p.id = u.id
       WHERE u.email = {{email}} AND u.deleted_at <=> NULL
@@ -44,7 +48,7 @@ export async function findUserByEmail(email: string): Promise<Record<string, any
 export async function findUserByPhone(phone: string): Promise<Record<string, any> | null> {
   const result = await executeSQL(
     `
-      SELECT u.id, u.email, u.phone, u.password_hash, p.role, p.name
+      SELECT u.id, u.email, u.phone, u.password_hash, COALESCE(p.role, u.role, 'user') AS role, p.name
       FROM users u
       LEFT JOIN profiles p ON p.id = u.id
       WHERE u.phone = {{phone}} AND u.deleted_at <=> NULL
@@ -71,47 +75,68 @@ export async function registerUserWithPhone(phone: string, password: string): Pr
 
   const userId = randomUUID();
   const passwordHash = hashPassword(password);
-  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-  await executeSQL(
-    `
-      INSERT INTO users (
-        id, email, phone, password_hash, role, created_at, updated_at, deleted_at
-      ) VALUES (
-        {{id}}, NULL, {{phone}}, {{password_hash}}, 'user', {{created_at}}, {{updated_at}}, NULL
-      )
-    `,
-    {
-      id: userId,
-      phone: normalizedPhone,
-      password_hash: passwordHash,
-      created_at: now,
-      updated_at: now,
+  try {
+    await executeSQL(
+      `
+        INSERT INTO users (
+          id, email, phone, password_hash, role, created_at, updated_at, deleted_at
+        ) VALUES (
+          {{id}}, NULL, {{phone}}, {{password_hash}}, 'user', ${NOW_UTC8_EXPR}, ${NOW_UTC8_EXPR}, NULL
+        )
+      `,
+      {
+        id: userId,
+        phone: normalizedPhone,
+        password_hash: passwordHash,
+      }
+    );
+
+    await executeSQL(
+      `
+        INSERT INTO profiles (
+          id, email, name, role, phone, created_at
+        ) VALUES (
+          {{id}}, NULL, '拾光者', 'user', {{phone}}, ${NOW_UTC8_EXPR}
+        )
+      `,
+      {
+        id: userId,
+        phone: normalizedPhone,
+      }
+    );
+
+    await executeSQL(
+      `
+        INSERT INTO analytics_daily (date, new_users_count, active_users_count)
+        VALUES (${TODAY_UTC8_EXPR}, 1, 0)
+        ON DUPLICATE KEY UPDATE new_users_count = new_users_count + 1
+      `
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (/duplicate entry|1062|er_dup_entry/i.test(message)) {
+      return {
+        user: null,
+        error: 'already_registered',
+      };
     }
-  );
 
-  await executeSQL(
-    `
-      INSERT INTO profiles (
-        id, email, name, role, phone, created_at
-      ) VALUES (
-        {{id}}, NULL, '拾光者', 'user', {{phone}}, {{created_at}}
-      )
-    `,
-    {
-      id: userId,
-      phone: normalizedPhone,
-      created_at: now,
+    // 非幂等失败时尽量回滚已写入数据，避免 users/profiles 半成功。
+    try {
+      await executeSQL(
+        `
+          DELETE FROM users
+          WHERE id = {{user_id}}
+        `,
+        { user_id: userId }
+      );
+    } catch {
+      // ignore cleanup failure, keep original error semantics
     }
-  );
 
-  await executeSQL(
-    `
-      INSERT INTO analytics_daily (date, new_users_count, active_users_count)
-      VALUES (CURRENT_DATE(), 1, 0)
-      ON DUPLICATE KEY UPDATE new_users_count = new_users_count + 1
-    `
-  );
+    throw error;
+  }
 
   return {
     user: {
@@ -187,7 +212,7 @@ export async function updateUserPassword(userId: string, newPassword: string): P
   await executeSQL(
     `
       UPDATE users
-      SET password_hash = {{password_hash}}, updated_at = NOW()
+      SET password_hash = {{password_hash}}
       WHERE id = {{user_id}} AND deleted_at <=> NULL
     `,
     {
@@ -214,7 +239,7 @@ export async function createPasswordResetToken(email: string): Promise<{ token: 
       INSERT INTO password_reset_tokens (
         id, user_id, token_hash, expires_at, created_at
       ) VALUES (
-        {{id}}, {{user_id}}, {{token_hash}}, {{expires_at}}, NOW()
+        {{id}}, {{user_id}}, {{token_hash}}, {{expires_at}}, UTC_TIMESTAMP()
       )
     `,
     {
@@ -237,7 +262,7 @@ export async function consumePasswordResetToken(tokenHash: string): Promise<{ us
       LEFT JOIN profiles p ON p.id = u.id
       WHERE prt.token_hash = {{token_hash}}
         AND prt.used_at <=> NULL
-        AND prt.expires_at > NOW()
+        AND prt.expires_at > UTC_TIMESTAMP()
         AND u.deleted_at <=> NULL
       LIMIT 1
     `,
@@ -258,7 +283,7 @@ export async function consumePasswordResetToken(tokenHash: string): Promise<{ us
   await executeSQL(
     `
       UPDATE password_reset_tokens
-      SET used_at = NOW()
+      SET used_at = UTC_TIMESTAMP()
       WHERE id = {{id}}
     `,
     {
@@ -275,4 +300,3 @@ export async function consumePasswordResetToken(tokenHash: string): Promise<{ us
     error: null,
   };
 }
-

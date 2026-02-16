@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, MapPin, Phone, MessageSquare, ArrowLeft, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
-import { getTodayUTC8 } from '@/lib/utils/date-helpers';
+import { formatDateDisplayUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Booking {
   id: string;
@@ -19,6 +19,11 @@ interface Booking {
   city_name?: string;
   created_at: string;
   booking_types?: { name: string };
+}
+
+interface ActionNotice {
+  type: 'success' | 'error';
+  message: string;
 }
 
 const statusConfig = {
@@ -61,15 +66,33 @@ export default function BookingsPage() {
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<ActionNotice | null>(null);
 
   useEffect(() => {
     loadBookings();
   }, []);
 
+  useEffect(() => {
+    if (!actionNotice) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setActionNotice(null);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [actionNotice]);
+
+  const showActionNotice = (message: string, type: ActionNotice['type'] = 'error') => {
+    setActionNotice({ message, type });
+  };
+
   const loadBookings = async () => {
     setLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
+      showActionNotice('服务初始化失败，请刷新后重试');
       setLoading(false);
       return;
     }
@@ -82,7 +105,13 @@ export default function BookingsPage() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (!error && data) {
+      if (error) {
+        showActionNotice(`加载预约记录失败：${error.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (data) {
         const typeIds = [...new Set(data.map((item: any) => item.type_id).filter(Boolean))];
         let bookingTypeMap = new Map<number, { name: string }>();
 
@@ -108,45 +137,109 @@ export default function BookingsPage() {
     setLoading(false);
   };
 
-  const canCancelBooking = (booking: Booking) => {
+  const canCancelBooking = (booking: Pick<Booking, 'booking_date' | 'status'>) => {
     const today = getTodayUTC8();
-    // 约拍当天前，待确认和已确认状态可以取消（UTC）
+    // 约拍当天前，待确认和已确认状态可以取消（UTC+8）
     return booking.booking_date > today && (booking.status === 'pending' || booking.status === 'confirmed');
   };
 
-  const canDeleteBooking = (booking: Booking) => {
+  const canDeleteBooking = (booking: Pick<Booking, 'status'>) => {
     // 已取消和已完成的订单可以删除
     return booking.status === 'cancelled' || booking.status === 'finished';
+  };
+
+  const fetchBookingSnapshot = async (
+    id: string
+  ): Promise<{
+    data: Pick<Booking, 'id' | 'booking_date' | 'status'> | null;
+    error: { message: string } | null;
+  }> => {
+    const dbClient = createClient();
+    if (!dbClient) {
+      return {
+        data: null,
+        error: { message: '服务初始化失败，请刷新后重试' },
+      };
+    }
+
+    const { data, error } = await dbClient
+      .from('bookings')
+      .select('id, booking_date, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    return {
+      data: data as Pick<Booking, 'id' | 'booking_date' | 'status'> | null,
+      error,
+    };
   };
 
   const handleCancel = async (id: string) => {
     const booking = bookings.find(b => b.id === id);
     if (!booking || !canCancelBooking(booking)) {
+      showActionNotice('该预约当前不可取消，请刷新后重试');
       return;
     }
 
     setCancelingId(id);
     const dbClient = createClient();
     if (!dbClient) {
+      showActionNotice('服务初始化失败，请刷新后重试');
       setCancelingId(null);
       return;
     }
 
-    const { error } = await dbClient
+    const today = getTodayUTC8();
+
+    const { data: cancelledBooking, error } = await dbClient
       .from('bookings')
       .update({ status: 'cancelled' })
-      .eq('id', id);
+      .eq('id', id)
+      .in('status', ['pending', 'confirmed'])
+      .gt('booking_date', today)
+      .select('id, booking_date, status')
+      .maybeSingle();
 
     setCancelingId(null);
 
-    if (!error) {
-      loadBookings();
+    if (error) {
+      showActionNotice(`取消预约失败：${error.message}`);
+      return;
     }
+
+    if (!cancelledBooking) {
+      const { data: latestBooking, error: latestError } = await fetchBookingSnapshot(id);
+      if (latestError) {
+        showActionNotice('取消结果校验失败，请刷新后确认');
+        await loadBookings();
+        return;
+      }
+
+      if (!latestBooking) {
+        showActionNotice('该预约不存在或已无权限操作');
+        await loadBookings();
+        return;
+      }
+
+      if (!canCancelBooking(latestBooking)) {
+        showActionNotice('预约状态已变化，无法取消，请刷新后重试');
+        await loadBookings();
+        return;
+      }
+
+      showActionNotice('预约状态已变化，取消失败，请刷新后重试');
+      await loadBookings();
+      return;
+    }
+
+    showActionNotice('预约已取消', 'success');
+    await loadBookings();
   };
 
   const handleDelete = async (id: string) => {
     const booking = bookings.find(b => b.id === id);
     if (!booking || !canDeleteBooking(booking)) {
+      showActionNotice('该预约当前不可删除，请刷新后重试');
       setShowDeleteConfirm(null);
       return;
     }
@@ -154,22 +247,55 @@ export default function BookingsPage() {
     setDeletingId(id);
     const dbClient = createClient();
     if (!dbClient) {
+      showActionNotice('服务初始化失败，请刷新后重试');
       setDeletingId(null);
       setShowDeleteConfirm(null);
       return;
     }
 
-    const { error } = await dbClient
+    const { data: deletedBooking, error } = await dbClient
       .from('bookings')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .in('status', ['cancelled', 'finished'])
+      .select('id')
+      .maybeSingle();
 
     setDeletingId(null);
     setShowDeleteConfirm(null);
 
-    if (!error) {
-      loadBookings();
+    if (error) {
+      showActionNotice(`删除预约失败：${error.message}`);
+      return;
     }
+
+    if (!deletedBooking) {
+      const { data: latestBooking, error: latestError } = await fetchBookingSnapshot(id);
+      if (latestError) {
+        showActionNotice('删除结果校验失败，请刷新后确认');
+        await loadBookings();
+        return;
+      }
+
+      if (!latestBooking) {
+        showActionNotice('预约记录已不存在', 'success');
+        await loadBookings();
+        return;
+      }
+
+      if (!canDeleteBooking(latestBooking)) {
+        showActionNotice('预约状态已变化，无法删除，请刷新后重试');
+        await loadBookings();
+        return;
+      }
+
+      showActionNotice('预约状态已变化，删除失败，请刷新后重试');
+      await loadBookings();
+      return;
+    }
+
+    showActionNotice('预约记录已删除', 'success');
+    await loadBookings();
   };
 
   if (loading) {
@@ -234,6 +360,23 @@ export default function BookingsPage() {
 
       {/* 内容区域 */}
       <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+        <AnimatePresence>
+          {actionNotice && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+                actionNotice.type === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-red-200 bg-red-50 text-red-600'
+              }`}
+            >
+              {actionNotice.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {bookings.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -260,7 +403,7 @@ export default function BookingsPage() {
                     <span className="font-semibold">{statusConfig[booking.status].label}</span>
                   </span>
                   <span className="text-xs text-[#5D4037]/40">
-                    {new Date(booking.created_at).toLocaleDateString('zh-CN')}
+                    {formatDateDisplayUTC8(booking.created_at)}
                   </span>
                 </div>
 

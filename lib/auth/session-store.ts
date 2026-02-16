@@ -30,7 +30,7 @@ export async function createSession(userId: string, userAgent?: string, ipAddres
         id, user_id, token_hash, expires_at, user_agent, ip_address, is_revoked, created_at, last_seen_at
       )
       VALUES (
-        {{id}}, {{user_id}}, {{token_hash}}, {{expires_at}}, {{user_agent}}, {{ip_address}}, 0, NOW(), NOW()
+        {{id}}, {{user_id}}, {{token_hash}}, {{expires_at}}, {{user_agent}}, {{ip_address}}, 0, UTC_TIMESTAMP(), UTC_TIMESTAMP()
       )
     `,
     {
@@ -51,7 +51,7 @@ export async function revokeSessionByToken(token: string): Promise<void> {
   await executeSQL(
     `
       UPDATE user_sessions
-      SET is_revoked = 1, last_seen_at = NOW()
+      SET is_revoked = 1, last_seen_at = UTC_TIMESTAMP()
       WHERE token_hash = {{token_hash}}
     `,
     {
@@ -64,7 +64,7 @@ export async function revokeSessionsByUserId(userId: string): Promise<void> {
   await executeSQL(
     `
       UPDATE user_sessions
-      SET is_revoked = 1, last_seen_at = NOW()
+      SET is_revoked = 1, last_seen_at = UTC_TIMESTAMP()
       WHERE user_id = {{user_id}}
     `,
     {
@@ -88,7 +88,7 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
       LEFT JOIN profiles p ON p.id = u.id
       WHERE s.token_hash = {{token_hash}}
         AND s.is_revoked = 0
-        AND s.expires_at > NOW()
+        AND s.expires_at > UTC_TIMESTAMP()
         AND u.deleted_at <=> NULL
       LIMIT 1
     `,
@@ -105,7 +105,7 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
   await executeSQL(
     `
       UPDATE user_sessions
-      SET last_seen_at = NOW()
+      SET last_seen_at = UTC_TIMESTAMP()
       WHERE token_hash = {{token_hash}}
     `,
     {
@@ -126,8 +126,7 @@ export async function cleanupExpiredSessions(): Promise<void> {
   await executeSQL(
     `
       DELETE FROM user_sessions
-      WHERE expires_at <= NOW() OR is_revoked = 1
+      WHERE expires_at <= UTC_TIMESTAMP() OR is_revoked = 1
     `
   );
 }
-

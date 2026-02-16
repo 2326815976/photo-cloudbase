@@ -5,6 +5,7 @@ import {
   FolderOpen, Eye, TrendingUp, Package
 } from 'lucide-react';
 import MaintenanceButton from '../components/MaintenanceButton';
+import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
 
 interface StatCardProps {
   title: string;
@@ -364,7 +365,7 @@ export default async function StatsPage() {
                   <div className="ml-auto">
                     <p className="text-sm text-[#5D4037]/60">发布时间</p>
                     <p className="text-sm text-[#5D4037]">
-                      {new Date(stats.system.latest_version.created_at).toLocaleDateString('zh-CN')}
+                      {formatDateDisplayUTC8(stats.system.latest_version.created_at)}
                     </p>
                   </div>
                 </>
@@ -390,7 +391,7 @@ export default async function StatsPage() {
                   {stats.trends.daily_new_users.map((day: any) => (
                     <div key={day.date} className="flex items-center justify-between p-3 bg-[#FFFBF0] rounded-lg">
                       <span className="text-sm text-[#5D4037]/60">
-                        {new Date(day.date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                        {formatDateDisplayUTC8(day.date, { month: 'short', day: 'numeric' })}
                       </span>
                       <span className="text-lg font-bold text-[#FFC857]">{day.count}</span>
                     </div>
@@ -407,7 +408,7 @@ export default async function StatsPage() {
                   {stats.trends.daily_active_users.map((day: any) => (
                     <div key={day.date} className="flex items-center justify-between p-3 bg-[#FFFBF0] rounded-lg">
                       <span className="text-sm text-[#5D4037]/60">
-                        {new Date(day.date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                        {formatDateDisplayUTC8(day.date, { month: 'short', day: 'numeric' })}
                       </span>
                       <span className="text-lg font-bold text-[#FFB347]">{day.count}</span>
                     </div>
@@ -424,7 +425,7 @@ export default async function StatsPage() {
                   {stats.trends.daily_new_bookings.map((day: any) => (
                     <div key={day.date} className="flex items-center justify-between p-3 bg-[#FFFBF0] rounded-lg">
                       <span className="text-sm text-[#5D4037]/60">
-                        {new Date(day.date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                        {formatDateDisplayUTC8(day.date, { month: 'short', day: 'numeric' })}
                       </span>
                       <span className="text-lg font-bold text-[#20B2AA]">{day.count}</span>
                     </div>

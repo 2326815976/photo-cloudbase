@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { executeSQL } from '@/lib/cloudbase/sql-executor';
+import { toTimestampUTC8 } from '@/lib/utils/date-helpers';
 
 export const RATE_LIMIT_CONFIG = {
   MAX_ATTEMPTS_PER_HOUR: 3,
@@ -7,6 +8,47 @@ export const RATE_LIMIT_CONFIG = {
   HOUR_WINDOW: 60 * 60 * 1000,
   DAY_WINDOW: 24 * 60 * 60 * 1000,
 } as const;
+
+const RATE_LIMIT_RETENTION_DAYS = 7;
+const RATE_LIMIT_CLEANUP_BATCH = 2000;
+const RATE_LIMIT_CLEANUP_COOLDOWN_MS = 10 * 60 * 1000;
+const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
+
+let lastRateLimitCleanupAt = 0;
+let rateLimitCleanupInFlight = false;
+
+function toNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function triggerRateLimitCleanup(): void {
+  const now = Date.now();
+  if (now - lastRateLimitCleanupAt < RATE_LIMIT_CLEANUP_COOLDOWN_MS) {
+    return;
+  }
+
+  if (rateLimitCleanupInFlight) {
+    return;
+  }
+
+  lastRateLimitCleanupAt = now;
+  rateLimitCleanupInFlight = true;
+
+  void executeSQL(
+    `
+      DELETE FROM ip_registration_attempts
+      WHERE attempted_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${RATE_LIMIT_RETENTION_DAYS} DAY)
+      LIMIT ${RATE_LIMIT_CLEANUP_BATCH}
+    `
+  )
+    .catch((error) => {
+      console.error('清理IP限流历史记录失败:', error);
+    })
+    .finally(() => {
+      rateLimitCleanupInFlight = false;
+    });
+}
 
 function isValidIP(ip: string): boolean {
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -46,34 +88,40 @@ export async function checkIPRateLimit(
   ipAddress: string
 ): Promise<{ allowed: boolean; reason?: string; retryAfter?: number }> {
   try {
+    triggerRateLimitCleanup();
+
     const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - RATE_LIMIT_CONFIG.HOUR_WINDOW);
 
     const result = await executeSQL(
       `
-        SELECT id, attempted_at
+        SELECT
+          COUNT(*) AS day_count,
+          SUM(CASE WHEN attempted_at >= DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 1 HOUR) THEN 1 ELSE 0 END) AS hour_count,
+          MIN(CASE WHEN attempted_at >= DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 1 HOUR) THEN attempted_at ELSE NULL END) AS oldest_in_hour,
+          MIN(attempted_at) AS oldest_in_day
         FROM ip_registration_attempts
         WHERE ip_address = {{ip_address}}
-          AND attempted_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
-        ORDER BY attempted_at DESC
+          AND attempted_at >= DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 1 DAY)
       `,
       { ip_address: ipAddress }
     );
 
-    const allAttempts = result.rows ?? [];
-    if (allAttempts.length === 0) {
-      return { allowed: true };
-    }
+    const row = result.rows[0] ?? {};
+    const dayCount = toNumber(row.day_count, 0);
+    const hourCount = toNumber(row.hour_count, 0);
 
-    const hourAttempts = allAttempts.filter((attempt) => {
-      const attemptedAt = new Date(String(attempt.attempted_at));
-      return attemptedAt >= oneHourAgo;
-    });
+    if (hourCount >= RATE_LIMIT_CONFIG.MAX_ATTEMPTS_PER_HOUR) {
+      const oldestInHourMs = toTimestampUTC8(row.oldest_in_hour);
+      if (!Number.isFinite(oldestInHourMs) || oldestInHourMs <= 0) {
+        return {
+          allowed: false,
+          reason: '注册过于频繁，请稍后重试',
+          retryAfter: 60,
+        };
+      }
 
-    if (hourAttempts.length >= RATE_LIMIT_CONFIG.MAX_ATTEMPTS_PER_HOUR) {
-      const oldestInHour = new Date(String(hourAttempts[hourAttempts.length - 1].attempted_at));
       const retryAfter = Math.ceil(
-        (oldestInHour.getTime() + RATE_LIMIT_CONFIG.HOUR_WINDOW - now.getTime()) / 1000
+        (oldestInHourMs + RATE_LIMIT_CONFIG.HOUR_WINDOW - now.getTime()) / 1000
       );
 
       return {
@@ -83,10 +131,18 @@ export async function checkIPRateLimit(
       };
     }
 
-    if (allAttempts.length >= RATE_LIMIT_CONFIG.MAX_ATTEMPTS_PER_DAY) {
-      const oldestInDay = new Date(String(allAttempts[allAttempts.length - 1].attempted_at));
+    if (dayCount >= RATE_LIMIT_CONFIG.MAX_ATTEMPTS_PER_DAY) {
+      const oldestInDayMs = toTimestampUTC8(row.oldest_in_day);
+      if (!Number.isFinite(oldestInDayMs) || oldestInDayMs <= 0) {
+        return {
+          allowed: false,
+          reason: '今日注册次数已达上限，请稍后重试',
+          retryAfter: 3600,
+        };
+      }
+
       const retryAfter = Math.ceil(
-        (oldestInDay.getTime() + RATE_LIMIT_CONFIG.DAY_WINDOW - now.getTime()) / 1000
+        (oldestInDayMs + RATE_LIMIT_CONFIG.DAY_WINDOW - now.getTime()) / 1000
       );
 
       return {
@@ -109,6 +165,8 @@ export async function recordIPAttempt(
   userAgent?: string
 ): Promise<void> {
   try {
+    triggerRateLimitCleanup();
+
     await executeSQL(
       `
         INSERT INTO ip_registration_attempts (
@@ -122,10 +180,10 @@ export async function recordIPAttempt(
         VALUES (
           {{id}},
           {{ip_address}},
-          NOW(),
+          ${NOW_UTC8_EXPR},
           {{success}},
           {{user_agent}},
-          NOW()
+          ${NOW_UTC8_EXPR}
         )
       `,
       {

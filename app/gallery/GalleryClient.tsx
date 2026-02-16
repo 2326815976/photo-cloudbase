@@ -2,19 +2,22 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, X, Eye, Camera } from 'lucide-react';
+import { Heart, Eye, Camera } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { mutate } from 'swr';
 import { getSessionId } from '@/lib/utils/session';
 import { vibrate } from '@/lib/android';
+import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
 
 import SimpleImage from '@/components/ui/SimpleImage';
+import ImagePreview from '@/components/ImagePreview';
 
 interface Photo {
   id: string;
   thumbnail_url: string;  // 速览图 URL
   preview_url: string;    // 高质量预览 URL
+  original_url: string;   // 原图 URL（用于下载）
   
   width: number;
   height: number;
@@ -74,12 +77,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<Photo | null>(null);
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [lastTouchDistance, setLastTouchDistance] = useState(0);
-  const [clickTimer, setClickTimer] = useState<number | null>(null);
   const [page, setPage] = useState(initialPage);
   const [allPhotos, setAllPhotos] = useState<Photo[]>(hydratedInitialPhotos);
   const [hasMore, setHasMore] = useState(hydratedInitialTotal > hydratedInitialPhotos.length);
@@ -246,23 +243,32 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       // 更新 allPhotos 中的点赞状态
       setAllPhotos(prev => prev.map(photo => {
         if (photo.id === photoId) {
+          const nextLikeCount = data.liked
+            ? photo.like_count + 1
+            : Math.max(0, photo.like_count - 1);
           return {
             ...photo,
             is_liked: data.liked,
-            like_count: data.liked ? photo.like_count + 1 : photo.like_count - 1
+            like_count: nextLikeCount,
           };
         }
         return photo;
       }));
 
       // 同步更新预览照片的点赞状态
-      if (previewPhoto && previewPhoto.id === photoId) {
-        setPreviewPhoto({
-          ...previewPhoto,
+      setPreviewPhoto(prev => {
+        if (!prev || prev.id !== photoId) {
+          return prev;
+        }
+        const nextLikeCount = data.liked
+          ? prev.like_count + 1
+          : Math.max(0, prev.like_count - 1);
+        return {
+          ...prev,
           is_liked: data.liked,
-          like_count: data.liked ? previewPhoto.like_count + 1 : previewPhoto.like_count - 1
-        });
-      }
+          like_count: nextLikeCount,
+        };
+      });
     }
   };
 
@@ -290,6 +296,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setAllPhotos(prev => prev.map(p =>
         p.id === photo.id ? { ...p, view_count: data.view_count } : p
       ));
+      setPreviewPhoto(prev =>
+        prev && prev.id === photo.id
+          ? { ...prev, view_count: data.view_count }
+          : prev
+      );
     }
   };
 
@@ -407,7 +418,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                         {/* 左侧：上传时间 */}
                         <div className="flex items-center gap-1 text-[#8D6E63]/50 py-0.5 pl-1">
                           <span className="text-[10px]">
-                            {new Date(photo.created_at).toLocaleDateString('zh-CN', {
+                            {formatDateDisplayUTC8(photo.created_at, {
                               year: 'numeric',
                               month: '2-digit',
                               day: '2-digit'
@@ -537,161 +548,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         )}
       </AnimatePresence>
 
-      {/* 全屏高清预览弹窗 */}
-      <AnimatePresence>
-        {fullscreenPhoto && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={(e) => {
-              // 延迟单击处理，避免与双击冲突
-              if (clickTimer) {
-                // 检测到双击，清除单击定时器
-                clearTimeout(clickTimer);
-                setClickTimer(null);
-              } else {
-                // 单击，设置300ms延迟
-                const timer = window.setTimeout(() => {
-                  setFullscreenPhoto(null);
-                  setScale(1);
-                  setPosition({ x: 0, y: 0 });
-                  setClickTimer(null);
-                }, 300);
-                setClickTimer(timer);
-              }
-            }}
-            className="fixed inset-0 bg-black z-[60] flex items-center justify-center"
-            onTouchStart={(e) => {
-              if (e.touches.length === 1) {
-                // 单指拖拽
-                setIsDragging(true);
-                setDragStart({
-                  x: e.touches[0].clientX - position.x,
-                  y: e.touches[0].clientY - position.y
-                });
-              } else if (e.touches.length === 2) {
-                // 双指缩放
-                setIsDragging(false);
-                const distance = Math.hypot(
-                  e.touches[0].clientX - e.touches[1].clientX,
-                  e.touches[0].clientY - e.touches[1].clientY
-                );
-                setLastTouchDistance(distance);
-              }
-            }}
-            onTouchMove={(e) => {
-              if (e.touches.length === 1 && isDragging) {
-                // 单指拖拽
-                setPosition({
-                  x: e.touches[0].clientX - dragStart.x,
-                  y: e.touches[0].clientY - dragStart.y
-                });
-              } else if (e.touches.length === 2) {
-                // 双指缩放
-                e.preventDefault();
-                const distance = Math.hypot(
-                  e.touches[0].clientX - e.touches[1].clientX,
-                  e.touches[0].clientY - e.touches[1].clientY
-                );
-                if (lastTouchDistance > 0) {
-                  const delta = (distance - lastTouchDistance) * 0.01;
-                  setScale(prev => Math.max(1, Math.min(3, prev + delta)));
-                }
-                setLastTouchDistance(distance);
-              }
-            }}
-            onTouchEnd={(e) => {
-              if (e.touches.length === 0) {
-                setIsDragging(false);
-                setLastTouchDistance(0);
-              } else if (e.touches.length === 1) {
-                // 从双指变为单指，重新开始拖拽
-                setLastTouchDistance(0);
-                setIsDragging(true);
-                setDragStart({
-                  x: e.touches[0].clientX - position.x,
-                  y: e.touches[0].clientY - position.y
-                });
-              }
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full h-full flex items-center justify-center overflow-hidden"
-            >
-              {/* 关闭按钮 */}
-              <button
-                onClick={() => {
-                  setFullscreenPhoto(null);
-                  setScale(1);
-                  setPosition({ x: 0, y: 0 });
-                }}
-                className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
-              >
-                <X className="w-6 h-6 text-white" />
-              </button>
-
-              {/* 缩放提示 */}
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-                <p className="text-white text-xs">双指缩放</p>
-              </div>
-
-              {/* 缩放比例显示 */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
-                <span className="text-white text-sm font-medium">
-                  {Math.round(scale * 100)}%
-                </span>
-              </div>
-
-              {/* 高清预览图 - 支持缩放和拖拽 */}
-              <img
-                src={fullscreenPhoto.preview_url}
-                alt="全屏预览"
-                className="max-w-full max-h-full object-contain cursor-move select-none"
-                style={{
-                  transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
-                  transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-                }}
-                onMouseDown={(e) => {
-                  setIsDragging(true);
-                  setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-                }}
-                onMouseMove={(e) => {
-                  if (isDragging) {
-                    setPosition({
-                      x: e.clientX - dragStart.x,
-                      y: e.clientY - dragStart.y
-                    });
-                  }
-                }}
-                onMouseUp={() => setIsDragging(false)}
-                onMouseLeave={() => setIsDragging(false)}
-                onWheel={(e) => {
-                  e.preventDefault();
-                  const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                  const newScale = Math.min(Math.max(1, scale + delta), 3);
-                  setScale(newScale);
-                  if (newScale === 1) {
-                    setPosition({ x: 0, y: 0 });
-                  }
-                }}
-                onDoubleClick={() => {
-                  if (scale === 1) {
-                    setScale(2);
-                  } else {
-                    setScale(1);
-                    setPosition({ x: 0, y: 0 });
-                  }
-                }}
-                draggable={false}
-              />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* 全屏高清预览（支持缩放/拖拽/滑动/长按下载） */}
+      <ImagePreview
+        images={allPhotos.map((photo) => photo.preview_url)}
+        downloadUrls={allPhotos.map((photo) => photo.original_url || photo.preview_url)}
+        currentIndex={fullscreenPhoto ? allPhotos.findIndex((photo) => photo.id === fullscreenPhoto.id) : 0}
+        isOpen={!!fullscreenPhoto}
+        onClose={() => setFullscreenPhoto(null)}
+        onIndexChange={(index) => setFullscreenPhoto(allPhotos[index] ?? null)}
+        showCounter={true}
+        showScale={true}
+        enableLongPressDownload={true}
+      />
 
       {/* 未登录点赞提示弹窗 */}
       <AnimatePresence>

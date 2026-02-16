@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { signInWithPassword } from '@/lib/auth/service';
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
+import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,7 @@ function getClientIp(request: Request): string | undefined {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const phone = String(body?.phone ?? '').trim();
+    const phone = normalizeChinaMobile(String(body?.phone ?? ''));
     const password = String(body?.password ?? '');
 
     if (!phone || !password) {
@@ -23,6 +24,16 @@ export async function POST(request: Request) {
         {
           data: { user: null },
           error: { message: 'Phone and password are required' },
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidChinaMobile(phone)) {
+      return NextResponse.json(
+        {
+          data: { user: null },
+          error: { message: 'Invalid phone format' },
         },
         { status: 400 }
       );

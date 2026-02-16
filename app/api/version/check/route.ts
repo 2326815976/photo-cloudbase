@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/cloudbase/server';
+import { resolveCloudBaseFileId } from '@/lib/cloudbase/storage';
+import { toTimestampUTC8 } from '@/lib/utils/date-helpers';
 
 interface ReleaseRow {
   id: number;
@@ -26,10 +28,18 @@ function pickLatestRelease(releases: ReleaseRow[]): ReleaseRow | null {
       return latest;
     }
 
-    const currentTime = new Date(current.created_at).getTime();
-    const latestTime = new Date(latest.created_at).getTime();
+    const currentTime = toTimestampUTC8(current.created_at);
+    const latestTime = toTimestampUTC8(latest.created_at);
     return currentTime > latestTime ? current : latest;
   });
+}
+
+function hasResolvableCloudBaseFileId(input: string): boolean {
+  try {
+    return Boolean(resolveCloudBaseFileId(input));
+  } catch {
+    return false;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -80,7 +90,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const downloadUrl = latestRelease.storage_file_id
+    const downloadUrl = (latestRelease.storage_file_id || hasResolvableCloudBaseFileId(latestRelease.download_url))
       ? `${request.nextUrl.origin}/api/version/download/${latestRelease.id}`
       : latestRelease.download_url;
 

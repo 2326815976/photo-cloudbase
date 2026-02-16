@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle, Upload, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
+import { getDateTimeAfterDaysUTC8 } from '@/lib/utils/date-helpers';
 
 export default function NewAlbumPage() {
   const router = useRouter();
@@ -86,11 +87,18 @@ export default function NewAlbumPage() {
       }
 
       // 检查密钥是否已存在
-      const { data: existing } = await dbClient
+      const { data: existing, error: existingError } = await dbClient
         .from('albums')
         .select('id')
         .eq('access_key', accessKey)
-        .single();
+        .maybeSingle();
+
+      if (existingError) {
+        setShowToast({ message: `检查密钥失败：${existingError.message}`, type: 'error' });
+        setTimeout(() => setShowToast(null), 3000);
+        setLoading(false);
+        return;
+      }
 
       if (existing) {
         setShowToast({ message: '该访问密钥已存在，请使用其他密钥', type: 'error' });
@@ -116,8 +124,7 @@ export default function NewAlbumPage() {
       }
 
       // 计算有效期
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + formData.expiry_days);
+      const expiresAt = getDateTimeAfterDaysUTC8(formData.expiry_days);
 
       const { error } = await dbClient.from('albums').insert({
         title: formData.title || '未命名空间',
@@ -127,10 +134,21 @@ export default function NewAlbumPage() {
         recipient_name: formData.recipient_name || '拾光者',
         enable_tipping: formData.enable_tipping,
         enable_welcome_letter: formData.enable_welcome_letter,
-        expires_at: expiresAt.toISOString(),
+        expires_at: expiresAt,
       });
 
       if (error) {
+        if (coverUrl) {
+          try {
+            await fetch('/api/delete', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: coverUrl }),
+            });
+          } catch (cleanupError) {
+            console.error('回滚封面文件失败:', cleanupError);
+          }
+        }
         setShowToast({ message: `创建失败：${error.message}`, type: 'error' });
         setTimeout(() => setShowToast(null), 3000);
         setLoading(false);

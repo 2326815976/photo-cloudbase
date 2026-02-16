@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { User, Phone, MessageSquare, ArrowLeft, Save } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
+import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -83,19 +84,31 @@ export default function EditProfilePage() {
       return;
     }
 
-    const { error: updateError } = await dbClient
+    const rawPhone = formData.phone.trim();
+    if (rawPhone && !isValidChinaMobile(rawPhone)) {
+      setError('请输入有效的手机号');
+      setIsSaving(false);
+      return;
+    }
+    const normalizedPhone = normalizeChinaMobile(rawPhone);
+
+    const { data: updatedProfile, error: updateError } = await dbClient
       .from('profiles')
       .update({
         name: formData.name.trim(),
-        phone: formData.phone.trim() || null,
+        phone: normalizedPhone || null,
         wechat: formData.wechat.trim() || null,
       })
-      .eq('id', user.id);
+      .eq('id', user.id)
+      .select('id')
+      .maybeSingle();
 
     setIsSaving(false);
 
     if (updateError) {
       setError('保存失败: ' + updateError.message);
+    } else if (!updatedProfile) {
+      setError('保存失败: 当前账号资料不存在，请重新登录后重试');
     } else {
       setSuccess(true);
       setTimeout(() => {
@@ -105,10 +118,12 @@ export default function EditProfilePage() {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'phone' ? clampChinaMobileInput(value) : value,
+    }));
   };
 
   if (isLoading) {
@@ -250,6 +265,10 @@ export default function EditProfilePage() {
                     value={formData.phone}
                     onChange={handleChange}
                     className="w-full px-4 py-3 bg-white border-2 border-[#5D4037]/20 rounded-2xl text-[#5D4037] placeholder:text-[#5D4037]/40 focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] transition-all"
+                    maxLength={11}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="tel"
                   />
                 </div>
 
