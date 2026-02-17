@@ -2,11 +2,21 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { env } from '@/lib/env';
 
-const FONT_MAP: Record<string, string> = {
+type FontFormat = 'woff2' | 'ttf';
+
+const FONT_MAP: Record<string, Record<FontFormat, string>> = {
   // 与 Web 端一致：public/fonts 下的字体文件
-  letter: '/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2',
-  zqknny: '/fonts/ZQKNNY-Medium-2.woff2',
+  letter: {
+    woff2: '/fonts/AaZhuNiWoMingMeiXiangChunTian-2.woff2',
+    ttf: '/fonts/AaZhuNiWoMingMeiXiangChunTian-2.ttf',
+  },
+  zqknny: {
+    woff2: '/fonts/ZQKNNY-Medium-2.woff2',
+    ttf: '/fonts/ZQKNNY-Medium-2.ttf',
+  },
 };
+
+const FONT_FORMATS: FontFormat[] = ['woff2', 'ttf'];
 
 export const dynamic = 'force-dynamic';
 
@@ -64,8 +74,8 @@ function joinUrl(origin: string, path: string): string {
   return `${base}/${suffix}`;
 }
 
-function buildFontApiPath(name: string): string {
-  return `/api/assets/font-file?name=${encodeURIComponent(name)}`;
+function buildFontApiPath(name: string, format: FontFormat): string {
+  return `/api/assets/font-file?name=${encodeURIComponent(name)}&format=${format}`;
 }
 
 function getRequestOrigin(req: NextRequest): string {
@@ -80,9 +90,9 @@ function getRequestOrigin(req: NextRequest): string {
 
 export async function GET(req: NextRequest) {
   const name = String(req.nextUrl.searchParams.get('name') || '').trim().toLowerCase();
-  const staticPath = FONT_MAP[name];
+  const staticPathMap = FONT_MAP[name];
 
-  if (!staticPath) {
+  if (!staticPathMap) {
     return NextResponse.json(
       { error: '不支持的字体名称' },
       { status: 400 }
@@ -93,16 +103,19 @@ export async function GET(req: NextRequest) {
   const storageOrigin = normalizeFontOrigin(env.CLOUDBASE_STORAGE_DOMAIN());
   const requestOrigin = normalizeAbsoluteOrigin(getRequestOrigin(req));
   const configuredOrigin = normalizeAbsoluteOrigin(env.APP_URL());
-  const apiPath = buildFontApiPath(name);
   const candidates: string[] = [];
 
   [requestOrigin, configuredOrigin].filter(Boolean).forEach((origin) => {
-    candidates.push(joinUrl(origin, apiPath));
-    candidates.push(joinUrl(origin, staticPath));
+    FONT_FORMATS.forEach((format) => {
+      candidates.push(joinUrl(origin, buildFontApiPath(name, format)));
+      candidates.push(joinUrl(origin, staticPathMap[format]));
+    });
   });
 
   if (storageOrigin) {
-    candidates.push(joinUrl(storageOrigin, staticPath));
+    FONT_FORMATS.forEach((format) => {
+      candidates.push(joinUrl(storageOrigin, staticPathMap[format]));
+    });
   }
 
   const uniqueCandidates = candidates.filter((item, index, arr) => arr.indexOf(item) === index);

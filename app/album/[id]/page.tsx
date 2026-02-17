@@ -13,6 +13,8 @@ import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
 import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
+import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
+import { mutate } from 'swr';
 
 interface Folder {
   id: string;
@@ -82,6 +84,15 @@ export default function AlbumDetailPage() {
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
+
+  const markGalleryDirty = () => {
+    markGalleryCacheDirty();
+    void mutate(
+      (key: unknown) => Array.isArray(key) && key[0] === 'gallery',
+      undefined,
+      { revalidate: false }
+    );
+  };
 
   // 检测微信浏览器环境
   useEffect(() => {
@@ -229,6 +240,7 @@ export default function AlbumDetailPage() {
           p.id === photoId ? { ...p, is_public: newIsPublic } : p
         )
       );
+      markGalleryDirty();
 
       // 显示提示信息
       if (newIsPublic) {
@@ -318,7 +330,9 @@ export default function AlbumDetailPage() {
     let successCount = 0;
     let failCount = 0;
     let storageWarningCount = 0;
+    let hasDeletedPublicPhoto = false;
     const deletedPhotoIds = new Set<string>();
+    const visibilityMap = new Map(photos.map((photo) => [photo.id, Boolean(photo.is_public)]));
 
     for (const photoId of Array.from(selectedPhotos)) {
       if (!photos.some((p) => p.id === photoId)) continue;
@@ -333,6 +347,9 @@ export default function AlbumDetailPage() {
       } else {
         successCount++;
         deletedPhotoIds.add(photoId);
+        if (visibilityMap.get(photoId)) {
+          hasDeletedPublicPhoto = true;
+        }
 
         if (Boolean((data as any)?.storage_cleanup_failed)) {
           storageWarningCount++;
@@ -345,6 +362,9 @@ export default function AlbumDetailPage() {
     if (successCount > 0) {
       setPhotos(prev => prev.filter(p => !deletedPhotoIds.has(p.id)));
       setSelectedPhotos(prev => new Set(Array.from(prev).filter(id => !deletedPhotoIds.has(id))));
+      if (hasDeletedPublicPhoto) {
+        markGalleryDirty();
+      }
     }
 
     const warningParts: string[] = [];

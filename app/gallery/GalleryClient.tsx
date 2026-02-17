@@ -5,10 +5,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, Eye, Camera } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useGallery } from '@/lib/swr/hooks';
-import { mutate } from 'swr';
 import { getSessionId } from '@/lib/utils/session';
 import { vibrate } from '@/lib/android';
 import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
+import {
+  GALLERY_PAGE_CACHE_KEY,
+  clearGalleryPageCacheStorage,
+  consumeGalleryCacheDirtyFlag,
+} from '@/lib/gallery/cache-sync';
 
 import SimpleImage from '@/components/ui/SimpleImage';
 import ImagePreview from '@/components/ImagePreview';
@@ -70,8 +74,25 @@ const writeGalleryMemoryCache = (photos: Photo[], total: number) => {
   };
 };
 
+const clearGalleryMemoryCache = () => {
+  galleryMemoryCache = { photos: [], total: 0, cachedAt: 0 };
+};
+
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
-  const memoryGallery = initialPhotos.length > 0 ? null : readGalleryMemoryCache();
+  const [galleryCacheToken] = useState<string>(() => {
+    const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
+    if (!shouldForceRefresh) {
+      return 'default';
+    }
+
+    clearGalleryMemoryCache();
+    clearGalleryPageCacheStorage();
+    return `dirty-${Date.now()}`;
+  });
+
+  const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
+  const memoryGallery =
+    initialPhotos.length > 0 || shouldForceRefreshFromDirty ? null : readGalleryMemoryCache();
   const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
   const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
 
@@ -86,14 +107,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const hasClientInitialFetchStartedRef = useRef(false);
   const pageSize = 20;
   const isInitialPage = page === initialPage;
-  const GALLERY_CACHE_KEY = 'gallery-page-1-cache-v1';
+  const GALLERY_CACHE_KEY = GALLERY_PAGE_CACHE_KEY;
   // 使用 SWR 获取照片数据,自动缓存和重新验证
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(
     page,
     pageSize,
     isInitialPage && hydratedInitialPhotos.length > 0
       ? { photos: hydratedInitialPhotos, total: hydratedInitialTotal }
-      : undefined
+      : undefined,
+    galleryCacheToken
   );
 
   // 从 SWR 数据中提取照片和总数

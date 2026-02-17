@@ -10,7 +10,12 @@ import { CACHE_TIME } from './config';
 /**
  * 照片墙数据 Hook
  */
-export function useGallery(page: number = 1, pageSize: number = 20, fallbackData?: any) {
+export function useGallery(
+  page: number = 1,
+  pageSize: number = 20,
+  fallbackData?: any,
+  cacheToken: string | number = 'default'
+) {
   const fetcher = async () => {
     const dbClient = createClient();
     if (!dbClient) {
@@ -33,7 +38,7 @@ export function useGallery(page: number = 1, pageSize: number = 20, fallbackData
   };
 
   return useSWR(
-    ['gallery', page, pageSize],
+    ['gallery', cacheToken, page, pageSize],
     fetcher,
     {
       dedupingInterval: CACHE_TIME.GALLERY,
@@ -163,5 +168,4 @@ export function useTags() {
     }
   );
 }
-
 
