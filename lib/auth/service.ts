@@ -9,6 +9,15 @@ import { AuthUser } from './types';
 
 const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
 const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
+const WECHAT_MINI_DEFAULT_NAME = '微信用户';
+const WECHAT_MINI_EMAIL_DOMAIN = 'wechat.miniprogram.local';
+
+interface WechatMiniProgramSessionPayload {
+  openid?: string;
+  unionid?: string;
+  errcode?: number;
+  errmsg?: string;
+}
 
 function normalizeEmail(input: string): string {
   return input.trim().toLowerCase();
@@ -185,6 +194,217 @@ export async function signInWithPassword(
     sessionToken,
     error: null,
   };
+}
+
+function toWechatMiniEmail(openid: string): string {
+  // 使用稳定的伪邮箱将小程序 openid 映射到现有 users 体系，避免额外建表。
+  return normalizeEmail(`wx_mp_${openid}@${WECHAT_MINI_EMAIL_DOMAIN}`);
+}
+
+async function exchangeWechatMiniCode(code: string): Promise<{ openid: string; unionid: string | null }> {
+  const appId = String(process.env.WX_MINI_APPID || '').trim();
+  const appSecret = String(process.env.WX_MINI_SECRET || '').trim();
+
+  if (!appId || !appSecret) {
+    throw new Error('wx_mini_config_missing');
+  }
+
+  const requestUrl = new URL('https://api.weixin.qq.com/sns/jscode2session');
+  requestUrl.searchParams.set('appid', appId);
+  requestUrl.searchParams.set('secret', appSecret);
+  requestUrl.searchParams.set('js_code', code);
+  requestUrl.searchParams.set('grant_type', 'authorization_code');
+
+  const response = await fetch(requestUrl.toString(), {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  const payload = (await response.json()) as WechatMiniProgramSessionPayload;
+
+  if (!response.ok || payload.errcode || !payload.openid) {
+    const errorCode = Number(payload.errcode || response.status || 0);
+    const errorMessage = String(payload.errmsg || response.statusText || 'unknown').trim();
+    throw new Error(`wx_mini_code_exchange_failed:${errorCode}:${errorMessage}`);
+  }
+
+  return {
+    openid: String(payload.openid),
+    unionid: payload.unionid ? String(payload.unionid) : null,
+  };
+}
+
+async function syncWechatMiniProfile(userId: string, nickName?: string, avatarUrl?: string): Promise<void> {
+  const normalizedName = String(nickName || '').trim();
+  const normalizedAvatar = String(avatarUrl || '').trim();
+  if (!normalizedName && !normalizedAvatar) {
+    return;
+  }
+
+  const profileResult = await executeSQL(
+    `
+      SELECT name, avatar
+      FROM profiles
+      WHERE id = {{user_id}}
+      LIMIT 1
+    `,
+    { user_id: userId }
+  );
+  const currentProfile = profileResult.rows[0] ?? null;
+
+  const updates: string[] = [];
+  const values: Record<string, unknown> = { user_id: userId };
+
+  const currentName = String((currentProfile && currentProfile.name) || '').trim();
+  if (normalizedName && (!currentName || currentName === WECHAT_MINI_DEFAULT_NAME)) {
+    updates.push('name = {{name}}');
+    values.name = normalizedName;
+  }
+
+  const currentAvatar = String((currentProfile && currentProfile.avatar) || '').trim();
+  if (normalizedAvatar && !currentAvatar) {
+    updates.push('avatar = {{avatar}}');
+    values.avatar = normalizedAvatar;
+  }
+
+  if (!updates.length) {
+    return;
+  }
+
+  await executeSQL(
+    `
+      UPDATE profiles
+      SET ${updates.join(', ')}
+      WHERE id = {{user_id}}
+    `,
+    values
+  );
+}
+
+async function ensureWechatMiniUser(openid: string, nickName?: string, avatarUrl?: string): Promise<AuthUser> {
+  const normalizedOpenid = String(openid || '').trim();
+  if (!normalizedOpenid) {
+    throw new Error('wx_mini_openid_missing');
+  }
+
+  const loginEmail = toWechatMiniEmail(normalizedOpenid);
+  const normalizedName = String(nickName || '').trim() || WECHAT_MINI_DEFAULT_NAME;
+  const normalizedAvatar = String(avatarUrl || '').trim();
+
+  const existingUser = await findUserByEmail(loginEmail);
+  if (existingUser) {
+    await syncWechatMiniProfile(String(existingUser.id), normalizedName, normalizedAvatar || undefined);
+    const row = {
+      ...existingUser,
+      name:
+        existingUser.name && String(existingUser.name).trim() && String(existingUser.name).trim() !== WECHAT_MINI_DEFAULT_NAME
+          ? existingUser.name
+          : normalizedName,
+    };
+    return toAuthUser(row);
+  }
+
+  const userId = randomUUID();
+  const passwordHash = hashPassword(randomUUID().replace(/-/g, ''));
+
+  try {
+    await executeSQL(
+      `
+        INSERT INTO users (
+          id, email, phone, password_hash, role, created_at, updated_at, deleted_at
+        ) VALUES (
+          {{id}}, {{email}}, NULL, {{password_hash}}, 'user', ${NOW_UTC8_EXPR}, ${NOW_UTC8_EXPR}, NULL
+        )
+      `,
+      {
+        id: userId,
+        email: loginEmail,
+        password_hash: passwordHash,
+      }
+    );
+
+    await executeSQL(
+      `
+        INSERT INTO profiles (
+          id, email, name, avatar, role, phone, created_at
+        ) VALUES (
+          {{id}}, {{email}}, {{name}}, {{avatar}}, 'user', NULL, ${NOW_UTC8_EXPR}
+        )
+      `,
+      {
+        id: userId,
+        email: loginEmail,
+        name: normalizedName,
+        avatar: normalizedAvatar || null,
+      }
+    );
+
+    await executeSQL(
+      `
+        INSERT INTO analytics_daily (date, new_users_count, active_users_count)
+        VALUES (${TODAY_UTC8_EXPR}, 1, 0)
+        ON DUPLICATE KEY UPDATE new_users_count = new_users_count + 1
+      `
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (/duplicate entry|1062|er_dup_entry/i.test(message)) {
+      const fallbackUser = await findUserByEmail(loginEmail);
+      if (fallbackUser) {
+        await syncWechatMiniProfile(String(fallbackUser.id), normalizedName, normalizedAvatar || undefined);
+        return toAuthUser(fallbackUser);
+      }
+    }
+
+    throw error;
+  }
+
+  return {
+    id: userId,
+    email: loginEmail,
+    phone: null,
+    role: 'user',
+    name: normalizedName,
+  };
+}
+
+export async function signInWithWechatMiniProgram(
+  code: string,
+  options: {
+    nickName?: string;
+    avatarUrl?: string;
+    userAgent?: string;
+    ipAddress?: string;
+  } = {}
+): Promise<{ user: AuthUser | null; sessionToken: string | null; openid: string | null; error: string | null }> {
+  const normalizedCode = String(code || '').trim();
+  if (!normalizedCode) {
+    return {
+      user: null,
+      sessionToken: null,
+      openid: null,
+      error: 'invalid_code',
+    };
+  }
+
+  try {
+    const { openid } = await exchangeWechatMiniCode(normalizedCode);
+    const user = await ensureWechatMiniUser(openid, options.nickName, options.avatarUrl);
+    const sessionToken = await createSession(user.id, options.userAgent, options.ipAddress);
+
+    return {
+      user,
+      sessionToken,
+      openid,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      user: null,
+      sessionToken: null,
+      openid: null,
+      error: error instanceof Error ? error.message : 'wx_mini_login_failed',
+    };
+  }
 }
 
 export async function updateUserPassword(userId: string, newPassword: string): Promise<{ error: string | null }> {
