@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
@@ -34,6 +34,8 @@ interface Photo {
   created_at: string;
 }
 
+const ROOT_FOLDER_SENTINEL = '__ROOT__';
+
 export default function AlbumDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -61,6 +63,9 @@ export default function AlbumDetailPage() {
   const [deletingFolder, setDeletingFolder] = useState<AlbumFolder | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState<Photo | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [movingPhotoIds, setMovingPhotoIds] = useState<string[]>([]);
+  const [moveTargetFolder, setMoveTargetFolder] = useState<string>(ROOT_FOLDER_SENTINEL);
   const [actionLoading, setActionLoading] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [showEditRootModal, setShowEditRootModal] = useState(false);
@@ -79,6 +84,16 @@ export default function AlbumDetailPage() {
       }
     }
   }, [photos]);
+
+  useEffect(() => {
+    if (!selectedFolder) {
+      return;
+    }
+    const exists = (folders || []).some((folder) => String(folder.id) === String(selectedFolder));
+    if (!exists) {
+      setSelectedFolder(null);
+    }
+  }, [folders, selectedFolder]);
 
   const loadAlbumData = async () => {
     setLoading(true);
@@ -313,6 +328,214 @@ export default function AlbumDetailPage() {
     }
   };
 
+  const resolveUploadFolderId = async (dbClient: any, folderId: string | null): Promise<string | null> => {
+    const normalized = String(folderId ?? '').trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const exists = (folders || []).some((folder) => String(folder.id) === normalized);
+    if (!exists) {
+      return null;
+    }
+
+    const { data, error } = await dbClient
+      .from('album_folders')
+      .select('id')
+      .eq('id', normalized)
+      .eq('album_id', albumId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return normalized;
+  };
+
+  const isAlbumFolderForeignKeyError = (message: string): boolean => {
+    const normalized = String(message || '').toLowerCase();
+    return (
+      normalized.includes('fk_album_photos_folder') ||
+      (normalized.includes('foreign key') && normalized.includes('folder_id')) ||
+      (normalized.includes('foreign key constraint fails') && normalized.includes('album_photos'))
+    );
+  };
+
+  const insertAlbumPhotoWithCompat = async (
+    dbClient: any,
+    payload: {
+      album_id: string;
+      folder_id: string | null;
+      url: string;
+      thumbnail_url: string;
+      preview_url: string;
+      original_url: string;
+      width: number;
+      height: number;
+      blurhash: string;
+    }
+  ): Promise<{ message: string } | null> => {
+    const withOptionalFolderId = (
+      row: Record<string, unknown>,
+      folderId: string | null
+    ): Record<string, unknown> => {
+      const normalizedFolderId = String(folderId ?? '').trim();
+      if (!normalizedFolderId) {
+        return row;
+      }
+      return {
+        ...row,
+        folder_id: normalizedFolderId,
+      };
+    };
+
+    let lastError: { message: string } | null = null;
+
+    const attemptPayloads = [payload];
+    if (payload.folder_id) {
+      attemptPayloads.push({
+        ...payload,
+        folder_id: null,
+      });
+    }
+
+    for (const attemptPayload of attemptPayloads) {
+      const folderId = String(attemptPayload.folder_id ?? '').trim() || null;
+      const variants: Array<Record<string, unknown>> = [
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            url: attemptPayload.url,
+            thumbnail_url: attemptPayload.thumbnail_url,
+            preview_url: attemptPayload.preview_url,
+            original_url: attemptPayload.original_url,
+            width: attemptPayload.width,
+            height: attemptPayload.height,
+            blurhash: attemptPayload.blurhash,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            url: attemptPayload.url,
+            thumbnail_url: attemptPayload.thumbnail_url,
+            preview_url: attemptPayload.preview_url,
+            original_url: attemptPayload.original_url,
+            width: attemptPayload.width,
+            height: attemptPayload.height,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            url: attemptPayload.url,
+            width: attemptPayload.width,
+            height: attemptPayload.height,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            thumbnail_url: attemptPayload.thumbnail_url,
+            preview_url: attemptPayload.preview_url,
+            original_url: attemptPayload.original_url,
+            width: attemptPayload.width,
+            height: attemptPayload.height,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            thumbnail_url: attemptPayload.thumbnail_url,
+            preview_url: attemptPayload.preview_url,
+            original_url: attemptPayload.original_url,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            url: attemptPayload.url,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            original_url: attemptPayload.original_url,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            preview_url: attemptPayload.preview_url,
+          },
+          folderId
+        ),
+        withOptionalFolderId(
+          {
+            album_id: attemptPayload.album_id,
+            thumbnail_url: attemptPayload.thumbnail_url,
+          },
+          folderId
+        ),
+      ];
+
+      const uniqueVariants: Array<Record<string, unknown>> = [];
+      const seenSignatures = new Set<string>();
+      for (const variant of variants) {
+        const signature = Object.keys(variant)
+          .sort()
+          .map((key) => `${key}:${String((variant as Record<string, unknown>)[key])}`)
+          .join('|');
+        if (seenSignatures.has(signature)) {
+          continue;
+        }
+        seenSignatures.add(signature);
+        uniqueVariants.push(variant);
+      }
+
+      let shouldRetryInRoot = false;
+
+      for (const variant of uniqueVariants) {
+        const { error } = await dbClient.from('album_photos').insert(variant);
+        if (!error) {
+          return null;
+        }
+
+        const message = String(error.message || '写入 album_photos 失败').trim();
+        lastError = { message };
+
+        if (folderId && isAlbumFolderForeignKeyError(message)) {
+          shouldRetryInRoot = true;
+          break;
+        }
+
+        const normalizedMessage = message.toLowerCase();
+        if (
+          normalizedMessage.includes('未授权') ||
+          normalizedMessage.includes('unauthorized') ||
+          normalizedMessage.includes('forbidden') ||
+          normalizedMessage.includes('permission denied')
+        ) {
+          return lastError;
+        }
+      }
+
+      if (!shouldRetryInRoot) {
+        break;
+      }
+    }
+
+    return lastError || { message: '写入 album_photos 失败' };
+  };
+
   const handleBatchImageSelect = (files: FileList | null) => {
     if (!files || files.length === 0) {
       setBatchImages([]);
@@ -338,6 +561,13 @@ export default function AlbumDetailPage() {
     }
     let successCount = 0;
     let failCount = 0;
+    let firstFailureReason = '';
+    let uploadFolderId: string | null = null;
+
+    uploadFolderId = await resolveUploadFolderId(dbClient, selectedFolder);
+    if (selectedFolder && !uploadFolderId) {
+      setSelectedFolder(null);
+    }
 
     setUploadProgress({ current: 0, total: batchImages.length });
 
@@ -349,8 +579,6 @@ export default function AlbumDetailPage() {
         // 1. 生成多版本图片（thumbnail + preview + original，智能压缩）
         const versions = await generateAlbumImageVersions(file);
         const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
-        const previewVersion = versions.find(v => v.type === 'preview')!;
-        const originalVersion = versions.find(v => v.type === 'original')!;
 
         // 2. 生成 BlurHash（基于 thumbnail）
         const blurhash = await generateBlurHash(thumbnailVersion.file);
@@ -390,9 +618,10 @@ export default function AlbumDetailPage() {
 
         // 4. 插入数据库
         if (thumbnail_url && preview_url && original_url) {
-          const { error: insertError } = await dbClient.from('album_photos').insert({
+          const insertError = await insertAlbumPhotoWithCompat(dbClient, {
             album_id: albumId,
-            folder_id: selectedFolder,
+            folder_id: uploadFolderId,
+            url: preview_url || original_url || thumbnail_url,
             thumbnail_url,
             preview_url,
             original_url,
@@ -402,16 +631,26 @@ export default function AlbumDetailPage() {
           });
 
           if (insertError) {
+            if (!firstFailureReason) {
+              firstFailureReason = insertError.message;
+            }
+            console.error('插入 album_photos 失败:', insertError.message);
             failCount++;
             await cleanupUploadedFiles(uploadedKeys);
           } else {
             successCount++;
           }
         } else {
+          if (!firstFailureReason) {
+            firstFailureReason = '上传后未获取完整图片地址';
+          }
           failCount++;
           await cleanupUploadedFiles(uploadedKeys);
         }
       } catch (error) {
+        if (!firstFailureReason) {
+          firstFailureReason = error instanceof Error ? error.message : '上传流程异常';
+        }
         failCount++;
       }
     }
@@ -426,7 +665,8 @@ export default function AlbumDetailPage() {
     }
 
     if (failCount > 0) {
-      setShowToast({ message: `上传完成：成功 ${successCount} 张，失败 ${failCount} 张`, type: 'warning' });
+      const compactReason = firstFailureReason ? `（${firstFailureReason.slice(0, 36)}）` : '';
+      setShowToast({ message: `上传完成：成功 ${successCount} 张，失败 ${failCount} 张${compactReason}`, type: 'warning' });
       setTimeout(() => setShowToast(null), 3000);
     } else {
       setShowToast({ message: `成功上传 ${successCount} 张照片`, type: 'success' });
@@ -552,6 +792,136 @@ export default function AlbumDetailPage() {
   const clearPhotoSelection = () => {
     setSelectedPhotoIds([]);
     setIsSelectionMode(false);
+  };
+
+  const openMoveModal = (photoIds: string[]) => {
+    const uniqueIds = Array.from(new Set((photoIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      setShowToast({ message: '请先选择要迁移的照片', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const firstPhoto = photos.find((photo) => String(photo.id) === uniqueIds[0]);
+    const initialTarget = String(firstPhoto?.folder_id ?? '').trim() || ROOT_FOLDER_SENTINEL;
+
+    setMovingPhotoIds(uniqueIds);
+    setMoveTargetFolder(initialTarget);
+    setShowMoveModal(true);
+  };
+
+  const closeMoveModal = () => {
+    if (actionLoading) {
+      return;
+    }
+    setShowMoveModal(false);
+    setMovingPhotoIds([]);
+    setMoveTargetFolder(ROOT_FOLDER_SENTINEL);
+  };
+
+  const handleBatchMove = () => {
+    if (selectedPhotoIds.length === 0) {
+      setShowToast({ message: '请先选择要迁移的照片', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    openMoveModal(selectedPhotoIds);
+  };
+
+  const confirmMovePhotos = async () => {
+    if (movingPhotoIds.length === 0) {
+      closeMoveModal();
+      return;
+    }
+
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const normalizedTargetFolder =
+      moveTargetFolder === ROOT_FOLDER_SENTINEL ? null : String(moveTargetFolder || '').trim() || null;
+    if (normalizedTargetFolder) {
+      const folderExists = (folders || []).some((folder) => String(folder.id) === normalizedTargetFolder);
+      if (!folderExists) {
+        setActionLoading(false);
+        setShowToast({ message: '目标文件夹不存在，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+    }
+
+    try {
+      const { data: snapshotRows, error: snapshotError } = await dbClient
+        .from('album_photos')
+        .select('id, folder_id')
+        .eq('album_id', albumId)
+        .in('id', movingPhotoIds);
+      if (snapshotError) {
+        throw snapshotError;
+      }
+
+      const rows = Array.isArray(snapshotRows) ? snapshotRows : [];
+      if (rows.length === 0) {
+        setActionLoading(false);
+        closeMoveModal();
+        setShowToast({ message: '未找到可迁移照片，请刷新后重试', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const toMoveIds = rows
+        .filter((row: any) => {
+          const currentFolder = String(row.folder_id ?? '').trim() || null;
+          return currentFolder !== normalizedTargetFolder;
+        })
+        .map((row: any) => String(row.id));
+
+      if (toMoveIds.length === 0) {
+        setActionLoading(false);
+        closeMoveModal();
+        setShowToast({ message: '选中的照片已在目标文件夹', type: 'warning' });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const updatePayload: Record<string, unknown> = normalizedTargetFolder
+        ? { folder_id: normalizedTargetFolder }
+        : { folder_id: null };
+
+      const { error: updateError } = await dbClient
+        .from('album_photos')
+        .update(updatePayload)
+        .eq('album_id', albumId)
+        .in('id', toMoveIds);
+      if (updateError) {
+        throw updateError;
+      }
+
+      const targetFolderName = normalizedTargetFolder
+        ? folders.find((folder) => String(folder.id) === normalizedTargetFolder)?.name || '目标文件夹'
+        : String(album?.root_folder_name ?? '').trim() || '根目录';
+
+      setPhotos((prev) =>
+        prev.map((photo) =>
+          toMoveIds.includes(String(photo.id)) ? { ...photo, folder_id: normalizedTargetFolder } : photo
+        )
+      );
+      setSelectedPhotoIds((prev) => prev.filter((id) => !toMoveIds.includes(String(id))));
+
+      setActionLoading(false);
+      closeMoveModal();
+      setShowToast({ message: `成功迁移 ${toMoveIds.length} 张照片到${targetFolderName}`, type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+    } catch (error: any) {
+      setActionLoading(false);
+      setShowToast({ message: `迁移失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
   };
 
   const handleBatchDelete = async () => {
@@ -747,6 +1117,14 @@ export default function AlbumDetailPage() {
                 全选 ({selectedPhotoIds.length}/{filteredPhotos.length})
               </button>
               <button
+                onClick={handleBatchMove}
+                disabled={selectedPhotoIds.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#FFC857] text-[#5D4037] rounded-full text-sm font-medium hover:shadow-md active:scale-95 transition-all disabled:opacity-50 whitespace-nowrap"
+              >
+                <ArrowRightLeft className="w-4 h-4" />
+                迁移 ({selectedPhotoIds.length})
+              </button>
+              <button
                 onClick={handleBatchDelete}
                 disabled={selectedPhotoIds.length === 0}
                 className="flex items-center gap-1.5 px-3 py-2 bg-red-500 text-white rounded-full text-sm font-medium hover:bg-red-600 active:scale-95 transition-all disabled:opacity-50 whitespace-nowrap"
@@ -818,74 +1196,101 @@ export default function AlbumDetailPage() {
           <p className="text-[#5D4037]/60">暂无照片</p>
         </div>
       ) : (
-        <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           <AnimatePresence>
-            {filteredPhotos.map((photo) => (
-              <motion.div
-                key={photo.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className={`bg-white rounded-2xl overflow-hidden shadow-sm border transition-all mb-4 break-inside-avoid ${
-                  isSelectionMode
-                    ? selectedPhotoIds.includes(photo.id)
-                      ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
-                      : 'border-[#5D4037]/10 hover:border-[#FFC857]/50'
-                    : 'border-[#5D4037]/10 hover:shadow-md cursor-pointer'
-                }`}
-                onClick={() => {
-                  if (isSelectionMode) {
-                    togglePhotoSelection(photo.id);
-                  } else {
-                    setPreviewPhoto(photo);
-                  }
-                }}
-                style={{ cursor: isSelectionMode ? 'pointer' : 'pointer' }}
-              >
-                <div className="relative">
-                  {isSelectionMode && (
-                    <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
-                      selectedPhotoIds.includes(photo.id)
-                        ? 'bg-[#FFC857] border-[#FFC857]'
-                        : 'bg-white border-[#5D4037]/30'
-                    }`}>
-                      {selectedPhotoIds.includes(photo.id) && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </div>
-                  )}
-                  {(() => {
-                    const url = photoUrls[photo.id];
-                    return url ? (
-                      <img
-                        src={url}
-                        alt=""
-                        className="w-full h-auto object-cover"
-                        onError={(e) => console.error(`❌ 照片 ${photo.id} 加载失败:`, e)}
-                      />
-                    ) : (
-                      <div className="w-full aspect-[3/4] flex items-center justify-center bg-gray-100">
-                        <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+            {filteredPhotos.map((photo) => {
+              const folderName = photo.folder_id
+                ? folders.find((folder) => String(folder.id) === String(photo.folder_id))?.name || '未知文件夹'
+                : rootFolderName;
+              const dateText = photo.created_at ? String(photo.created_at).slice(5, 10).replace('-', '/') : '--/--';
+              return (
+                <motion.div
+                  key={photo.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className={`relative bg-white rounded-[28px] overflow-hidden transition-all ${
+                    isSelectionMode
+                      ? selectedPhotoIds.includes(photo.id)
+                        ? 'ring-4 ring-[#FFC857]/75 shadow-[0_10px_28px_rgba(93,64,55,0.22)]'
+                        : 'ring-1 ring-[#5D4037]/10 shadow-[0_8px_24px_rgba(93,64,55,0.14)] hover:ring-[#FFC857]/45'
+                      : 'ring-1 ring-[#5D4037]/10 shadow-[0_8px_24px_rgba(93,64,55,0.14)] hover:translate-y-[-2px] hover:shadow-[0_14px_30px_rgba(93,64,55,0.2)] cursor-pointer'
+                  }`}
+                  onClick={() => {
+                    if (isSelectionMode) {
+                      togglePhotoSelection(photo.id);
+                    } else {
+                      setPreviewPhoto(photo);
+                    }
+                  }}
+                >
+                  <div className="relative aspect-[4/5] bg-[#f5f5f5]">
+                    {isSelectionMode && (
+                      <div className={`absolute top-3 left-3 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors z-10 ${
+                        selectedPhotoIds.includes(photo.id)
+                          ? 'bg-[#FFC857] border-[#FFC857]'
+                          : 'bg-white border-[#5D4037]/30'
+                      }`}>
+                        {selectedPhotoIds.includes(photo.id) && (
+                          <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
                       </div>
-                    );
-                  })()}
-                  {!isSelectionMode && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeletePhoto(photo.id, photo.url);
-                      }}
-                      className="absolute top-2 right-2 w-10 h-10 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center justify-center shadow-md"
-                      aria-label="删除照片"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
-              </motion.div>
-            ))}
+                    )}
+                    {(() => {
+                      const url = photoUrls[photo.id];
+                      return url ? (
+                        <img
+                          src={url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          onError={(e) => console.error(`❌ 照片 ${photo.id} 加载失败:`, e)}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-[#f5f5f5]">
+                          <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+                        </div>
+                      );
+                    })()}
+
+                    {!isSelectionMode && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openMoveModal([photo.id]);
+                          }}
+                          className="absolute top-3 right-14 w-10 h-10 bg-[#FFC857] text-[#5D4037] rounded-full hover:bg-[#f2b93f] transition-colors flex items-center justify-center shadow-md"
+                          aria-label="迁移照片"
+                          title="迁移到其他文件夹"
+                        >
+                          <ArrowRightLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeletePhoto(photo.id, photo.url);
+                          }}
+                          className="absolute top-3 right-3 w-10 h-10 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center justify-center shadow-md"
+                          aria-label="删除照片"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="px-3 py-2 bg-[#FFFBF0] border-t border-[#5D4037]/10 flex items-center justify-between text-xs">
+                    <span className="inline-flex items-center gap-1 text-[#5D4037]/75 truncate max-w-[70%]">
+                      <Folder className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{folderName}</span>
+                    </span>
+                    <span className="text-[#5D4037]/55">{dateText}</span>
+                  </div>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
       )}
@@ -1135,6 +1540,90 @@ export default function AlbumDetailPage() {
                   className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all"
                 >
                   确认删除
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 照片迁移对话框 */}
+      <AnimatePresence>
+        {showMoveModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={closeMoveModal}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-center mb-4">
+                <div className="w-14 h-14 bg-[#FFC857]/25 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <ArrowRightLeft className="w-7 h-7 text-[#5D4037]" />
+                </div>
+                <h3 className="text-xl font-bold text-[#5D4037] mb-2">迁移照片</h3>
+                <p className="text-sm text-[#5D4037]/75">
+                  选择目标文件夹，将 {movingPhotoIds.length} 张照片迁移过去
+                </p>
+              </div>
+
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                <button
+                  onClick={() => setMoveTargetFolder(ROOT_FOLDER_SENTINEL)}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all border ${
+                    moveTargetFolder === ROOT_FOLDER_SENTINEL
+                      ? 'bg-[#FFC857]/25 border-[#FFC857] text-[#5D4037]'
+                      : 'bg-white border-[#5D4037]/15 text-[#5D4037]/80 hover:bg-[#FFFBF0]'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <Folder className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{rootFolderName}</span>
+                  </span>
+                  <span className="text-xs">{photos.filter((p) => !p.folder_id).length}</span>
+                </button>
+
+                {folders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    onClick={() => setMoveTargetFolder(folder.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all border ${
+                      moveTargetFolder === folder.id
+                        ? 'bg-[#FFC857]/25 border-[#FFC857] text-[#5D4037]'
+                        : 'bg-white border-[#5D4037]/15 text-[#5D4037]/80 hover:bg-[#FFFBF0]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Folder className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{folder.name}</span>
+                    </span>
+                    <span className="text-xs">{photos.filter((p) => p.folder_id === folder.id).length}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-2 mt-5">
+                <button
+                  onClick={closeMoveModal}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmMovePhotos}
+                  disabled={actionLoading || movingPhotoIds.length === 0}
+                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {actionLoading ? '迁移中...' : '确认迁移'}
                 </button>
               </div>
             </motion.div>

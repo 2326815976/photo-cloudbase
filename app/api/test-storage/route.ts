@@ -3,8 +3,8 @@ import { createClient } from '@/lib/cloudbase/server';
 import { getCloudBaseApp } from '@/lib/cloudbase/sdk';
 
 export async function GET() {
-  // 生产环境禁用测试端点
-  if (process.env.NODE_ENV === 'production' && !process.env.ENABLE_TEST_ENDPOINTS) {
+  // 统一以 NODE_ENV 判断：production 禁用测试端点
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
     return NextResponse.json(
       { error: '此端点在生产环境中已禁用' },
       { status: 404 }

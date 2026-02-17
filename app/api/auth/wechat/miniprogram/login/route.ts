@@ -80,7 +80,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
     const userAgent = request.headers.get('user-agent') ?? undefined;
     const ipAddress = getClientIp(request);
     const result = await signInWithWechatMiniProgram(code, {
