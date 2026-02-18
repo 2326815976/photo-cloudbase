@@ -17,18 +17,29 @@ export async function DELETE(
     const dbClient = await createClient();
 
     // 验证管理员权限
-    const { data: { user } } = await dbClient.auth.getUser();
+    const { data: authData } = await dbClient.auth.getUser();
+    const user = authData?.user ?? null;
     if (!user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 });
     }
 
-    const { data: profile } = await dbClient
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
+    let isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
+    if (!isAdmin) {
+      const { data: profile, error: profileError } = await dbClient
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
 
-    if (profile?.role !== 'admin') {
+      if (profileError) {
+        console.error('Error checking admin profile:', profileError);
+        return NextResponse.json({ error: '读取管理员信息失败' }, { status: 500 });
+      }
+
+      isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
+    }
+
+    if (!isAdmin) {
       return NextResponse.json({ error: '需要管理员权限' }, { status: 403 });
     }
 

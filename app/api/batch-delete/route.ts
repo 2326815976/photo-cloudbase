@@ -38,16 +38,27 @@ export async function DELETE(request: NextRequest) {
     ]);
 
     const dbClient = await createClient();
-    const { data: { user } } = await dbClient.auth.getUser();
+    const { data: authData } = await dbClient.auth.getUser();
+    const user = authData?.user ?? null;
 
     let isAdmin = false;
     if (user) {
-      const { data: profile } = await dbClient
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-      isAdmin = profile?.role === 'admin';
+      isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
+      if (!isAdmin) {
+        const { data: profile, error: profileError } = await dbClient
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          return NextResponse.json(
+            { error: '读取管理员信息失败' },
+            { status: 500 }
+          );
+        }
+        isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
+      }
     }
 
     // 管理员路径：直接按 keys 删除

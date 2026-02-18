@@ -46,7 +46,8 @@ function isReleaseFileAllowed(file: File): boolean {
 export async function POST(request: NextRequest) {
   try {
     const dbClient = await createClient();
-    const { data: { user } } = await dbClient.auth.getUser();
+    const { data: authData } = await dbClient.auth.getUser();
+    const user = authData?.user ?? null;
 
     if (!user) {
       return NextResponse.json(
@@ -55,13 +56,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: profile } = await dbClient
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
+    let isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
+    if (!isAdmin) {
+      const { data: profile, error: profileError } = await dbClient
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
 
-    if (profile?.role !== 'admin') {
+      if (profileError) {
+        return NextResponse.json(
+          { error: '读取管理员信息失败' },
+          { status: 500 }
+        );
+      }
+      isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
+    }
+
+    if (!isAdmin) {
       return NextResponse.json(
         { error: '未授权：需要管理员权限' },
         { status: 403 }
