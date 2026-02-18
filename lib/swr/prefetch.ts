@@ -6,6 +6,19 @@
 import { mutate } from 'swr';
 import { createClient } from '@/lib/cloudbase/client';
 
+function isSortOrderColumnMissing(error: unknown): boolean {
+  const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '').toLowerCase()
+      : String(error ?? '').toLowerCase();
+  return (
+    message.includes('sort_order') &&
+    (message.includes('unknown column') ||
+      message.includes('does not exist') ||
+      (message.includes('column') && message.includes('not found')))
+  );
+}
+
 /**
  * 预加载照片墙数据
  */
@@ -62,10 +75,23 @@ export async function prefetchPoses(limit: number = 10) {
 export async function prefetchTags() {
   const dbClient = createClient();
   if (!dbClient) return;
-  const { data } = await dbClient
+  let { data, error } = await dbClient
     .from('pose_tags')
     .select('*')
-    .order('usage_count', { ascending: false });
+    .order('sort_order', { ascending: true })
+    .order('usage_count', { ascending: false })
+    .order('name', { ascending: true });
+
+  if (error && isSortOrderColumnMissing(error)) {
+    const fallback = await dbClient
+      .from('pose_tags')
+      .select('*')
+      .order('usage_count', { ascending: false });
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error) return;
 
   if (data) {
     mutate('tags', data, false);
@@ -99,5 +125,4 @@ export async function prefetchByRoute(pathname: string) {
     prefetchGallery();
   }
 }
-
 

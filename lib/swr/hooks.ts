@@ -7,6 +7,19 @@ import useSWR from 'swr';
 import { createClient } from '@/lib/cloudbase/client';
 import { CACHE_TIME } from './config';
 
+function isSortOrderColumnMissing(error: unknown): boolean {
+  const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '').toLowerCase()
+      : String(error ?? '').toLowerCase();
+  return (
+    message.includes('sort_order') &&
+    (message.includes('unknown column') ||
+      message.includes('does not exist') ||
+      (message.includes('column') && message.includes('not found')))
+  );
+}
+
 /**
  * 照片墙数据 Hook
  */
@@ -150,10 +163,21 @@ export function useTags() {
     if (!dbClient) {
       throw new Error('数据库客户端不可用');
     }
-    const { data, error } = await dbClient
+    let { data, error } = await dbClient
       .from('pose_tags')
       .select('*')
-      .order('usage_count', { ascending: false });
+      .order('sort_order', { ascending: true })
+      .order('usage_count', { ascending: false })
+      .order('name', { ascending: true });
+
+    if (error && isSortOrderColumnMissing(error)) {
+      const fallback = await dbClient
+        .from('pose_tags')
+        .select('*')
+        .order('usage_count', { ascending: false });
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) throw error;
     return data;
@@ -168,4 +192,3 @@ export function useTags() {
     }
   );
 }
-

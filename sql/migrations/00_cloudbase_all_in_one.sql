@@ -167,9 +167,11 @@ CREATE TABLE IF NOT EXISTS pose_tags (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   name VARCHAR(128) NOT NULL,
   usage_count INT UNSIGNED NOT NULL DEFAULT 0,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 2147483647,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_pose_tags_name (name),
+  KEY idx_pose_tags_sort_order (sort_order),
   KEY idx_pose_tags_usage_count (usage_count),
   KEY idx_pose_tags_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='摆姿标签';

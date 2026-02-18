@@ -23,6 +23,7 @@ interface PoseTag {
   id: number;
   name: string;
   usage_count: number;
+  sort_order?: number;
 }
 
 interface Pose {
@@ -46,6 +47,46 @@ const normalizePoses = (poses: Pose[]) =>
     ...pose,
     tags: Array.isArray(pose.tags) ? pose.tags : [],
   }));
+
+function isSortOrderColumnMissing(error: unknown): boolean {
+  const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '').toLowerCase()
+      : String(error ?? '').toLowerCase();
+  return (
+    message.includes('sort_order') &&
+    (message.includes('unknown column') ||
+      message.includes('does not exist') ||
+      (message.includes('column') && message.includes('not found')))
+  );
+}
+
+async function fetchOrderedPoseTags(dbClient: NonNullable<ReturnType<typeof createClient>>): Promise<PoseTag[]> {
+  const sortedResult = await dbClient
+    .from('pose_tags')
+    .select('*')
+    .order('sort_order', { ascending: true })
+    .order('usage_count', { ascending: false })
+    .order('name', { ascending: true });
+
+  if (!sortedResult.error) {
+    return Array.isArray(sortedResult.data) ? sortedResult.data : [];
+  }
+
+  if (!isSortOrderColumnMissing(sortedResult.error)) {
+    throw sortedResult.error;
+  }
+
+  const fallbackResult = await dbClient
+    .from('pose_tags')
+    .select('*')
+    .order('usage_count', { ascending: false });
+
+  if (fallbackResult.error) {
+    throw fallbackResult.error;
+  }
+  return Array.isArray(fallbackResult.data) ? fallbackResult.data : [];
+}
 
 const POSE_MEMORY_CACHE_TTL = 30 * 60 * 1000;
 
@@ -120,7 +161,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const hasClientInitialLoadStartedRef = useRef(false);
   const [poseCacheChecked, setPoseCacheChecked] = useState(false);
   const [bootstrapReady, setBootstrapReady] = useState(Boolean(memoryPose));
-  const TAGS_CACHE_KEY = 'pose-tags-cache-v1';
+  const TAGS_CACHE_KEY = 'pose-tags-cache-v2';
   const POSE_CACHE_KEY = 'pose-current-cache-v1';
 
   const HISTORY_SIZE = 10; // 优化：从5轮增加到10轮，减少重复
@@ -213,7 +254,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       const loadTags = async () => {
         const dbClient = createClient();
         if (!dbClient) return;
-        const { data } = await dbClient.from('pose_tags').select('*').order('usage_count', { ascending: false });
+        const data = await fetchOrderedPoseTags(dbClient);
         if (data) {
           setTags(data);
           try {
@@ -232,7 +273,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
       const loadAllTags = async () => {
         const dbClient = createClient();
         if (!dbClient) return;
-        const { data } = await dbClient.from('pose_tags').select('*').order('usage_count', { ascending: false });
+        const data = await fetchOrderedPoseTags(dbClient);
         if (data && data.length > initialTags.length) {
           setTags(data);
           try {

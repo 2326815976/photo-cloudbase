@@ -79,7 +79,7 @@ const metadataList: TableMetadata[] = [
   },
   {
     name: 'pose_tags',
-    columns: ['id', 'name', 'usage_count', 'created_at'],
+    columns: ['id', 'name', 'usage_count', 'sort_order', 'created_at'],
     primaryKey: 'id',
     primaryKeyKind: 'auto',
   },
