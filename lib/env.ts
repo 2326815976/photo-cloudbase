@@ -28,6 +28,16 @@ function normalizeEnvValue(value: string | undefined): string {
   return normalized;
 }
 
+function getServerEnv(...keys: string[]): string {
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = String(keys[i] || '').trim();
+    if (!key) continue;
+    const value = normalizeEnvValue(process.env[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
 function getEnv(key: string): string {
   // 客户端：优先使用运行时配置
   if (typeof window !== 'undefined' && window.__RUNTIME_CONFIG__) {
@@ -52,8 +62,8 @@ function resolveCloudBaseStorageDomain(): string {
   }
 
   const bucketId =
-    normalizeEnvValue(process.env.CLOUDBASE_BUCKET_ID) ||
-    normalizeEnvValue(process.env.NEXT_PUBLIC_CLOUDBASE_BUCKET_ID);
+    getServerEnv('CLOUDBASE_BUCKET_ID') ||
+    getServerEnv('NEXT_PUBLIC_CLOUDBASE_BUCKET_ID');
 
   if (!bucketId) {
     return '';
@@ -72,14 +82,14 @@ export const env = {
   TMAP_SERVER_KEY: () => getEnv('TMAP_SERVER_KEY') || getEnv('TMAP_WEBSERVICE_KEY') || getEnv('TMAP_KEY'),
 
   // 腾讯云 CloudBase 配置（服务端）
-  CLOUDBASE_ID: () => process.env.CLOUDBASE_ID || '',
-  CLOUDBASE_SECRET_ID: () => process.env.CLOUDBASE_SECRET_ID || '',
-  CLOUDBASE_SECRET_KEY: () => process.env.CLOUDBASE_SECRET_KEY || '',
-  CLOUDBASE_BUCKET_ID: () => process.env.CLOUDBASE_BUCKET_ID || process.env.NEXT_PUBLIC_CLOUDBASE_BUCKET_ID || '',
+  CLOUDBASE_ID: () => getServerEnv('CLOUDBASE_ID'),
+  CLOUDBASE_SECRET_ID: () => getServerEnv('CLOUDBASE_SECRET_ID'),
+  CLOUDBASE_SECRET_KEY: () => getServerEnv('CLOUDBASE_SECRET_KEY'),
+  CLOUDBASE_BUCKET_ID: () => getServerEnv('CLOUDBASE_BUCKET_ID', 'NEXT_PUBLIC_CLOUDBASE_BUCKET_ID'),
   CLOUDBASE_STORAGE_DOMAIN: () => resolveCloudBaseStorageDomain(),
-  CLOUDBASE_SQL_DB_NAME: () => process.env.CLOUDBASE_SQL_DB_NAME || process.env.CLOUDBASE_DB_NAME || 'photo',
-  CLOUDBASE_SQL_REGION: () => process.env.CLOUDBASE_SQL_REGION || process.env.TENCENTCLOUD_REGION || 'ap-guangzhou',
+  CLOUDBASE_SQL_DB_NAME: () => getServerEnv('CLOUDBASE_SQL_DB_NAME', 'CLOUDBASE_DB_NAME') || 'photo',
+  CLOUDBASE_SQL_REGION: () => getServerEnv('CLOUDBASE_SQL_REGION', 'TENCENTCLOUD_REGION') || 'ap-guangzhou',
 
   // Cron 配置（服务端）
-  CRON_SECRET: () => process.env.CRON_SECRET || '',
+  CRON_SECRET: () => getServerEnv('CRON_SECRET'),
 };
