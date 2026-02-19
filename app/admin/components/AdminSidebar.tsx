@@ -9,6 +9,7 @@ import {
   Calendar,
   Image,
   FolderHeart,
+  Info,
   Package,
   LogOut,
   User,
@@ -31,6 +32,7 @@ const navItems = [
   { href: '/admin/schedule', label: '档期管理', icon: Calendar },
   { href: '/admin/gallery', label: '照片墙管理', icon: Image },
   { href: '/admin/albums', label: '专属空间管理', icon: FolderHeart },
+  { href: '/admin/about', label: '关于设置', icon: Info },
   { href: '/admin/releases', label: '发布版本', icon: Package },
 ];
 

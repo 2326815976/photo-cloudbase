@@ -33,6 +33,22 @@ const metadataList: TableMetadata[] = [
     primaryKeyKind: 'uuid',
   },
   {
+    name: 'about_settings',
+    columns: [
+      'id',
+      'author_name',
+      'phone',
+      'wechat',
+      'email',
+      'donation_qr_code',
+      'author_message',
+      'created_at',
+      'updated_at',
+    ],
+    primaryKey: 'id',
+    primaryKeyKind: 'auto',
+  },
+  {
     name: 'user_active_logs',
     columns: ['user_id', 'active_date', 'created_at'],
     primaryKey: null,

@@ -136,6 +136,7 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
 
     case 'booking_blackouts':
     case 'app_releases':
+    case 'about_settings':
       if (scoped.action !== 'select') {
         throw new Error('未授权操作');
       }

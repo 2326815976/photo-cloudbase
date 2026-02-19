@@ -142,6 +142,7 @@ const storageUrlColumnsByTable: Record<string, string[]> = {
   album_photos: ['url', 'thumbnail_url', 'preview_url', 'original_url'],
   app_releases: ['download_url'],
   profiles: ['avatar', 'payment_qr_code'],
+  about_settings: ['donation_qr_code'],
 };
 
 const VALID_BOOKING_STATUSES = new Set(['pending', 'confirmed', 'in_progress', 'finished', 'cancelled']);

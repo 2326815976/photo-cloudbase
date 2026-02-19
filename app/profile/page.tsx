@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Calendar, LayoutDashboard, Lock, LogOut, User } from 'lucide-react';
+import { Calendar, Info, LayoutDashboard, Lock, LogOut, User } from 'lucide-react';
 import LogoutConfirmModal from '@/components/LogoutConfirmModal';
 import { createClient } from '@/lib/cloudbase/client';
 import { logoutWithCleanup } from '@/lib/auth/logout-client';
@@ -290,6 +290,26 @@ export default function ProfilePage() {
               <p className="text-xs text-[#5D4037]/50">查看所有约拍记录</p>
             </div>
           </motion.button>
+
+          {!isAdmin && (
+            <motion.button
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.27 }}
+              whileTap={{ scale: 0.98 }}
+              whileHover={{ x: 4 }}
+              onClick={() => router.push('/profile/about')}
+              className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
+            >
+              <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
+                <Info className="w-5 h-5 text-[#FFC857]" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-[#5D4037]">关于</h3>
+                <p className="text-xs text-[#5D4037]/50">查看作者联系方式与留言</p>
+              </div>
+            </motion.button>
+          )}
 
           {isAdmin && (
             <motion.button
