@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { executeSQL } from '@/lib/cloudbase/sql-executor';
 import { normalizeChinaMobile } from '@/lib/utils/phone';
 import { hashPassword, verifyPassword } from './password';
-import { createSession } from './session-store';
+import { createSession, revokeSessionsByUserId } from './session-store';
 import { AuthUser } from './types';
 
 const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
@@ -440,6 +440,9 @@ export async function updateUserPassword(userId: string, newPassword: string): P
       user_id: userId,
     }
   );
+
+  // 修改密码后强制所有设备下线（包含当前会话）
+  await revokeSessionsByUserId(userId);
 
   return { error: null };
 }

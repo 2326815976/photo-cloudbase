@@ -5,7 +5,7 @@ import { createClient } from '@/lib/cloudbase/client';
 import { Image, Trash2, Upload, Heart, Eye, CheckCircle, XCircle, AlertCircle, Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateBlurHash } from '@/lib/utils/blurhash';
-import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
+import { generateGalleryImageVersions } from '@/lib/utils/image-versions';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
 
@@ -377,11 +377,9 @@ export default function AdminGalleryPage() {
       setUploadProgress({ current: i + 1, total: uploadImages.length });
 
       try {
-        // 1. 生成多版本图片（thumbnail + preview + original，智能压缩）
-        const versions = await generateAlbumImageVersions(file);
+        // 1. 生成双版本图片（thumbnail + preview）
+        const versions = await generateGalleryImageVersions(file);
         const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
-        const previewVersion = versions.find(v => v.type === 'preview')!;
-        const originalVersion = versions.find(v => v.type === 'original')!;
 
         // 2. 生成 BlurHash（基于 thumbnail）
         const blurhash = await generateBlurHash(thumbnailVersion.file);
@@ -389,13 +387,12 @@ export default function AdminGalleryPage() {
         const timestamp = Date.now();
         let thumbnail_url = '';
         let preview_url = '';
-        let original_url = '';
         const uploadedKeys: string[] = [];
         let uploadFailed = false;
 
-        // 3. 客户端上传三个版本到 CloudBase 云存储（gallery 目录）
+        // 3. 客户端上传两个版本到 CloudBase 云存储（gallery 目录）
         for (const version of versions) {
-          const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
+          const ext = 'webp';
           const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
           try {
@@ -404,7 +401,6 @@ export default function AdminGalleryPage() {
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
             else if (version.type === 'preview') preview_url = publicUrl;
-            else if (version.type === 'original') original_url = publicUrl;
           } catch (uploadError) {
             console.error(`上传 ${version.type} 失败:`, uploadError);
             uploadFailed = true;
@@ -419,12 +415,13 @@ export default function AdminGalleryPage() {
         }
 
         // 4. 插入数据库
-        if (thumbnail_url && preview_url && original_url) {
+        if (thumbnail_url && preview_url) {
           const { error: insertError } = await dbClient.from('album_photos').insert({
             album_id: PHOTO_WALL_ALBUM_ID,
+            url: preview_url,
             thumbnail_url,
             preview_url,
-            original_url,
+            original_url: null,
             width: thumbnailVersion.width,
             height: thumbnailVersion.height,
             blurhash,

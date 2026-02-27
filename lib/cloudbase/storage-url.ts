@@ -1,59 +1,19 @@
 import 'server-only';
 
-import { env } from '@/lib/env';
 import { getCloudBaseTempFileUrls, resolveCloudBaseFileId } from '@/lib/cloudbase/storage';
 
 export const DEFAULT_STORAGE_TEMP_URL_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
-function normalizeAbsoluteOrigin(input: string): string {
-  const trimmed = String(input ?? '').trim().replace(/\/+$/, '');
-  if (!trimmed) {
-    return '';
-  }
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed;
-  }
-
-  return `https://${trimmed}`;
-}
-
-function getConfiguredStorageHosts(): Set<string> {
-  const hosts = new Set<string>();
-
-  const configuredDomain = normalizeAbsoluteOrigin(env.CLOUDBASE_STORAGE_DOMAIN());
-  if (!configuredDomain) {
-    return hosts;
-  }
-
-  try {
-    hosts.add(new URL(configuredDomain).hostname.toLowerCase());
-  } catch {
-    // ignore
-  }
-
-  return hosts;
-}
-
-function isCloudBaseStorageHttpUrl(url: string): boolean {
-  const trimmed = String(url ?? '').trim();
-  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-    return false;
-  }
-
-  try {
-    const host = new URL(trimmed).hostname.toLowerCase();
-    if (host === 'tcb.qcloud.la' || host.endsWith('.tcb.qcloud.la')) {
-      return true;
-    }
-
-    // 自定义域名场景：依然视为 CloudBase 存储 URL（仅用于生成临时签名 URL）。
-    const configuredHosts = getConfiguredStorageHosts();
-    return configuredHosts.has(host);
-  } catch {
-    return false;
-  }
-}
+const SIGNED_URL_QUERY_KEYS = new Set([
+  'sign',
+  'signature',
+  'token',
+  'expires',
+  'authorization',
+  'x-cos-security-token',
+  'x-cos-signature',
+  'x-cos-expires',
+]);
 
 function shouldResolveCloudBaseStorageUrl(input: unknown): boolean {
   const raw = String(input ?? '').trim();
@@ -66,7 +26,22 @@ function shouldResolveCloudBaseStorageUrl(input: unknown): boolean {
   }
 
   if (raw.startsWith('http://') || raw.startsWith('https://')) {
-    return isCloudBaseStorageHttpUrl(raw);
+    // 公开 URL 直接透传，减少额外 getTempFileURL 调用。
+    // 仅当 URL 携带明显签名参数时，才尝试刷新临时链接，兼容历史数据。
+    try {
+      const url = new URL(raw);
+      if (!url.search) {
+        return false;
+      }
+      for (const key of url.searchParams.keys()) {
+        if (SIGNED_URL_QUERY_KEYS.has(String(key).toLowerCase())) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+    return false;
   }
 
   // 相对路径默认视为 CloudBase 存储路径（如 albums/xxx.webp）。
@@ -161,4 +136,3 @@ export async function hydrateCloudBaseTempUrlsInRows(
     });
   });
 }
-

@@ -83,7 +83,9 @@ function isRetryableSqlError(error: unknown): boolean {
     message.includes('etimedout') ||
     message.includes('esockettimedout') ||
     message.includes('econnreset') ||
-    message.includes('network')
+    message.includes('network') ||
+    message.includes('database connection failed') ||
+    message.includes('invalidparameter')
   );
 }
 

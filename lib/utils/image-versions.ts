@@ -1,6 +1,6 @@
 /**
  * 多版本图片生成工具
- * 用于上传时生成 thumbnail(速览) + preview(高质量) + original(原图) 三个版本
+ * 按场景生成图片版本（照片墙：thumbnail+preview；返图空间：thumbnail+original）
  */
 
 import imageCompression from 'browser-image-compression';
@@ -26,12 +26,12 @@ export async function generateGalleryImageVersions(
 ): Promise<ImageVersion[]> {
   const versions: ImageVersion[] = [];
 
-  // 1. 生成列表缩略图 - 1080px, 质量80, WebP格式, ~500KB
+  // 1. 生成列表缩略图 - 960px, 质量76, WebP格式, ~280-360KB
   // 用于首页Feed流快速加载
   const thumbnailFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 1080,
-    maxSizeMB: 0.5,
-    initialQuality: 0.8,
+    maxWidthOrHeight: 960,
+    maxSizeMB: 0.36,
+    initialQuality: 0.76,
     fileType: 'image/webp',
     useWebWorker: true
   });
@@ -44,12 +44,12 @@ export async function generateGalleryImageVersions(
     height: thumbnailDimensions.height
   });
 
-  // 2. 生成高清预览图 - 1440px, 质量90, WebP格式, ~1.5MB
+  // 2. 生成高清预览图 - 1365px, 质量84, WebP格式, ~700KB-1.0MB
   // 用于点击查看大图
   const previewFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 1440,
-    maxSizeMB: 1.5,
-    initialQuality: 0.9,
+    maxWidthOrHeight: 1365,
+    maxSizeMB: 1.0,
+    initialQuality: 0.84,
     useWebWorker: true,
     fileType: 'image/webp'
   });
@@ -66,21 +66,21 @@ export async function generateGalleryImageVersions(
 }
 
 /**
- * 为返图空间生成多版本图片（缩略图 + 预览图 + 原图）
+ * 为返图空间生成双版本图片（列表图 + 原图）
  * @param originalFile - 原始图片文件
- * @returns 包含三个版本的数组
+ * @returns 包含缩略图与原图的数组
  */
 export async function generateAlbumImageVersions(
   originalFile: File
 ): Promise<ImageVersion[]> {
   const versions: ImageVersion[] = [];
 
-  // 1. 生成缩略图 - 600px, 质量85, WebP格式, ~600KB
-  // 提升列表展示质量，利用CDN加速优势
+  // 1. 生成列表图 - 960px, 质量78, WebP格式
+  // 兼顾清晰度和加载速度
   const thumbnailFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 600,
-    maxSizeMB: 0.6,
-    initialQuality: 0.85,
+    maxWidthOrHeight: 960,
+    maxSizeMB: 0.55,
+    initialQuality: 0.78,
     fileType: 'image/webp',
     useWebWorker: true
   });
@@ -93,36 +93,7 @@ export async function generateAlbumImageVersions(
     height: thumbnailDimensions.height
   });
 
-  // 2. 生成高质量预览图 - 1920px, 质量95, WebP格式
-  // 只有当原图大于2MB时才压缩
-  let previewFile: File;
-  if (originalFile.size > 2 * 1024 * 1024) {
-    previewFile = await imageCompression(originalFile, {
-      maxWidthOrHeight: 1920,
-      maxSizeMB: 2,
-      initialQuality: 0.95,
-      useWebWorker: true,
-      fileType: 'image/webp'
-    });
-  } else {
-    // 小于2MB，只调整尺寸，不压缩质量
-    previewFile = await imageCompression(originalFile, {
-      maxWidthOrHeight: 1920,
-      initialQuality: 1.0,
-      useWebWorker: true,
-      fileType: 'image/webp'
-    });
-  }
-
-  const previewDimensions = await getImageDimensions(previewFile);
-  versions.push({
-    file: previewFile,
-    type: 'preview',
-    width: previewDimensions.width,
-    height: previewDimensions.height
-  });
-
-  // 3. 原图 - 保持原始质量
+  // 2. 原图 - 保持原始质量
   const originalDimensions = await getImageDimensions(originalFile);
   versions.push({
     file: originalFile,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSessionUserFromRequest } from '@/lib/auth/context';
 import { updateUserPassword } from '@/lib/auth/service';
+import { SESSION_COOKIE_NAME, getSessionCookieOptions } from '@/lib/auth/cookie';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,10 +42,15 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       data: { user },
       error: null,
     });
+    response.cookies.set(SESSION_COOKIE_NAME, '', {
+      ...getSessionCookieOptions(),
+      maxAge: 0,
+    });
+    return response;
   } catch (error) {
     return NextResponse.json(
       {

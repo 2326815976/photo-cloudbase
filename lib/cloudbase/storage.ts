@@ -7,6 +7,15 @@ import { getCloudBaseApp } from '@/lib/cloudbase/sdk';
 export type CloudBaseStorageFolder = 'albums' | 'gallery' | 'poses' | 'releases';
 
 const ALLOWED_FOLDERS = new Set<CloudBaseStorageFolder>(['albums', 'gallery', 'poses', 'releases']);
+const TEMP_FILE_URL_CACHE_LIMIT = 5000;
+const TEMP_FILE_URL_CACHE_SAFETY_WINDOW_MS = 2 * 60 * 1000;
+
+interface TempFileUrlCacheEntry {
+  tempUrl: string;
+  expireAt: number;
+}
+
+const tempFileUrlCache = new Map<string, TempFileUrlCacheEntry>();
 
 function normalizeFolder(input: string): CloudBaseStorageFolder {
   const folder = String(input ?? '').trim().toLowerCase() as CloudBaseStorageFolder;
@@ -66,6 +75,54 @@ function normalizeDomain(domain: string): string {
   }
 
   return `https://${trimmed}`;
+}
+
+function readTempFileUrlCache(fileId: string): string | null {
+  const key = String(fileId ?? '').trim();
+  if (!key) {
+    return null;
+  }
+
+  const entry = tempFileUrlCache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (Date.now() >= entry.expireAt) {
+    tempFileUrlCache.delete(key);
+    return null;
+  }
+
+  // Map 按插入顺序遍历，touch 一次实现轻量 LRU。
+  tempFileUrlCache.delete(key);
+  tempFileUrlCache.set(key, entry);
+  return entry.tempUrl;
+}
+
+function writeTempFileUrlCache(fileId: string, tempUrl: string, maxAgeSeconds: number): void {
+  const key = String(fileId ?? '').trim();
+  const url = String(tempUrl ?? '').trim();
+  if (!key || !url) {
+    return;
+  }
+
+  const maxAgeMs = Math.max(60, Math.floor(maxAgeSeconds)) * 1000;
+  const expireAt = Date.now() + Math.max(1000, maxAgeMs - TEMP_FILE_URL_CACHE_SAFETY_WINDOW_MS);
+  const entry: TempFileUrlCacheEntry = {
+    tempUrl: url,
+    expireAt,
+  };
+
+  if (tempFileUrlCache.has(key)) {
+    tempFileUrlCache.delete(key);
+  }
+  tempFileUrlCache.set(key, entry);
+
+  while (tempFileUrlCache.size > TEMP_FILE_URL_CACHE_LIMIT) {
+    const oldestKey = tempFileUrlCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    tempFileUrlCache.delete(oldestKey);
+  }
 }
 
 function extractCloudPathFromFileId(fileId: string): string | null {
@@ -140,12 +197,18 @@ export async function getCloudBaseTempFileUrl(fileId: string, maxAgeSeconds: num
     throw new Error('CloudBase 文件 ID 不能为空');
   }
 
+  const cached = readTempFileUrlCache(normalizedFileId);
+  if (cached) {
+    return cached;
+  }
+
   const app = getCloudBaseApp();
+  const maxAge = Math.max(60, Math.floor(maxAgeSeconds));
   const result = await app.getTempFileURL({
     fileList: [
       {
         fileID: normalizedFileId,
-        maxAge: Math.max(60, Math.floor(maxAgeSeconds)),
+        maxAge,
       },
     ],
   });
@@ -155,7 +218,9 @@ export async function getCloudBaseTempFileUrl(fileId: string, maxAgeSeconds: num
     throw new Error(`获取 CloudBase 临时下载地址失败: ${fileInfo?.code ?? 'unknown'}`);
   }
 
-  return String(fileInfo.tempFileURL);
+  const tempUrl = String(fileInfo.tempFileURL);
+  writeTempFileUrlCache(normalizedFileId, tempUrl, maxAge);
+  return tempUrl;
 }
 
 export async function getCloudBaseTempFileUrls(
@@ -175,13 +240,28 @@ export async function getCloudBaseTempFileUrls(
     return resultMap;
   }
 
-  const app = getCloudBaseApp();
   const maxAge = Math.max(60, Math.floor(maxAgeSeconds));
+  const uncachedIds: string[] = [];
+
+  normalizedIds.forEach((fileId) => {
+    const cached = readTempFileUrlCache(fileId);
+    if (cached) {
+      resultMap.set(fileId, cached);
+      return;
+    }
+    uncachedIds.push(fileId);
+  });
+
+  if (uncachedIds.length === 0) {
+    return resultMap;
+  }
+
+  const app = getCloudBaseApp();
 
   // CloudBase 单次请求 fileList 有上限（通常为 50），这里做保守分批。
   const chunkSize = 50;
-  for (let i = 0; i < normalizedIds.length; i += chunkSize) {
-    const chunk = normalizedIds.slice(i, i + chunkSize);
+  for (let i = 0; i < uncachedIds.length; i += chunkSize) {
+    const chunk = uncachedIds.slice(i, i + chunkSize);
     const res = await app.getTempFileURL({
       fileList: chunk.map((fileID) => ({
         fileID,
@@ -195,6 +275,7 @@ export async function getCloudBaseTempFileUrls(
       const code = String(item?.code ?? '').trim().toUpperCase();
       const url = String(item?.tempFileURL ?? '').trim();
       if (fileID && code === 'SUCCESS' && url) {
+        writeTempFileUrlCache(fileID, url, maxAge);
         resultMap.set(fileID, url);
       }
     });

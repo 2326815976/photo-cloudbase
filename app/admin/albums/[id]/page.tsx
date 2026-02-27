@@ -576,7 +576,7 @@ export default function AlbumDetailPage() {
       setUploadProgress({ current: i + 1, total: batchImages.length });
 
       try {
-        // 1. 生成多版本图片（thumbnail + preview + original，智能压缩）
+        // 1. 生成双版本图片（thumbnail + original）
         const versions = await generateAlbumImageVersions(file);
         const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
 
@@ -585,14 +585,13 @@ export default function AlbumDetailPage() {
 
         const timestamp = Date.now();
         let thumbnail_url = '';
-        let preview_url = '';
         let original_url = '';
         const uploadedKeys: string[] = [];
         let uploadFailed = false;
 
-        // 3. 客户端上传三个版本到 CloudBase 云存储（albums 目录）
+        // 3. 客户端上传两个版本到 CloudBase 云存储（albums 目录）
         for (const version of versions) {
-          // thumbnail 和 preview 使用 webp，original 保持原格式
+          // thumbnail 使用 webp，original 保持原格式
           const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
           const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
 
@@ -601,7 +600,6 @@ export default function AlbumDetailPage() {
             uploadedKeys.push(`albums/${fileName}`);
 
             if (version.type === 'thumbnail') thumbnail_url = publicUrl;
-            else if (version.type === 'preview') preview_url = publicUrl;
             else if (version.type === 'original') original_url = publicUrl;
           } catch (uploadError) {
             console.error(`上传 ${version.type} 失败:`, uploadError);
@@ -617,11 +615,12 @@ export default function AlbumDetailPage() {
         }
 
         // 4. 插入数据库
-        if (thumbnail_url && preview_url && original_url) {
+        if (thumbnail_url && original_url) {
+          const preview_url = original_url;
           const insertError = await insertAlbumPhotoWithCompat(dbClient, {
             album_id: albumId,
             folder_id: uploadFolderId,
-            url: preview_url || original_url || thumbnail_url,
+            url: original_url || thumbnail_url,
             thumbnail_url,
             preview_url,
             original_url,

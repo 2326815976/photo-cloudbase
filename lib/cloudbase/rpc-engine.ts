@@ -1,8 +1,9 @@
 import 'server-only';
 
+import { Buffer } from 'buffer';
 import { randomUUID } from 'crypto';
 import { AuthContext } from '@/lib/auth/types';
-import { deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
+import { deleteCloudBaseObjects, uploadFileToCloudBase } from '@/lib/cloudbase/storage';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { executeSQL } from './sql-executor';
@@ -108,6 +109,85 @@ function normalizeTags(value: any): string[] {
   return [];
 }
 
+function resolveBooleanArg(value: unknown, defaultValue: boolean): boolean {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === '') {
+    return defaultValue;
+  }
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+function normalizeMaybeUrlText(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return null;
+  }
+  const lowered = raw.toLowerCase();
+  if (lowered === 'null' || lowered === 'undefined') {
+    return null;
+  }
+  return raw;
+}
+
+function resolveAlbumFolderFilter(folderIdInput: unknown): {
+  clause: string;
+  params: Record<string, unknown>;
+  normalizedFolderId: string | null;
+} {
+  const rawFolderId = String(folderIdInput ?? '').trim();
+  const normalizedLower = rawFolderId.toLowerCase();
+  const isRootFolder = !rawFolderId || rawFolderId === '__ROOT__' || normalizedLower === 'root';
+
+  if (isRootFolder) {
+    return {
+      clause: `(p.folder_id <=> NULL OR p.folder_id = '')`,
+      params: {},
+      normalizedFolderId: null,
+    };
+  }
+
+  return {
+    clause: `p.folder_id = {{folder_id}}`,
+    params: { folder_id: rawFolderId },
+    normalizedFolderId: rawFolderId,
+  };
+}
+
+function mapAlbumPhotoRow(
+  row: Record<string, any>,
+  commentsByPhotoId?: Map<string, Array<Record<string, any>>>
+): Record<string, any> {
+  const photoId = String(row.id);
+  return {
+    id: photoId,
+    folder_id: row.folder_id ? String(row.folder_id) : null,
+    thumbnail_url: row.thumbnail_url ?? null,
+    preview_url: row.preview_url ?? null,
+    original_url: row.original_url ?? null,
+    width: toNumber(row.width, 0),
+    height: toNumber(row.height, 0),
+    blurhash: row.blurhash ?? null,
+    is_public: toBoolean(row.is_public),
+    rating: toNumber(row.rating, 0),
+    comments: commentsByPhotoId ? commentsByPhotoId.get(photoId) ?? [] : [],
+  };
+}
+
 function requireUser(context: AuthContext): string {
   const userId = context.user?.id;
   if (!userId) {
@@ -127,6 +207,92 @@ const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
 const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
 const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_WALL_ALBUM_ACCESS_KEY = 'WALL0000';
+const WALL_THUMBNAIL_MAX_WIDTH = 960;
+const WALL_PREVIEW_MAX_WIDTH = 1365;
+const WALL_THUMBNAIL_QUALITY = 76;
+const WALL_PREVIEW_QUALITY = 84;
+
+let sharpModulePromise: Promise<any> | null = null;
+
+function getSafeWallSourceToken(photoId: string): string {
+  const safe = String(photoId ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9_-]/g, '');
+  return safe || randomUUID().replace(/-/g, '').slice(0, 16);
+}
+
+function buildWallStorageKey(sourcePhotoId: string, kind: 'thumb' | 'preview'): string {
+  const token = getSafeWallSourceToken(sourcePhotoId);
+  const suffix = randomUUID().replace(/-/g, '').slice(0, 8);
+  return `wall/${token}_${Date.now()}_${suffix}_${kind}.webp`;
+}
+
+async function getSharp() {
+  if (!sharpModulePromise) {
+    sharpModulePromise = import('sharp').then((mod: any) => mod.default || mod);
+  }
+  return sharpModulePromise;
+}
+
+async function downloadImageBuffer(url: string): Promise<Buffer> {
+  const target = String(url ?? '').trim();
+  if (!target) {
+    throw new Error('缺少源图片地址');
+  }
+
+  const response = await fetch(target);
+  if (!response.ok) {
+    throw new Error(`下载源图失败（${response.status}）`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+async function buildWallImageVariantsFromSource(sourceUrl: string): Promise<{
+  thumbnailBuffer: Buffer;
+  previewBuffer: Buffer;
+  width: number;
+  height: number;
+}> {
+  const sourceBuffer = await downloadImageBuffer(sourceUrl);
+  const sharp = await getSharp();
+
+  const thumbnailBuffer = await sharp(sourceBuffer)
+    .rotate()
+    .resize({ width: WALL_THUMBNAIL_MAX_WIDTH, withoutEnlargement: true })
+    .webp({ quality: WALL_THUMBNAIL_QUALITY })
+    .toBuffer();
+  const previewBuffer = await sharp(sourceBuffer)
+    .rotate()
+    .resize({ width: WALL_PREVIEW_MAX_WIDTH, withoutEnlargement: true })
+    .webp({ quality: WALL_PREVIEW_QUALITY })
+    .toBuffer();
+
+  const thumbnailMeta = await sharp(thumbnailBuffer).metadata();
+  return {
+    thumbnailBuffer,
+    previewBuffer,
+    width: toNumber(thumbnailMeta.width, 0),
+    height: toNumber(thumbnailMeta.height, 0),
+  };
+}
+
+function resolveSourcePhotoBestUrl(source: Record<string, any>): string {
+  const candidates = [
+    source.original_url,
+    source.preview_url,
+    source.url,
+    source.thumbnail_url,
+  ];
+  for (let i = 0; i < candidates.length; i += 1) {
+    const value = String(candidates[i] ?? '').trim();
+    if (value) {
+      return value;
+    }
+  }
+  return '';
+}
 
 async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthContext) {
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
@@ -153,12 +319,13 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
         LEFT JOIN photo_likes pl
           ON pl.photo_id = p.id
          AND pl.user_id = {{user_id}}
-        WHERE p.is_public = 1
+        WHERE p.album_id = {{wall_album_id}}
         ORDER BY p.created_at DESC
         LIMIT {{limit}} OFFSET {{offset}}
       `,
       {
         user_id: context.user.id,
+        wall_album_id: SYSTEM_WALL_ALBUM_ID,
         limit: pageSize,
         offset,
       }
@@ -180,11 +347,12 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.created_at,
           0 AS is_liked
         FROM album_photos p
-        WHERE p.is_public = 1
+        WHERE p.album_id = {{wall_album_id}}
         ORDER BY p.created_at DESC
         LIMIT {{limit}} OFFSET {{offset}}
       `,
       {
+        wall_album_id: SYSTEM_WALL_ALBUM_ID,
         limit: pageSize,
         offset,
       }
@@ -196,8 +364,11 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     `
       SELECT COUNT(*) AS total
       FROM album_photos
-      WHERE is_public = 1
-    `
+      WHERE album_id = {{wall_album_id}}
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    }
   );
 
   await hydrateCloudBaseTempUrlsInRows(photos, ['thumbnail_url', 'preview_url', 'original_url']);
@@ -220,6 +391,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
   if (!inputKey) {
     throw new Error('密钥错误');
   }
+  const includePhotos = resolveBooleanArg(args.include_photos, true);
 
   const albumResult = await executeSQL(
     `
@@ -266,71 +438,75 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
     }
   );
 
-  const photosResult = await executeSQL(
-    `
-      SELECT
-        id,
-        folder_id,
-        COALESCE(thumbnail_url, url) AS thumbnail_url,
-        COALESCE(preview_url, url) AS preview_url,
-        COALESCE(original_url, url) AS original_url,
-        width,
-        height,
-        blurhash,
-        is_public,
-        rating
-      FROM album_photos
-      WHERE album_id = {{album_id}}
-      ORDER BY created_at DESC
-    `,
-    {
-      album_id: album.id,
-    }
-  );
-
-  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['thumbnail_url', 'preview_url', 'original_url']);
-
-  const photoIds = photosResult.rows.map((row) => String(row.id));
+  let photoRows: Record<string, any>[] = [];
   const commentsByPhotoId = new Map<string, Array<Record<string, any>>>();
 
-  if (photoIds.length > 0) {
-    const placeholders: string[] = [];
-    const values: Record<string, unknown> = {};
-    photoIds.forEach((id, index) => {
-      const key = `photo_id_${index}`;
-      placeholders.push(`{{${key}}}`);
-      values[key] = id;
-    });
-
-    const commentsResult = await executeSQL(
+  if (includePhotos) {
+    const photosResult = await executeSQL(
       `
         SELECT
           id,
-          photo_id,
-          nickname,
-          content,
-          is_admin_reply,
-          created_at
-        FROM photo_comments
-        WHERE photo_id IN (${placeholders.join(', ')})
-        ORDER BY created_at ASC
+          folder_id,
+          COALESCE(thumbnail_url, url) AS thumbnail_url,
+          COALESCE(preview_url, url) AS preview_url,
+          COALESCE(original_url, url) AS original_url,
+          width,
+          height,
+          blurhash,
+          is_public,
+          rating
+        FROM album_photos
+        WHERE album_id = {{album_id}}
+        ORDER BY created_at DESC
       `,
-      values
+      {
+        album_id: album.id,
+      }
     );
 
-    commentsResult.rows.forEach((row) => {
-      const key = String(row.photo_id);
-      if (!commentsByPhotoId.has(key)) {
-        commentsByPhotoId.set(key, []);
-      }
-      commentsByPhotoId.get(key)!.push({
-        id: String(row.id),
-        nickname: row.nickname ?? '访客',
-        content: row.content ?? '',
-        is_admin: toBoolean(row.is_admin_reply),
-        created_at: row.created_at,
+    photoRows = photosResult.rows;
+    await hydrateCloudBaseTempUrlsInRows(photoRows, ['thumbnail_url', 'preview_url', 'original_url']);
+
+    const photoIds = photoRows.map((row) => String(row.id));
+    if (photoIds.length > 0) {
+      const placeholders: string[] = [];
+      const values: Record<string, unknown> = {};
+      photoIds.forEach((id, index) => {
+        const key = `photo_id_${index}`;
+        placeholders.push(`{{${key}}}`);
+        values[key] = id;
       });
-    });
+
+      const commentsResult = await executeSQL(
+        `
+          SELECT
+            id,
+            photo_id,
+            nickname,
+            content,
+            is_admin_reply,
+            created_at
+          FROM photo_comments
+          WHERE photo_id IN (${placeholders.join(', ')})
+          ORDER BY created_at ASC
+        `,
+        values
+      );
+
+      commentsResult.rows.forEach((row) => {
+        const key = String(row.photo_id);
+        if (!commentsByPhotoId.has(key)) {
+          commentsByPhotoId.set(key, []);
+        }
+        commentsByPhotoId.get(key)!.push({
+          id: String(row.id),
+          nickname: row.nickname ?? '访客',
+          content: row.content ?? '',
+          is_admin: toBoolean(row.is_admin_reply),
+          created_at: row.created_at,
+        });
+      });
+    }
   }
 
   return {
@@ -338,10 +514,10 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
       id: String(album.id),
       title: album.title ?? '',
       welcome_letter: album.welcome_letter ?? '',
-      cover_url: album.cover_url ?? null,
+      cover_url: normalizeMaybeUrlText(album.cover_url),
       enable_tipping: toBoolean(album.enable_tipping),
       enable_welcome_letter: album.enable_welcome_letter === null ? true : toBoolean(album.enable_welcome_letter),
-      donation_qr_code_url: album.donation_qr_code_url ?? null,
+      donation_qr_code_url: normalizeMaybeUrlText(album.donation_qr_code_url),
       recipient_name: album.recipient_name ?? '拾光者',
       created_at: album.created_at,
       expires_at: album.effective_expires_at,
@@ -351,19 +527,87 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
       id: String(row.id),
       name: String(row.name ?? ''),
     })),
-    photos: photosResult.rows.map((row) => ({
-      id: String(row.id),
-      folder_id: row.folder_id ? String(row.folder_id) : null,
-      thumbnail_url: row.thumbnail_url ?? null,
-      preview_url: row.preview_url ?? null,
-      original_url: row.original_url ?? null,
-      width: toNumber(row.width, 0),
-      height: toNumber(row.height, 0),
-      blurhash: row.blurhash ?? null,
-      is_public: toBoolean(row.is_public),
-      rating: toNumber(row.rating, 0),
-      comments: commentsByPhotoId.get(String(row.id)) ?? [],
-    })),
+    photos: photoRows.map((row) => mapAlbumPhotoRow(row, commentsByPhotoId)),
+  };
+}
+
+async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
+  const inputKey = normalizeAccessKey(args.input_key);
+  if (!inputKey) {
+    throw new Error('密钥错误');
+  }
+
+  const pageNo = Math.max(1, Number(args.page_no ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
+  const offset = (pageNo - 1) * pageSize;
+
+  const albumResult = await executeSQL(
+    `
+      SELECT id
+      FROM albums
+      WHERE access_key = {{access_key}}
+      LIMIT 1
+    `,
+    {
+      access_key: inputKey,
+    }
+  );
+  const album = albumResult.rows[0];
+  if (!album) {
+    throw new Error('密钥错误');
+  }
+
+  const folderFilter = resolveAlbumFolderFilter(args.folder_id);
+  const baseValues = {
+    album_id: String(album.id),
+    ...folderFilter.params,
+  };
+
+  const photosResult = await executeSQL(
+    `
+      SELECT
+        p.id,
+        p.folder_id,
+        COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
+        COALESCE(p.preview_url, p.url) AS preview_url,
+        COALESCE(p.original_url, p.url) AS original_url,
+        p.width,
+        p.height,
+        p.blurhash,
+        p.is_public,
+        p.rating
+      FROM album_photos p
+      WHERE p.album_id = {{album_id}}
+        AND ${folderFilter.clause}
+      ORDER BY p.created_at DESC
+      LIMIT {{limit}} OFFSET {{offset}}
+    `,
+    {
+      ...baseValues,
+      limit: pageSize,
+      offset,
+    }
+  );
+  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['thumbnail_url', 'preview_url', 'original_url']);
+
+  const countResult = await executeSQL(
+    `
+      SELECT COUNT(*) AS total
+      FROM album_photos p
+      WHERE p.album_id = {{album_id}}
+        AND ${folderFilter.clause}
+    `,
+    baseValues
+  );
+  const total = toNumber(countResult.rows[0]?.total, 0);
+
+  return {
+    photos: photosResult.rows.map((row) => mapAlbumPhotoRow(row)),
+    total,
+    page_no: pageNo,
+    page_size: pageSize,
+    has_more: pageNo * pageSize < total,
+    folder_id: folderFilter.normalizedFolderId,
   };
 }
 
@@ -408,7 +652,7 @@ async function rpcBindUserToAlbum(args: Record<string, unknown>, context: AuthCo
   return {
     id: String(album.id),
     title: album.title ?? '',
-    cover_url: album.cover_url ?? null,
+    cover_url: normalizeMaybeUrlText(album.cover_url),
     created_at: album.created_at,
   };
 }
@@ -445,7 +689,7 @@ async function rpcGetUserBoundAlbums(context: AuthContext) {
   return result.rows.map((row) => ({
     id: String(row.id),
     title: row.title ?? '',
-    cover_url: row.cover_url ?? null,
+    cover_url: normalizeMaybeUrlText(row.cover_url),
     created_at: row.created_at,
     access_key: row.access_key ?? '',
     bound_at: row.bound_at,
@@ -505,10 +749,22 @@ async function rpcUnbindUserFromAlbum(args: Record<string, unknown>, context: Au
 async function rpcPinPhotoToWall(args: Record<string, unknown>) {
   const accessKey = normalizeAccessKey(args.p_access_key);
   const photoId = String(args.p_photo_id ?? '').trim();
+  if (!accessKey || !photoId) {
+    throw new Error('参数错误');
+  }
 
   const result = await executeSQL(
     `
-      SELECT p.id
+      SELECT
+        p.id,
+        p.album_id,
+        p.url,
+        p.thumbnail_url,
+        p.preview_url,
+        p.original_url,
+        p.width,
+        p.height,
+        p.blurhash
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE a.access_key = {{access_key}}
@@ -521,14 +777,148 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     }
   );
 
-  if (!result.rows[0]) {
+  const sourcePhoto = result.rows[0];
+  if (!sourcePhoto) {
     throw new Error('无权操作：密钥错误或照片不属于该空间');
+  }
+
+  const sourceToken = getSafeWallSourceToken(photoId);
+  const sourcePattern = `%/wall/${sourceToken}_%`;
+
+  const existingWallResult = await executeSQL(
+    `
+      SELECT id, url, thumbnail_url, preview_url, original_url
+      FROM album_photos
+      WHERE album_id = {{wall_album_id}}
+        AND (
+          thumbnail_url LIKE {{source_pattern}}
+          OR preview_url LIKE {{source_pattern}}
+          OR url LIKE {{source_pattern}}
+        )
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+      source_pattern: sourcePattern,
+    }
+  );
+  const existingWall = existingWallResult.rows[0];
+
+  if (existingWall) {
+    const deleteTargets = [
+      String(existingWall.thumbnail_url ?? '').trim(),
+      String(existingWall.preview_url ?? '').trim(),
+      String(existingWall.original_url ?? '').trim(),
+      String(existingWall.url ?? '').trim(),
+    ].filter(Boolean);
+
+    if (deleteTargets.length > 0) {
+      await deleteCloudBaseObjects(deleteTargets);
+    }
+
+    await executeSQL(
+      `
+        DELETE FROM album_photos
+        WHERE id = {{id}}
+        LIMIT 1
+      `,
+      {
+        id: String(existingWall.id),
+      }
+    );
+
+    await executeSQL(
+      `
+        UPDATE album_photos
+        SET is_public = 0
+        WHERE id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+      }
+    );
+
+    return false;
+  }
+
+  const sourceUrl = resolveSourcePhotoBestUrl(sourcePhoto);
+  if (!sourceUrl) {
+    throw new Error('定格失败：缺少源图地址');
+  }
+
+  const wallVariant = await buildWallImageVariantsFromSource(sourceUrl);
+  const thumbnailUpload = await uploadFileToCloudBase(
+    wallVariant.thumbnailBuffer,
+    buildWallStorageKey(photoId, 'thumb'),
+    'gallery'
+  );
+  const previewUpload = await uploadFileToCloudBase(
+    wallVariant.previewBuffer,
+    buildWallStorageKey(photoId, 'preview'),
+    'gallery'
+  );
+
+  try {
+    await executeSQL(
+      `
+        INSERT INTO album_photos (
+          id,
+          album_id,
+          folder_id,
+          url,
+          thumbnail_url,
+          preview_url,
+          original_url,
+          width,
+          height,
+          blurhash,
+          is_public,
+          view_count,
+          like_count,
+          rating,
+          created_at
+        ) VALUES (
+          {{id}},
+          {{album_id}},
+          NULL,
+          {{url}},
+          {{thumbnail_url}},
+          {{preview_url}},
+          NULL,
+          {{width}},
+          {{height}},
+          {{blurhash}},
+          1,
+          0,
+          0,
+          0,
+          ${NOW_UTC8_EXPR}
+        )
+      `,
+      {
+        id: randomUUID(),
+        album_id: SYSTEM_WALL_ALBUM_ID,
+        url: previewUpload.downloadUrl,
+        thumbnail_url: thumbnailUpload.downloadUrl,
+        preview_url: previewUpload.downloadUrl,
+        width: wallVariant.width || toNumber(sourcePhoto.width, 0),
+        height: wallVariant.height || toNumber(sourcePhoto.height, 0),
+        blurhash: String(sourcePhoto.blurhash ?? '').trim() || null,
+      }
+    );
+  } catch (insertError) {
+    await deleteCloudBaseObjects([
+      thumbnailUpload.downloadUrl,
+      previewUpload.downloadUrl,
+    ]);
+    throw insertError;
   }
 
   await executeSQL(
     `
       UPDATE album_photos
-      SET is_public = CASE WHEN is_public = 1 THEN 0 ELSE 1 END
+      SET is_public = 1
       WHERE id = {{photo_id}}
     `,
     {
@@ -536,7 +926,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     }
   );
 
-  return null;
+  return true;
 }
 
 async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
@@ -1416,9 +1806,12 @@ async function cleanupExpiredData() {
       SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
-      WHERE p.is_public = 0
+      WHERE p.album_id <> {{wall_album_id}}
         AND COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
-    `
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    }
   );
 
   const photoRows = expiredPhotoAssets.rows.map((row) => ({
@@ -1450,10 +1843,13 @@ async function cleanupExpiredData() {
           FROM album_photos p
           JOIN albums a ON a.id = p.album_id
           WHERE p.id IN (${placeholders.join(', ')})
-            AND p.is_public = 0
+            AND p.album_id <> {{wall_album_id}}
             AND COALESCE(a.expires_at, DATE_ADD(a.created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
         `,
-        values
+        {
+          ...values,
+          wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        }
       );
       deletedPhotosCount += deleteResult.affectedRows;
     }
@@ -1698,6 +2094,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
         break;
       case 'get_album_content':
         data = await rpcGetAlbumContent(args);
+        break;
+      case 'get_album_photo_page':
+        data = await rpcGetAlbumPhotoPage(args);
         break;
       case 'bind_user_to_album':
         data = await rpcBindUserToAlbum(args, context);
