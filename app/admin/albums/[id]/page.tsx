@@ -9,6 +9,7 @@ import { generateAlbumImageVersions, generateGalleryImageVersions } from '@/lib/
 import { generateBlurHash } from '@/lib/utils/blurhash';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
+import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
 
 interface Album {
   id: string;
@@ -133,6 +134,13 @@ export default function AlbumDetailPage() {
   const [showShotDateModal, setShowShotDateModal] = useState(false);
   const [editingShotDatePhoto, setEditingShotDatePhoto] = useState<Photo | null>(null);
   const [editingShotDateValue, setEditingShotDateValue] = useState(getTodayUTC8());
+
+  const invalidatePublicGalleryCache = () => {
+    if (String(albumId) !== SYSTEM_WALL_ALBUM_ID) {
+      return;
+    }
+    markGalleryCacheDirty();
+  };
 
   useEffect(() => {
     loadAlbumData();
@@ -296,6 +304,7 @@ export default function AlbumDetailPage() {
       setNewFolderName('');
       setShowNewFolderModal(false);
       loadAlbumData();
+      invalidatePublicGalleryCache();
       setShowToast({ message: '文件夹创建成功', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } else {
@@ -356,6 +365,7 @@ export default function AlbumDetailPage() {
 
     setAlbum((prev) => (prev ? { ...prev, root_folder_name: targetName } : prev));
     setShowEditRootModal(false);
+    invalidatePublicGalleryCache();
     setShowToast({ message: '根目录名称已更新', type: 'success' });
     setTimeout(() => setShowToast(null), 3000);
   };
@@ -404,6 +414,7 @@ export default function AlbumDetailPage() {
 
     if (!error) {
       loadAlbumData();
+      invalidatePublicGalleryCache();
       const currentRootName = String(album?.root_folder_name ?? '').trim() || '根目录';
       setShowToast({ message: `文件夹已删除，照片已移至${currentRootName}`, type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
@@ -862,6 +873,7 @@ export default function AlbumDetailPage() {
       )
     );
     closeStoryModal();
+    invalidatePublicGalleryCache();
     setShowToast({ message: '关于此刻已更新', type: 'success' });
     setTimeout(() => setShowToast(null), 3000);
   };
@@ -933,6 +945,7 @@ export default function AlbumDetailPage() {
       )
     );
     closeShotDateModal();
+    invalidatePublicGalleryCache();
     setShowToast({ message: '拍摄日期已更新', type: 'success' });
     setTimeout(() => setShowToast(null), 3000);
   };
@@ -1001,6 +1014,7 @@ export default function AlbumDetailPage() {
           };
         })
       );
+      invalidatePublicGalleryCache();
       setShowToast({ message: direction === 'up' ? '已上移一位' : '已下移一位', type: 'success' });
       setTimeout(() => setShowToast(null), 2000);
     } catch (error: any) {
@@ -1050,6 +1064,7 @@ export default function AlbumDetailPage() {
       setSingleHighlight(false);
       setSingleShotDate(getTodayUTC8());
       loadAlbumData();
+      invalidatePublicGalleryCache();
       setShowToast({ message: '单图上传成功', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -1113,6 +1128,7 @@ export default function AlbumDetailPage() {
 
     if (successCount > 0) {
       loadAlbumData();
+      invalidatePublicGalleryCache();
     }
 
     if (failCount > 0) {
@@ -1219,6 +1235,7 @@ export default function AlbumDetailPage() {
       setActionLoading(false);
       setDeletingPhoto(null);
       loadAlbumData();
+      invalidatePublicGalleryCache();
 
       if (storageCleanupFailed) {
         setShowToast({ message: '照片记录已删除，但云存储清理失败，请稍后重试', type: 'warning' });
@@ -1371,6 +1388,7 @@ export default function AlbumDetailPage() {
 
       setActionLoading(false);
       closeMoveModal();
+      invalidatePublicGalleryCache();
       setShowToast({ message: `成功迁移 ${toMoveIds.length} 张照片到${targetFolderName}`, type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
@@ -1478,6 +1496,7 @@ export default function AlbumDetailPage() {
       setSelectedPhotoIds([]);
       setIsSelectionMode(false);
       loadAlbumData();
+      invalidatePublicGalleryCache();
 
       const partialFailedCount = remainingIdSet.size;
       const warningParts: string[] = [];
