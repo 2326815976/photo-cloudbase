@@ -5,7 +5,7 @@ import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, RotateCcw, Sparkles, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
+import { generateAlbumImageVersions, generateGalleryImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
@@ -42,6 +42,7 @@ interface Photo {
 
 const ROOT_FOLDER_SENTINEL = '__ROOT__';
 const DEFAULT_PHOTO_SORT_ORDER = 2147483647;
+const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT = '数据库缺少 story_text / is_highlight / sort_order 字段，请先执行 SQL 迁移：photo/sql/migrations/06_album_photo_story_sort.sql';
 const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
 
@@ -177,6 +178,7 @@ export default function AlbumDetailPage() {
       .select('*', { count: 'exact' })
       .eq('album_id', albumId)
       .order('sort_order', { ascending: true })
+      .order('shot_date', { ascending: false })
       .order('created_at', { ascending: false })
       .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
 
@@ -185,8 +187,28 @@ export default function AlbumDetailPage() {
         .from('album_photos')
         .select('*', { count: 'exact' })
         .eq('album_id', albumId)
+        .order('shot_date', { ascending: false })
         .order('created_at', { ascending: false })
         .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+    }
+
+    if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'shot_date')) {
+      photosRes = await dbClient
+        .from('album_photos')
+        .select('*', { count: 'exact' })
+        .eq('album_id', albumId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: false })
+        .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+
+      if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'sort_order')) {
+        photosRes = await dbClient
+          .from('album_photos')
+          .select('*', { count: 'exact' })
+          .eq('album_id', albumId)
+          .order('created_at', { ascending: false })
+          .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+      }
     }
 
     if (albumRes.data) setAlbum(albumRes.data);
@@ -693,25 +715,48 @@ export default function AlbumDetailPage() {
     }
   ): Promise<{ ok: true } | { ok: false; message: string }> => {
     try {
-      const versions = await generateAlbumImageVersions(file);
+      const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
+      const versions = isSystemWallAlbum
+        ? await generateGalleryImageVersions(file)
+        : await generateAlbumImageVersions(file);
       const thumbnailVersion = versions.find((v) => v.type === 'thumbnail');
+      const previewVersion = versions.find((v) => v.type === 'preview');
+      const originalVersion = versions.find((v) => v.type === 'original');
       if (!thumbnailVersion) {
-        return { ok: false, message: '生成缩略图失败' };
+        return { ok: false, message: '生成图片版本失败' };
+      }
+      if (isSystemWallAlbum && !previewVersion) {
+        return { ok: false, message: '生成图片版本失败' };
+      }
+      if (!isSystemWallAlbum && !originalVersion) {
+        return { ok: false, message: '生成图片版本失败' };
       }
 
       const blurhash = await generateBlurHash(thumbnailVersion.file);
       const timestamp = Date.now();
       let thumbnail_url = '';
+      let preview_url = '';
       let original_url = '';
       const uploadedKeys: string[] = [];
 
       for (const version of versions) {
-        const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
+        const ext = version.type === 'original'
+          ? (file.name.split('.').pop() || 'jpg')
+          : 'webp';
         const fileName = `${timestamp}_${photoIndex}_${version.type}.${ext}`;
         const publicUrl = await uploadToCloudBaseDirect(version.file, fileName, 'albums');
         uploadedKeys.push(`albums/${fileName}`);
         if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+        if (version.type === 'preview') {
+          preview_url = publicUrl;
+        }
         if (version.type === 'original') original_url = publicUrl;
+      }
+
+      if (isSystemWallAlbum) {
+        original_url = preview_url || original_url;
+      } else {
+        preview_url = original_url || preview_url;
       }
 
       if (!thumbnail_url || !original_url) {
@@ -722,12 +767,12 @@ export default function AlbumDetailPage() {
       const insertError = await insertAlbumPhotoWithCompat(dbClient, {
         album_id: albumId,
         folder_id: uploadFolderId,
-        url: original_url || thumbnail_url,
+        url: original_url || preview_url || thumbnail_url,
         thumbnail_url,
-        preview_url: original_url,
+        preview_url,
         original_url,
-        width: thumbnailVersion.width,
-        height: thumbnailVersion.height,
+        width: (isSystemWallAlbum ? previewVersion?.width : originalVersion?.width) || thumbnailVersion.width,
+        height: (isSystemWallAlbum ? previewVersion?.height : originalVersion?.height) || thumbnailVersion.height,
         blurhash,
         story_text: normalizeStoryText(options?.storyText),
         is_highlight: Boolean(options?.isHighlight),
@@ -1103,7 +1148,7 @@ export default function AlbumDetailPage() {
     try {
       const { data: targetPhoto, error: snapshotError } = await dbClient
         .from('album_photos')
-        .select('id, thumbnail_url, preview_url, original_url')
+        .select('id, url, thumbnail_url, preview_url, original_url')
         .eq('id', deletingPhoto.id)
         .eq('album_id', albumId)
         .maybeSingle();
@@ -1119,11 +1164,16 @@ export default function AlbumDetailPage() {
         return;
       }
 
-      const filesToDelete = [
-        String(targetPhoto.thumbnail_url ?? '').trim(),
-        String(targetPhoto.preview_url ?? '').trim(),
-        String(targetPhoto.original_url ?? '').trim(),
-      ].filter(Boolean);
+      const filesToDelete = Array.from(
+        new Set(
+          [
+            String(targetPhoto.url ?? '').trim(),
+            String(targetPhoto.thumbnail_url ?? '').trim(),
+            String(targetPhoto.preview_url ?? '').trim(),
+            String(targetPhoto.original_url ?? '').trim(),
+          ].filter(Boolean)
+        )
+      );
 
       const { error: deleteError } = await dbClient
         .from('album_photos')
@@ -1355,7 +1405,7 @@ export default function AlbumDetailPage() {
     try {
       const { data: selectedRows, error: snapshotError } = await dbClient
         .from('album_photos')
-        .select('id, thumbnail_url, preview_url, original_url')
+        .select('id, url, thumbnail_url, preview_url, original_url')
         .eq('album_id', albumId)
         .in('id', selectedPhotoIds);
       if (snapshotError) {
@@ -1397,20 +1447,22 @@ export default function AlbumDetailPage() {
       }
 
       const filesToDelete = deletedRows.flatMap((photo: any) => [
+        String(photo.url ?? '').trim() || null,
         String(photo.thumbnail_url ?? '').trim() || null,
         String(photo.preview_url ?? '').trim() || null,
         String(photo.original_url ?? '').trim() || null,
       ]).filter(Boolean) as string[];
+      const uniqueFilesToDelete = Array.from(new Set(filesToDelete));
 
       let storageCleanupFailed = false;
-      if (filesToDelete.length > 0) {
+      if (uniqueFilesToDelete.length > 0) {
         try {
           const response = await fetch('/api/batch-delete', {
             method: 'DELETE',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ urls: filesToDelete }),
+            body: JSON.stringify({ urls: uniqueFilesToDelete }),
           });
 
           if (!response.ok) {
@@ -1465,6 +1517,12 @@ export default function AlbumDetailPage() {
     const normalizedA = Number.isFinite(sortA) && sortA > 0 ? Math.round(sortA) : DEFAULT_PHOTO_SORT_ORDER;
     const normalizedB = Number.isFinite(sortB) && sortB > 0 ? Math.round(sortB) : DEFAULT_PHOTO_SORT_ORDER;
     if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+
+    const displayDateA = resolvePhotoDisplayDate(a) || '';
+    const displayDateB = resolvePhotoDisplayDate(b) || '';
+    if (displayDateA !== displayDateB) {
+      return displayDateB.localeCompare(displayDateA, 'zh-CN');
+    }
 
     const timeA = new Date(String(a.created_at || '')).getTime();
     const timeB = new Date(String(b.created_at || '')).getTime();

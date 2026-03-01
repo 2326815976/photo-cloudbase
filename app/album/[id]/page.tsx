@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart, RotateCcw } from 'lucide-react';
@@ -62,6 +62,8 @@ interface AlbumData {
   photos: Photo[];
 }
 
+const ALBUM_PAGE_SIZE = 20;
+
 export default function AlbumDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -77,6 +79,10 @@ export default function AlbumDetailPage() {
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [pageNo, setPageNo] = useState(0);
+  const [totalPhotos, setTotalPhotos] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -88,6 +94,11 @@ export default function AlbumDetailPage() {
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
+  const photosRef = useRef<Photo[]>([]);
+  const photoScrollRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
+  const photoLoadTokenRef = useRef(0);
+  const selectedFolderRef = useRef(selectedFolder);
 
   const markGalleryDirty = () => {
     markGalleryCacheDirty();
@@ -139,8 +150,115 @@ export default function AlbumDetailPage() {
     return () => clearTimeout(timer);
   }, [loading, normalizedAccessKey, bindNoticeStorageKey]);
 
+  const resolveFolderRpcArg = (folderId: string): string | null => {
+    const normalized = String(folderId || '').trim();
+    if (!normalized || normalized === 'all') {
+      return null;
+    }
+    return normalized;
+  };
+
+  const loadAlbumPhotoPage = async (
+    folderId: string,
+    targetPageNo: number,
+    options?: { reset?: boolean; silent?: boolean }
+  ) => {
+    const reset = Boolean(options?.reset);
+    const silent = Boolean(options?.silent);
+    const nextPageNo = Math.max(1, Math.round(Number(targetPageNo || 1)));
+    const normalizedFolderId = String(folderId || 'all');
+
+    if (!normalizedAccessKey) return;
+    if (!reset && (loadingMoreRef.current || !hasMore)) return;
+
+    const dbClient = createClient();
+    if (!dbClient) {
+      setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
+      return;
+    }
+
+    if (reset) {
+      if (!silent) {
+        setLoading(true);
+      }
+      setLoadingMore(false);
+    } else {
+      setLoadingMore(true);
+    }
+
+    const loadToken = photoLoadTokenRef.current + 1;
+    photoLoadTokenRef.current = loadToken;
+
+    try {
+      const { data, error } = await dbClient.rpc('get_album_photo_page', {
+        input_key: normalizedAccessKey,
+        folder_id: resolveFolderRpcArg(normalizedFolderId),
+        page_no: nextPageNo,
+        page_size: ALBUM_PAGE_SIZE,
+      });
+
+      if (error) {
+        if (!(reset && silent)) {
+          setToast({ message: `加载失败：${error.message}`, type: 'error' });
+          setTimeout(() => setToast(null), 3000);
+        }
+        return;
+      }
+
+      if (loadToken !== photoLoadTokenRef.current) {
+        return;
+      }
+      if (selectedFolderRef.current !== normalizedFolderId) {
+        return;
+      }
+
+      const payload = (data && typeof data === 'object') ? (data as any) : {};
+      const pageRows = Array.isArray(payload.photos) ? (payload.photos as Photo[]) : [];
+      const previousRows = reset ? [] : photosRef.current;
+      const previousIds = new Set(previousRows.map((photo) => String(photo.id)));
+      const incrementalRows = pageRows.filter((photo) => !previousIds.has(String(photo.id)));
+      const mergedRows = reset ? pageRows : previousRows.concat(incrementalRows);
+
+      const payloadTotal = Number(payload.total);
+      const normalizedTotal = Number.isFinite(payloadTotal) && payloadTotal >= 0
+        ? Math.round(payloadTotal)
+        : mergedRows.length;
+      const hasKnownTotal = normalizedTotal > 0;
+      const hasMoreFromPayload = typeof payload.has_more === 'boolean' ? payload.has_more : null;
+      const computedHasMore = hasMoreFromPayload === null
+        ? (hasKnownTotal ? mergedRows.length < normalizedTotal : pageRows.length >= ALBUM_PAGE_SIZE)
+        : hasMoreFromPayload;
+
+      setPhotos(mergedRows);
+      photosRef.current = mergedRows;
+      setPageNo(nextPageNo);
+      setTotalPhotos(normalizedTotal);
+      setHasMore(Boolean(computedHasMore));
+    } catch (error) {
+      if (!(reset && silent)) {
+        setToast({ message: '加载失败，请稍后重试', type: 'error' });
+        setTimeout(() => setToast(null), 3000);
+      }
+    } finally {
+      if (loadToken === photoLoadTokenRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  };
+
   const loadAlbumData = async () => {
     setLoading(true);
+    setLoadingMore(false);
+    setHasMore(true);
+    setPageNo(0);
+    setTotalPhotos(0);
+    setPhotos([]);
+    photosRef.current = [];
+    setSelectedFolder('all');
+    selectedFolderRef.current = 'all';
+    photoLoadTokenRef.current += 1;
+
     if (!normalizedAccessKey) {
       setLoading(false);
       setToast({ message: '密钥格式无效，请重新输入', type: 'error' });
@@ -155,11 +273,10 @@ export default function AlbumDetailPage() {
       return;
     }
 
-    // 调用RPC获取相册内容（已包含三个URL字段）
     const { data, error } = await dbClient.rpc('get_album_content', {
-      input_key: normalizedAccessKey
+      input_key: normalizedAccessKey,
+      include_photos: false,
     });
-
 
     if (error) {
       console.error('相册数据加载失败:', error);
@@ -176,22 +293,16 @@ export default function AlbumDetailPage() {
       return;
     }
 
-    setAlbumData(data);
-    setPhotos(data.photos);
+    const payload = data as AlbumData;
+    setAlbumData(payload);
     setLoading(false);
 
     // 根据管理员设置决定是否显示欢迎信（仅首次打开显示）
     const hasSeenWelcome = typeof window !== 'undefined' && localStorage.getItem(welcomeStorageKey);
-    const shouldShow = data.album.enable_welcome_letter !== false && !hasSeenWelcome;
+    const shouldShow = payload.album.enable_welcome_letter !== false && !hasSeenWelcome;
     setShowWelcomeLetter(shouldShow);
 
-    // 预加载前10张照片的preview图片
-    if (data.photos && data.photos.length > 0) {
-      data.photos.slice(0, 10).forEach((photo: Photo) => {
-        const img = new Image();
-        img.src = photo.preview_url;
-      });
-    }
+    await loadAlbumPhotoPage('all', 1, { reset: true, silent: false });
   };
 
   const handleWelcomeClose = () => {
@@ -205,10 +316,49 @@ export default function AlbumDetailPage() {
     }
   };
 
+  const handleSelectFolder = async (folderId: string) => {
+    const normalized = String(folderId || 'all');
+    if (normalized === selectedFolder) return;
+
+    setSelectedFolder(normalized);
+    selectedFolderRef.current = normalized;
+    setStoryOpenMap({});
+    setSelectedPhotos(new Set());
+    setLoadedImages(new Set());
+    setFailedImages(new Set());
+    setPhotos([]);
+    photosRef.current = [];
+    setHasMore(true);
+    setPageNo(0);
+    setTotalPhotos(0);
+    photoLoadTokenRef.current += 1;
+
+    await loadAlbumPhotoPage(normalized, 1, { reset: true, silent: false });
+  };
+
   const filteredPhotos = useMemo(() => {
     if (selectedFolder === 'all') return photos;
-    return photos.filter(photo => photo.folder_id === selectedFolder);
+    return photos.filter(photo => String(photo.folder_id || '') === selectedFolder);
   }, [photos, selectedFolder]);
+
+  const loadNextPhotoPage = async () => {
+    if (loading || loadingMore || !hasMore) return;
+    await loadAlbumPhotoPage(selectedFolder, pageNo + 1, { reset: false, silent: false });
+  };
+
+  const handlePhotoScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    if (loading || loadingMore || !hasMore) return;
+    const target = event.currentTarget;
+    const scrollHeight = Number(target.scrollHeight || 0);
+    const clientHeight = Number(target.clientHeight || 0);
+    const scrollTop = Number(target.scrollTop || 0);
+    if (!(scrollHeight > 0) || !(clientHeight > 0)) return;
+
+    const progress = (scrollTop + clientHeight) / scrollHeight;
+    if (progress >= 0.8) {
+      void loadNextPhotoPage();
+    }
+  };
 
   const hasStory = (photo: Photo): boolean => Boolean(String(photo.story_text || '').trim());
   const isHighlighted = (photo: Photo): boolean => hasStory(photo) || Boolean(photo.is_highlight);
@@ -220,6 +370,18 @@ export default function AlbumDetailPage() {
       [photoId]: !prev[photoId],
     }));
   };
+
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
+
+  useEffect(() => {
+    selectedFolderRef.current = selectedFolder;
+  }, [selectedFolder]);
 
   useEffect(() => {
     setStoryOpenMap({});
@@ -254,11 +416,13 @@ export default function AlbumDetailPage() {
 
     if (!error) {
       const newIsPublic = !photo.is_public;
-      setPhotos(prev =>
-        prev.map(p =>
+      setPhotos(prev => {
+        const next = prev.map(p =>
           p.id === photoId ? { ...p, is_public: newIsPublic } : p
-        )
-      );
+        );
+        photosRef.current = next;
+        return next;
+      });
       markGalleryDirty();
 
       // 显示提示信息
@@ -379,7 +543,11 @@ export default function AlbumDetailPage() {
     setShowDeleteConfirm(false);
 
     if (successCount > 0) {
-      setPhotos(prev => prev.filter(p => !deletedPhotoIds.has(p.id)));
+      setPhotos(prev => {
+        const next = prev.filter(p => !deletedPhotoIds.has(p.id));
+        photosRef.current = next;
+        return next;
+      });
       setSelectedPhotos(prev => new Set(Array.from(prev).filter(id => !deletedPhotoIds.has(id))));
       if (hasDeletedPublicPhoto) {
         markGalleryDirty();
@@ -565,7 +733,7 @@ export default function AlbumDetailPage() {
             <motion.button
               key={folder.id}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setSelectedFolder(folder.id)}
+              onClick={() => { void handleSelectFolder(folder.id); }}
               className={`
                 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all
                 ${selectedFolder === folder.id
@@ -639,7 +807,11 @@ export default function AlbumDetailPage() {
       </div>
 
       {/* 照片瀑布流 - 可滚动 */}
-      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-32">
+      <div
+        ref={photoScrollRef}
+        onScroll={handlePhotoScroll}
+        className="flex-1 overflow-y-auto px-2 pt-3 pb-32"
+      >
         <div className="columns-2 gap-2">
           {filteredPhotos.map((photo, index) => (
             <motion.div
@@ -668,10 +840,15 @@ export default function AlbumDetailPage() {
                   }}
                 >
                   {storyOpenMap[photo.id] && hasStory(photo) ? (
-                    <div className="min-h-[220px] px-4 py-5 bg-gradient-to-br from-[#FFF8E4] via-[#FFF3D2] to-[#FFEAB8] border-b border-[#5D4037]/10">
-                      <p className="text-sm leading-6 text-[#5D4037] whitespace-pre-wrap break-words">
-                        {String(photo.story_text || '').trim()}
-                      </p>
+                    <div className="min-h-[220px] p-3 bg-gradient-to-br from-[#FFF8E8] via-[#FFF1D6] to-[#FDE6B7] border-b border-[#5D4037]/10">
+                      <div className="rounded-xl border border-[#C9B085]/35 bg-[linear-gradient(180deg,rgba(255,252,245,0.98)_0%,rgba(255,246,231,0.98)_100%)] px-3.5 py-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_10px_22px_rgba(93,64,55,0.12)]">
+                        <span className="mb-2 inline-flex h-6 items-center rounded-full border border-[#5D4037]/20 bg-[#FFC857]/25 px-2.5 text-[11px] font-semibold text-[#5D4037]/85">
+                          关于此刻
+                        </span>
+                        <p className="text-[13px] leading-6 text-[#5D4037]/92 font-medium whitespace-pre-wrap break-words tracking-[0.01em]">
+                          {String(photo.story_text || '').trim()}
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -815,12 +992,6 @@ export default function AlbumDetailPage() {
                     </>
                   )}
 
-                  {hasStory(photo) && !storyOpenMap[photo.id] && (
-                    <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#FFDA75] to-[#FFC857] text-[#5D4037] text-[11px] font-bold border-2 border-[#5D4037]/30 shadow-[0_8px_18px_rgba(255,184,41,0.62)] z-10">
-                      有故事
-                    </div>
-                  )}
-
                   {hasStory(photo) && (
                     <button
                       onClick={(event) => toggleStoryCard(photo.id, event)}
@@ -895,6 +1066,18 @@ export default function AlbumDetailPage() {
               <span className="text-sm font-medium">留下一份心意</span>
             </button>
           </motion.div>
+        )}
+
+        {loadingMore && (
+          <div className="flex justify-center items-center gap-2 mt-6 mb-2">
+            <div className="w-5 h-5 border-2 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-xs text-[#5D4037]/60">拾光中...</p>
+          </div>
+        )}
+        {!hasMore && filteredPhotos.length > 0 && (
+          <div className="text-center mt-6 mb-2">
+            <p className="text-xs text-[#5D4037]/40">✨ 已经到底啦 ✨</p>
+          </div>
         )}
       </div>
 
@@ -1033,7 +1216,7 @@ export default function AlbumDetailPage() {
       <WechatDownloadGuide
         isOpen={showWechatGuide}
         onClose={() => setShowWechatGuide(false)}
-        imageUrl={fullscreenPhoto ? photos.find((p) => p.id === fullscreenPhoto)?.preview_url : undefined}
+        imageUrl={fullscreenPhoto ? photos.find((p) => p.id === fullscreenPhoto)?.original_url : undefined}
         isBatchDownload={selectedPhotos.size > 0 || !fullscreenPhoto}
         onTryDownload={executeBatchDownload}
       />

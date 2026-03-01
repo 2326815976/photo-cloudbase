@@ -392,6 +392,9 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const offset = (pageNo - 1) * pageSize;
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
+  const photoOrderBy = hasShotDateColumn
+    ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
+    : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
   const folderFilter = resolveAlbumFolderFilter(args.folder_id);
   const wallValues: Record<string, unknown> = {
     wall_album_id: SYSTEM_WALL_ALBUM_ID,
@@ -450,7 +453,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
          AND pl.user_id = {{user_id}}
         WHERE p.album_id = {{wall_album_id}}
           AND ${folderFilter.clause}
-        ORDER BY COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC
+        ORDER BY ${photoOrderBy}
         LIMIT {{limit}} OFFSET {{offset}}
       `,
       {
@@ -484,7 +487,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
         FROM album_photos p
         WHERE p.album_id = {{wall_album_id}}
           AND ${folderFilter.clause}
-        ORDER BY COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC
+        ORDER BY ${photoOrderBy}
         LIMIT {{limit}} OFFSET {{offset}}
       `,
       {
@@ -542,6 +545,9 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
   const includePhotos = resolveBooleanArg(args.include_photos, true);
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const shotDateSelect = hasShotDateColumn ? 'shot_date' : 'NULL AS shot_date';
+  const photoOrderBy = hasShotDateColumn
+    ? 'COALESCE(sort_order, 2147483647) ASC, COALESCE(shot_date, DATE(created_at)) DESC, created_at DESC'
+    : 'COALESCE(sort_order, 2147483647) ASC, created_at DESC';
 
   const albumResult = await executeSQL(
     `
@@ -615,7 +621,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
           created_at
         FROM album_photos
         WHERE album_id = {{album_id}}
-        ORDER BY COALESCE(sort_order, 2147483647) ASC, created_at DESC
+        ORDER BY ${photoOrderBy}
       `,
       {
         album_id: album.id,
@@ -697,6 +703,9 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
   }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
+  const photoOrderBy = hasShotDateColumn
+    ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
+    : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
 
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
@@ -747,7 +756,7 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
       FROM album_photos p
       WHERE p.album_id = {{album_id}}
         AND ${folderFilter.clause}
-      ORDER BY COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC
+      ORDER BY ${photoOrderBy}
       LIMIT {{limit}} OFFSET {{offset}}
     `,
     {

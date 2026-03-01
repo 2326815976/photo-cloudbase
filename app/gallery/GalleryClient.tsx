@@ -120,7 +120,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [hasMore, setHasMore] = useState(hydratedInitialTotal > hydratedInitialPhotos.length);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const isLoadingMoreRef = useRef(false);
-  const preloadedPreviewUrlsRef = useRef<Set<string>>(new Set());
   const hasClientInitialFetchStartedRef = useRef(false);
   const pageSize = 20;
   const isInitialPage = page === initialPage;
@@ -179,7 +178,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setHasMore(true);
     setIsLoadingMore(false);
     setStoryOpenMap({});
-    preloadedPreviewUrlsRef.current.clear();
   }, [selectedFolderId]);
 
   // 缓存首页照片墙数据，用于下次进入秒开
@@ -231,22 +229,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   useEffect(() => {
     isLoadingMoreRef.current = isLoadingMore;
   }, [isLoadingMore]);
-
-  // 预加载图片 - Android优化：从20张减少到5张，减少内存占用和加载时间
-  useEffect(() => {
-    if (allPhotos.length > 0) {
-      const lastIndex = Math.min(allPhotos.length, 5);
-      allPhotos.slice(0, lastIndex).forEach((photo: Photo) => {
-        if (preloadedPreviewUrlsRef.current.has(photo.preview_url)) {
-          return;
-        }
-
-        preloadedPreviewUrlsRef.current.add(photo.preview_url);
-        const img = new Image();
-        img.src = photo.preview_url;
-      });
-    }
-  }, [allPhotos]);
 
   // 无限滚动监听
   useEffect(() => {
@@ -332,10 +314,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const handlePreview = async (photo: Photo) => {
     setPreviewPhoto(photo);
-
-    // 预加载高质量预览图
-    const img = new Image();
-    img.src = photo.preview_url;
 
     // 增加浏览量（带会话去重）
     const dbClient = createClient();
@@ -506,10 +484,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     {/* 图片区域 */}
                     <div className="relative">
                       {storyOpenMap[photo.id] && hasStory(photo) ? (
-                        <div className="min-h-[180px] px-4 py-5 bg-gradient-to-br from-[#FFF8E4] via-[#FFF3D2] to-[#FFEAB8] border-b border-[#5D4037]/10">
-                          <p className="text-sm leading-6 text-[#5D4037] whitespace-pre-wrap break-words">
-                            {String(photo.story_text || '').trim()}
-                          </p>
+                        <div className="min-h-[190px] p-3 bg-gradient-to-br from-[#FFF8E8] via-[#FFF1D6] to-[#FDE6B7] border-b border-[#5D4037]/10">
+                          <div className="rounded-xl border border-[#C9B085]/35 bg-[linear-gradient(180deg,rgba(255,252,245,0.98)_0%,rgba(255,246,231,0.98)_100%)] px-3.5 py-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_10px_22px_rgba(93,64,55,0.12)]">
+                            <span className="mb-2 inline-flex h-6 items-center rounded-full border border-[#5D4037]/20 bg-[#FFC857]/25 px-2.5 text-[11px] font-semibold text-[#5D4037]/85">
+                              关于此刻
+                            </span>
+                            <p className="text-[13px] leading-6 text-[#5D4037]/92 font-medium whitespace-pre-wrap break-words tracking-[0.01em]">
+                              {String(photo.story_text || '').trim()}
+                            </p>
+                          </div>
                         </div>
                       ) : (
                         <div
@@ -528,11 +511,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                             <span className="text-[10px] text-white font-medium">{photo.view_count}</span>
                           </div>
 
-                          {hasStory(photo) && !storyOpenMap[photo.id] && (
-                            <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#FFDA75] to-[#FFC857] text-[#5D4037] text-[11px] font-bold border-2 border-[#5D4037]/30 shadow-[0_8px_18px_rgba(255,184,41,0.62)] z-10">
-                              有故事
-                            </div>
-                          )}
                         </div>
                       )}
 

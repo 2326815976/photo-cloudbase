@@ -1,6 +1,6 @@
 /**
  * 多版本图片生成工具
- * 按场景生成图片版本（照片墙：thumbnail+preview；返图空间：thumbnail+original）
+ * 按场景生成图片版本（照片墙：thumbnail + preview；返图空间：thumbnail + original）
  */
 
 import imageCompression from 'browser-image-compression';
@@ -16,6 +16,54 @@ interface PoseImageGenerateOptions {
   signal?: AbortSignal;
 }
 
+const THUMBNAIL_VERSION_OPTIONS = {
+  maxWidthOrHeight: 960,
+  maxSizeMB: 0.4,
+  initialQuality: 0.76,
+  fileType: 'image/webp' as const,
+  useWebWorker: true
+};
+
+const PREVIEW_VERSION_OPTIONS = {
+  maxWidthOrHeight: 1600,
+  maxSizeMB: 1.2,
+  initialQuality: 0.85,
+  useWebWorker: true,
+  fileType: 'image/webp' as const
+};
+
+async function buildThumbnailVersion(originalFile: File): Promise<ImageVersion> {
+  const thumbnailFile = await imageCompression(originalFile, THUMBNAIL_VERSION_OPTIONS);
+  const thumbnailDimensions = await getImageDimensions(thumbnailFile);
+  return {
+    file: thumbnailFile,
+    type: 'thumbnail',
+    width: thumbnailDimensions.width,
+    height: thumbnailDimensions.height
+  };
+}
+
+async function buildPreviewVersion(originalFile: File): Promise<ImageVersion> {
+  const previewFile = await imageCompression(originalFile, PREVIEW_VERSION_OPTIONS);
+  const previewDimensions = await getImageDimensions(previewFile);
+  return {
+    file: previewFile,
+    type: 'preview',
+    width: previewDimensions.width,
+    height: previewDimensions.height
+  };
+}
+
+async function buildOriginalVersion(originalFile: File): Promise<ImageVersion> {
+  const originalDimensions = await getImageDimensions(originalFile);
+  return {
+    file: originalFile,
+    type: 'original',
+    width: originalDimensions.width,
+    height: originalDimensions.height
+  };
+}
+
 /**
  * 为照片墙生成图片版本（小红书式两级加载）
  * @param originalFile - 原始图片文件
@@ -24,45 +72,9 @@ interface PoseImageGenerateOptions {
 export async function generateGalleryImageVersions(
   originalFile: File
 ): Promise<ImageVersion[]> {
-  const versions: ImageVersion[] = [];
-
-  // 1. 生成列表缩略图 - 960px, 质量76, WebP格式, ~280-360KB
-  // 用于首页Feed流快速加载
-  const thumbnailFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 960,
-    maxSizeMB: 0.36,
-    initialQuality: 0.76,
-    fileType: 'image/webp',
-    useWebWorker: true
-  });
-
-  const thumbnailDimensions = await getImageDimensions(thumbnailFile);
-  versions.push({
-    file: thumbnailFile,
-    type: 'thumbnail',
-    width: thumbnailDimensions.width,
-    height: thumbnailDimensions.height
-  });
-
-  // 2. 生成高清预览图 - 1365px, 质量84, WebP格式, ~700KB-1.0MB
-  // 用于点击查看大图
-  const previewFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 1365,
-    maxSizeMB: 1.0,
-    initialQuality: 0.84,
-    useWebWorker: true,
-    fileType: 'image/webp'
-  });
-
-  const previewDimensions = await getImageDimensions(previewFile);
-  versions.push({
-    file: previewFile,
-    type: 'preview',
-    width: previewDimensions.width,
-    height: previewDimensions.height
-  });
-
-  return versions;
+  const thumbnailVersion = await buildThumbnailVersion(originalFile);
+  const previewVersion = await buildPreviewVersion(originalFile);
+  return [thumbnailVersion, previewVersion];
 }
 
 /**
@@ -73,36 +85,9 @@ export async function generateGalleryImageVersions(
 export async function generateAlbumImageVersions(
   originalFile: File
 ): Promise<ImageVersion[]> {
-  const versions: ImageVersion[] = [];
-
-  // 1. 生成列表图 - 960px, 质量78, WebP格式
-  // 兼顾清晰度和加载速度
-  const thumbnailFile = await imageCompression(originalFile, {
-    maxWidthOrHeight: 960,
-    maxSizeMB: 0.55,
-    initialQuality: 0.78,
-    fileType: 'image/webp',
-    useWebWorker: true
-  });
-
-  const thumbnailDimensions = await getImageDimensions(thumbnailFile);
-  versions.push({
-    file: thumbnailFile,
-    type: 'thumbnail',
-    width: thumbnailDimensions.width,
-    height: thumbnailDimensions.height
-  });
-
-  // 2. 原图 - 保持原始质量
-  const originalDimensions = await getImageDimensions(originalFile);
-  versions.push({
-    file: originalFile,
-    type: 'original',
-    width: originalDimensions.width,
-    height: originalDimensions.height
-  });
-
-  return versions;
+  const thumbnailVersion = await buildThumbnailVersion(originalFile);
+  const originalVersion = await buildOriginalVersion(originalFile);
+  return [thumbnailVersion, originalVersion];
 }
 
 /**
