@@ -529,7 +529,7 @@ export default function AlbumLoginPage() {
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5" />
-                      <span>开启回忆</span>
+                      <span>解锁相册</span>
                     </>
                   )}
                 </motion.button>

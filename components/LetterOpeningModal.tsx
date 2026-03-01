@@ -152,7 +152,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
                   className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] text-[#8d6e63]/60 tracking-widest whitespace-nowrap"
                   style={{ fontFamily: "'Letter Font', cursive" }}
                 >
-                  轻触拆封开启回忆
+                  轻触拆封解锁相册
                 </motion.p>
               </motion.div>
             )}

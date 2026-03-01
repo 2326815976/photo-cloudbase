@@ -16,24 +16,35 @@ interface PoseImageGenerateOptions {
   signal?: AbortSignal;
 }
 
-const THUMBNAIL_VERSION_OPTIONS = {
-  maxWidthOrHeight: 960,
-  maxSizeMB: 0.4,
-  initialQuality: 0.76,
+const GALLERY_THUMBNAIL_VERSION_OPTIONS = {
+  maxWidthOrHeight: 1280,
+  maxSizeMB: 0.9,
+  initialQuality: 0.82,
+  fileType: 'image/webp' as const,
+  useWebWorker: true
+};
+
+const ALBUM_THUMBNAIL_VERSION_OPTIONS = {
+  maxWidthOrHeight: 1600,
+  maxSizeMB: 1.6,
+  initialQuality: 0.9,
   fileType: 'image/webp' as const,
   useWebWorker: true
 };
 
 const PREVIEW_VERSION_OPTIONS = {
-  maxWidthOrHeight: 1600,
-  maxSizeMB: 1.2,
-  initialQuality: 0.85,
+  maxWidthOrHeight: 2560,
+  maxSizeMB: 3.5,
+  initialQuality: 0.92,
   useWebWorker: true,
   fileType: 'image/webp' as const
 };
 
-async function buildThumbnailVersion(originalFile: File): Promise<ImageVersion> {
-  const thumbnailFile = await imageCompression(originalFile, THUMBNAIL_VERSION_OPTIONS);
+async function buildThumbnailVersion(
+  originalFile: File,
+  options: typeof GALLERY_THUMBNAIL_VERSION_OPTIONS
+): Promise<ImageVersion> {
+  const thumbnailFile = await imageCompression(originalFile, options);
   const thumbnailDimensions = await getImageDimensions(thumbnailFile);
   return {
     file: thumbnailFile,
@@ -72,7 +83,7 @@ async function buildOriginalVersion(originalFile: File): Promise<ImageVersion> {
 export async function generateGalleryImageVersions(
   originalFile: File
 ): Promise<ImageVersion[]> {
-  const thumbnailVersion = await buildThumbnailVersion(originalFile);
+  const thumbnailVersion = await buildThumbnailVersion(originalFile, GALLERY_THUMBNAIL_VERSION_OPTIONS);
   const previewVersion = await buildPreviewVersion(originalFile);
   return [thumbnailVersion, previewVersion];
 }
@@ -85,7 +96,7 @@ export async function generateGalleryImageVersions(
 export async function generateAlbumImageVersions(
   originalFile: File
 ): Promise<ImageVersion[]> {
-  const thumbnailVersion = await buildThumbnailVersion(originalFile);
+  const thumbnailVersion = await buildThumbnailVersion(originalFile, ALBUM_THUMBNAIL_VERSION_OPTIONS);
   const originalVersion = await buildOriginalVersion(originalFile);
   return [thumbnailVersion, originalVersion];
 }
