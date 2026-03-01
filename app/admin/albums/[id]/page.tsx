@@ -1055,7 +1055,7 @@ export default function AlbumDetailPage() {
 
       conflictQuery = selectedFolder
         ? conflictQuery.eq('folder_id', selectedFolder)
-        : conflictQuery.is('folder_id', null);
+        : conflictQuery.eq('folder_id', null);
 
       const { error: conflictError } = await conflictQuery;
       if (conflictError) {
