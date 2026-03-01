@@ -652,7 +652,9 @@ export default function AlbumDetailPage() {
               {/* 瀑布流卡片 */}
               <div
                 className={`bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-all duration-300 border ${
-                  isHighlighted(photo) ? 'border-[#FFC857]/85 ring-1 ring-[#FFC857]/35' : 'border-transparent'
+                  isHighlighted(photo)
+                    ? 'border-[3px] border-[#FFB703] bg-gradient-to-b from-[#FFFDF7] to-white ring-2 ring-[#FFD978] ring-offset-1 ring-offset-[#FFFBF0] shadow-[inset_0_0_0_1px_rgba(255,244,210,0.92),0_0_0_3px_rgba(255,183,3,0.42),0_18px_40px_rgba(255,183,3,0.46),0_8px_20px_rgba(93,64,55,0.2)]'
+                    : 'border-transparent'
                 }`}
               >
                 {/* 图片区域 */}
@@ -813,17 +815,27 @@ export default function AlbumDetailPage() {
                     </>
                   )}
 
+                  {hasStory(photo) && !storyOpenMap[photo.id] && (
+                    <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#FFDA75] to-[#FFC857] text-[#5D4037] text-[11px] font-bold border-2 border-[#5D4037]/30 shadow-[0_8px_18px_rgba(255,184,41,0.62)] z-10">
+                      有故事
+                    </div>
+                  )}
+
                   {hasStory(photo) && (
                     <button
                       onClick={(event) => toggleStoryCard(photo.id, event)}
-                      className="absolute top-2 right-12 w-8 h-8 rounded-full bg-black/35 backdrop-blur-sm border border-white/35 text-white flex items-center justify-center hover:bg-black/50 transition-colors"
+                      className={`absolute top-2 right-12 w-8 h-8 rounded-full backdrop-blur-sm border flex items-center justify-center transition-all ${
+                        isHighlighted(photo)
+                          ? 'bg-[#FFC857] border-[#5D4037]/45 text-[#5D4037] ring-2 ring-[#FFE3A0]/95 shadow-[0_10px_22px_rgba(255,183,3,0.62)] hover:scale-105 animate-pulse'
+                          : 'bg-black/35 border-white/35 text-white hover:bg-black/50'
+                      }`}
                       aria-label="查看关于此刻"
                       title="关于此刻"
                     >
                       <RotateCcw
                         className={`w-4 h-4 transition-transform duration-300 ${
                           storyOpenMap[photo.id] ? 'rotate-180' : ''
-                        }`}
+                        } ${isHighlighted(photo) ? 'drop-shadow-[0_1px_0_rgba(255,255,255,0.45)]' : ''}`}
                       />
                     </button>
                   )}
