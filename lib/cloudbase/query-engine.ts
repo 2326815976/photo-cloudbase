@@ -130,7 +130,7 @@ function normalizeWriteValue(value: unknown): unknown {
 
 const booleanColumnsByTable: Record<string, string[]> = {
   albums: ['enable_tipping', 'enable_welcome_letter'],
-  album_photos: ['is_public'],
+  album_photos: ['is_public', 'is_highlight'],
   booking_types: ['is_active'],
   allowed_cities: ['is_active'],
   app_releases: ['force_update'],

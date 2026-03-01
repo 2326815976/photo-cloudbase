@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Eye, Camera } from 'lucide-react';
+import { Heart, Eye, Camera, RotateCcw, Folder as FolderIcon } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { getSessionId } from '@/lib/utils/session';
@@ -19,10 +19,15 @@ import ImagePreview from '@/components/ImagePreview';
 
 interface Photo {
   id: string;
+  folder_id: string | null;
   thumbnail_url: string;  // 速览图 URL
   preview_url: string;    // 高质量预览 URL
   original_url: string;   // 原图 URL（用于下载）
-  
+  story_text?: string | null;
+  has_story?: boolean;
+  is_highlight?: boolean;
+  sort_order?: number;
+  shot_date?: string | null;
   width: number;
   height: number;
   blurhash?: string;
@@ -36,6 +41,11 @@ interface GalleryClientProps {
   initialPhotos?: Photo[];
   initialTotal?: number;
   initialPage?: number;
+}
+
+interface GalleryFolder {
+  id: string;
+  name: string;
 }
 
 const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
@@ -79,6 +89,11 @@ const clearGalleryMemoryCache = () => {
 };
 
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
+  const [selectedFolderId, setSelectedFolderId] = useState<string>('__ROOT__');
+  const [folders, setFolders] = useState<GalleryFolder[]>([]);
+  const [rootFolderName, setRootFolderName] = useState<string>('照片集');
+  const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
+
   const [galleryCacheToken] = useState<string>(() => {
     const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
     if (!shouldForceRefresh) {
@@ -92,7 +107,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
   const memoryGallery =
-    initialPhotos.length > 0 || shouldForceRefreshFromDirty ? null : readGalleryMemoryCache();
+    initialPhotos.length > 0 || shouldForceRefreshFromDirty || selectedFolderId !== '__ROOT__'
+      ? null
+      : readGalleryMemoryCache();
   const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
   const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
 
@@ -107,20 +124,21 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const hasClientInitialFetchStartedRef = useRef(false);
   const pageSize = 20;
   const isInitialPage = page === initialPage;
-  const GALLERY_CACHE_KEY = GALLERY_PAGE_CACHE_KEY;
+  const GALLERY_CACHE_KEY = `${GALLERY_PAGE_CACHE_KEY}_${selectedFolderId}`;
   // 使用 SWR 获取照片数据,自动缓存和重新验证
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(
     page,
     pageSize,
-    isInitialPage && hydratedInitialPhotos.length > 0
+    isInitialPage && selectedFolderId === '__ROOT__' && hydratedInitialPhotos.length > 0
       ? { photos: hydratedInitialPhotos, total: hydratedInitialTotal }
       : undefined,
-    galleryCacheToken
+    galleryCacheToken,
+    selectedFolderId
   );
 
   // 从 SWR 数据中提取照片和总数
   const photos = allPhotos;
-  const total = data?.total || hydratedInitialTotal;
+  const total = typeof data?.total === 'number' ? data.total : hydratedInitialTotal;
 
   // 当 SWR 数据更新时，刷新或追加照片
   useEffect(() => {
@@ -129,6 +147,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   useEffect(() => {
     if (!data?.photos) return;
+
+    if (Array.isArray(data.folders)) {
+      setFolders(data.folders as GalleryFolder[]);
+    }
+    if (typeof data.root_folder_name === 'string' && data.root_folder_name.trim()) {
+      setRootFolderName(data.root_folder_name.trim());
+    }
 
     if (page === 1) {
       setAllPhotos(data.photos);
@@ -148,8 +173,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setIsLoadingMore(false);
   }, [data, page, pageSize]);
 
+  useEffect(() => {
+    setPage(1);
+    setAllPhotos([]);
+    setHasMore(true);
+    setIsLoadingMore(false);
+    setStoryOpenMap({});
+    preloadedPreviewUrlsRef.current.clear();
+  }, [selectedFolderId]);
+
   // 缓存首页照片墙数据，用于下次进入秒开
   useEffect(() => {
+    if (selectedFolderId !== '__ROOT__') return;
     if (page !== 1) return;
     if (!data?.photos || data.photos.length === 0) return;
 
@@ -165,10 +200,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     } catch {
       // 忽略缓存写入失败
     }
-  }, [page, data]);
+  }, [page, data, selectedFolderId]);
 
   // 无初始数据时尝试读取本地缓存，避免反复进入加载动画
   useEffect(() => {
+    if (selectedFolderId !== '__ROOT__') return;
     if (memoryGallery && memoryGallery.photos.length > 0) return;
     if (initialPhotos.length > 0) return;
     if (allPhotos.length > 0) return;
@@ -190,7 +226,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     } catch {
       // 忽略缓存解析失败
     }
-  }, [initialPhotos.length, allPhotos.length]);
+  }, [initialPhotos.length, allPhotos.length, selectedFolderId]);
 
   useEffect(() => {
     isLoadingMoreRef.current = isLoadingMore;
@@ -326,6 +362,22 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
   };
 
+  const hasStory = (photo: Photo): boolean => {
+    return Boolean(String(photo.story_text || '').trim());
+  };
+
+  const isHighlighted = (photo: Photo): boolean => {
+    return hasStory(photo) || Boolean(photo.is_highlight);
+  };
+
+  const toggleStoryCard = (photoId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setStoryOpenMap((prev) => ({
+      ...prev,
+      [photoId]: !prev[photoId],
+    }));
+  };
+
   const showPageLoading = isLoading && allPhotos.length === 0;
 
   // Android WebView 常见：服务端未预取时，主动触发首屏拉取，避免停留在loading
@@ -395,6 +447,36 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         </div>
       </motion.div>
 
+      <div className="flex-none px-2 py-2 border-b border-[#5D4037]/8 bg-[#FFFBF0]/95">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hidden">
+          <button
+            onClick={() => setSelectedFolderId('__ROOT__')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+              selectedFolderId === '__ROOT__'
+                ? 'bg-[#FFC857] text-[#5D4037] border border-[#5D4037]/20 shadow-sm'
+                : 'bg-white text-[#5D4037]/75 border border-[#5D4037]/15'
+            }`}
+          >
+            <FolderIcon className="w-3.5 h-3.5" />
+            <span>{rootFolderName}</span>
+          </button>
+          {folders.map((folder) => (
+            <button
+              key={folder.id}
+              onClick={() => setSelectedFolderId(String(folder.id))}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                selectedFolderId === String(folder.id)
+                  ? 'bg-[#FFC857] text-[#5D4037] border border-[#5D4037]/20 shadow-sm'
+                  : 'bg-white text-[#5D4037]/75 border border-[#5D4037]/15'
+              }`}
+            >
+              <FolderIcon className="w-3.5 h-3.5" />
+              <span>{folder.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* 滚动区域 */}
       <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20 gallery-scroll-container">
         {photos.length === 0 ? (
@@ -414,33 +496,64 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                   className="break-inside-avoid mb-2"
                 >
                   {/* 小红书风格卡片 */}
-                  <div className="bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-shadow duration-300">
+                  <div
+                    className={`bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-all duration-300 border ${
+                      isHighlighted(photo)
+                        ? 'border-[#FFC857]/90 ring-1 ring-[#FFC857]/40'
+                        : 'border-transparent'
+                    }`}
+                  >
                     {/* 图片区域 */}
-                    <div
-                      className="relative cursor-pointer"
-                      onClick={() => handlePreview(photo)}
-                    >
-                      <SimpleImage
-                        src={photo.thumbnail_url}
-                        alt="照片"
-                        className="w-full h-auto rounded-t-xl"
-                      />
+                    <div className="relative">
+                      {storyOpenMap[photo.id] && hasStory(photo) ? (
+                        <div className="min-h-[180px] px-4 py-5 bg-gradient-to-br from-[#FFF8E4] via-[#FFF3D2] to-[#FFEAB8] border-b border-[#5D4037]/10">
+                          <p className="text-sm leading-6 text-[#5D4037] whitespace-pre-wrap break-words">
+                            {String(photo.story_text || '').trim()}
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          className="relative cursor-pointer"
+                          onClick={() => handlePreview(photo)}
+                        >
+                          <SimpleImage
+                            src={photo.thumbnail_url}
+                            alt="照片"
+                            className="w-full h-auto rounded-t-xl"
+                          />
 
-                      {/* 浏览量气泡 - 左上角 */}
-                      <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm">
-                        <Eye className="w-3 h-3 text-white" />
-                        <span className="text-[10px] text-white font-medium">{photo.view_count}</span>
-                      </div>
+                          {/* 浏览量气泡 - 左上角 */}
+                          <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm">
+                            <Eye className="w-3 h-3 text-white" />
+                            <span className="text-[10px] text-white font-medium">{photo.view_count}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {hasStory(photo) && (
+                        <button
+                          onClick={(e) => toggleStoryCard(photo.id, e)}
+                          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/35 backdrop-blur-sm border border-white/35 text-white flex items-center justify-center hover:bg-black/50 transition-colors"
+                          aria-label="查看关于此刻"
+                          title="关于此刻"
+                        >
+                          <RotateCcw
+                            className={`w-4 h-4 transition-transform duration-300 ${
+                              storyOpenMap[photo.id] ? 'rotate-180' : ''
+                            }`}
+                          />
+                        </button>
+                      )}
                     </div>
 
                     {/* 信息区域 */}
                     <div className="p-1.5 md:p-2">
                       {/* 互动数据 */}
                       <div className="flex items-center justify-between">
-                        {/* 左侧：上传时间 */}
+                        {/* 左侧：拍摄日期 */}
                         <div className="flex items-center gap-1 text-[#8D6E63]/50 py-0.5 pl-1">
                           <span className="text-[10px]">
-                            {formatDateDisplayUTC8(photo.created_at, {
+                            {formatDateDisplayUTC8(photo.shot_date || photo.created_at, {
                               year: 'numeric',
                               month: '2-digit',
                               day: '2-digit'

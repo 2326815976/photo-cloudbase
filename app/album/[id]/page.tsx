@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart, RotateCcw } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
@@ -34,6 +34,9 @@ interface Photo {
   thumbnail_url: string;  // 速览图 URL (300px, ~100KB)
   preview_url: string;    // 高质量预览 URL (1200px, ~500KB)
   original_url: string;   // 原图 URL (完整质量)
+  story_text?: string | null;
+  has_story?: boolean;
+  is_highlight?: boolean;
   width: number;
   height: number;
   is_public: boolean;
@@ -81,6 +84,7 @@ export default function AlbumDetailPage() {
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
+  const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
@@ -205,6 +209,21 @@ export default function AlbumDetailPage() {
     if (selectedFolder === 'all') return photos;
     return photos.filter(photo => photo.folder_id === selectedFolder);
   }, [photos, selectedFolder]);
+
+  const hasStory = (photo: Photo): boolean => Boolean(String(photo.story_text || '').trim());
+  const isHighlighted = (photo: Photo): boolean => hasStory(photo) || Boolean(photo.is_highlight);
+
+  const toggleStoryCard = (photoId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setStoryOpenMap((prev) => ({
+      ...prev,
+      [photoId]: !prev[photoId],
+    }));
+  };
+
+  useEffect(() => {
+    setStoryOpenMap({});
+  }, [selectedFolder]);
 
   // 计算相册过期天数
   const expiryDays = useMemo(() => {
@@ -631,151 +650,182 @@ export default function AlbumDetailPage() {
               className="break-inside-avoid mb-2"
             >
               {/* 瀑布流卡片 */}
-              <div className="bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-shadow duration-300">
+              <div
+                className={`bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-all duration-300 border ${
+                  isHighlighted(photo) ? 'border-[#FFC857]/85 ring-1 ring-[#FFC857]/35' : 'border-transparent'
+                }`}
+              >
                 {/* 图片区域 */}
                 <div
                   className="relative cursor-pointer"
                   onClick={() => {
-                    // 直接进入全屏查看器
+                    if (storyOpenMap[photo.id] && hasStory(photo)) {
+                      return;
+                    }
                     setFullscreenPhoto(photo.id);
                   }}
                 >
-                  <img
-                    src={photo.thumbnail_url}
-                    alt={`照片 ${photo.id}`}
-                    loading="lazy"
-                    decoding="async"
-                    className="w-full h-auto object-cover"
-                    onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
-                    onError={() => setFailedImages(prev => new Set([...prev, photo.id]))}
-                  />
-
-                  {/* 拾光中加载动画 */}
-                  {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
-                    <div
-                      className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                      style={{
-                        background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)'
-                      }}
-                    >
-                      {/* 主动画 - 拍立得相机 */}
-                      <motion.div
-                        animate={{
-                          rotate: [-2, 2, -2],
-                          scale: [1, 1.05, 1]
-                        }}
-                        transition={{
-                          duration: 2,
-                          repeat: Infinity,
-                          ease: 'easeInOut'
-                        }}
-                        className="relative"
-                      >
-                        <motion.div
-                          className="text-4xl"
-                          animate={{
-                            filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)']
-                          }}
-                          transition={{
-                            duration: 1.5,
-                            repeat: Infinity,
-                            ease: 'easeInOut'
-                          }}
-                        >
-                          📷
-                        </motion.div>
-
-                        {/* 闪光效果 */}
-                        <motion.div
-                          className="absolute -top-1 -right-1 text-xl"
-                          animate={{
-                            opacity: [0, 1, 0],
-                            scale: [0.5, 1.2, 0.5]
-                          }}
-                          transition={{
-                            duration: 2,
-                            repeat: Infinity,
-                            ease: 'easeOut'
-                          }}
-                        >
-                          ✨
-                        </motion.div>
-                      </motion.div>
-
-                      {/* 加载文字 */}
-                      <motion.p
-                        className="text-xs text-[#5D4037]/60 font-medium"
-                        animate={{
-                          opacity: [0.6, 1, 0.6]
-                        }}
-                        transition={{
-                          duration: 1.5,
-                          repeat: Infinity,
-                          ease: 'easeInOut'
-                        }}
-                        style={{ fontFamily: "'ZQKNNY', cursive" }}
-                      >
-                        拾光中...
-                      </motion.p>
-
-                      {/* 装饰性元素 - 飘动的光点 */}
-                      <motion.div
-                        className="absolute top-1/4 left-1/4 text-sm opacity-30"
-                        animate={{
-                          y: [-10, 10, -10],
-                          x: [-5, 5, -5],
-                          rotate: [0, 360]
-                        }}
-                        transition={{
-                          duration: 4,
-                          repeat: Infinity,
-                          ease: 'easeInOut'
-                        }}
-                      >
-                        ✨
-                      </motion.div>
-                      <motion.div
-                        className="absolute bottom-1/4 right-1/4 text-sm opacity-30"
-                        animate={{
-                          y: [10, -10, 10],
-                          x: [5, -5, 5],
-                          rotate: [360, 0]
-                        }}
-                        transition={{
-                          duration: 3.5,
-                          repeat: Infinity,
-                          ease: 'easeInOut',
-                          delay: 0.5
-                        }}
-                      >
-                        💫
-                      </motion.div>
+                  {storyOpenMap[photo.id] && hasStory(photo) ? (
+                    <div className="min-h-[220px] px-4 py-5 bg-gradient-to-br from-[#FFF8E4] via-[#FFF3D2] to-[#FFEAB8] border-b border-[#5D4037]/10">
+                      <p className="text-sm leading-6 text-[#5D4037] whitespace-pre-wrap break-words">
+                        {String(photo.story_text || '').trim()}
+                      </p>
                     </div>
+                  ) : (
+                    <>
+                      <img
+                        src={photo.thumbnail_url}
+                        alt={`照片 ${photo.id}`}
+                        loading="lazy"
+                        decoding="async"
+                        className="w-full h-auto object-cover"
+                        onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
+                        onError={() => setFailedImages(prev => new Set([...prev, photo.id]))}
+                      />
+
+                      {/* 拾光中加载动画 */}
+                      {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
+                        <div
+                          className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                          style={{
+                            background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)'
+                          }}
+                        >
+                          {/* 主动画 - 拍立得相机 */}
+                          <motion.div
+                            animate={{
+                              rotate: [-2, 2, -2],
+                              scale: [1, 1.05, 1]
+                            }}
+                            transition={{
+                              duration: 2,
+                              repeat: Infinity,
+                              ease: 'easeInOut'
+                            }}
+                            className="relative"
+                          >
+                            <motion.div
+                              className="text-4xl"
+                              animate={{
+                                filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)']
+                              }}
+                              transition={{
+                                duration: 1.5,
+                                repeat: Infinity,
+                                ease: 'easeInOut'
+                              }}
+                            >
+                              📷
+                            </motion.div>
+
+                            {/* 闪光效果 */}
+                            <motion.div
+                              className="absolute -top-1 -right-1 text-xl"
+                              animate={{
+                                opacity: [0, 1, 0],
+                                scale: [0.5, 1.2, 0.5]
+                              }}
+                              transition={{
+                                duration: 2,
+                                repeat: Infinity,
+                                ease: 'easeOut'
+                              }}
+                            >
+                              ✨
+                            </motion.div>
+                          </motion.div>
+
+                          {/* 加载文字 */}
+                          <motion.p
+                            className="text-xs text-[#5D4037]/60 font-medium"
+                            animate={{
+                              opacity: [0.6, 1, 0.6]
+                            }}
+                            transition={{
+                              duration: 1.5,
+                              repeat: Infinity,
+                              ease: 'easeInOut'
+                            }}
+                            style={{ fontFamily: "'ZQKNNY', cursive" }}
+                          >
+                            拾光中...
+                          </motion.p>
+
+                          {/* 装饰性元素 - 飘动的光点 */}
+                          <motion.div
+                            className="absolute top-1/4 left-1/4 text-sm opacity-30"
+                            animate={{
+                              y: [-10, 10, -10],
+                              x: [-5, 5, -5],
+                              rotate: [0, 360]
+                            }}
+                            transition={{
+                              duration: 4,
+                              repeat: Infinity,
+                              ease: 'easeInOut'
+                            }}
+                          >
+                            ✨
+                          </motion.div>
+                          <motion.div
+                            className="absolute bottom-1/4 right-1/4 text-sm opacity-30"
+                            animate={{
+                              y: [10, -10, 10],
+                              x: [5, -5, 5],
+                              rotate: [360, 0]
+                            }}
+                            transition={{
+                              duration: 3.5,
+                              repeat: Infinity,
+                              ease: 'easeInOut',
+                              delay: 0.5
+                            }}
+                          >
+                            💫
+                          </motion.div>
+                        </div>
+                      )}
+
+                      {/* 加载失败提示 */}
+                      {failedImages.has(photo.id) && (
+                        <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
+                          <div className="flex flex-col items-center gap-2 text-center px-4">
+                            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                              <X className="w-6 h-6 text-red-500" />
+                            </div>
+                            <p className="text-xs text-[#5D4037]/60">加载失败</p>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFailedImages(prev => {
+                                  const newSet = new Set(prev);
+                                  newSet.delete(photo.id);
+                                  return newSet;
+                                });
+                              }}
+                              className="text-xs text-[#FFC857] underline"
+                            >
+                              重试
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  {/* 加载失败提示 */}
-                  {failedImages.has(photo.id) && (
-                    <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
-                      <div className="flex flex-col items-center gap-2 text-center px-4">
-                        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                          <X className="w-6 h-6 text-red-500" />
-                        </div>
-                        <p className="text-xs text-[#5D4037]/60">加载失败</p>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFailedImages(prev => {
-                              const newSet = new Set(prev);
-                              newSet.delete(photo.id);
-                              return newSet;
-                            });
-                          }}
-                          className="text-xs text-[#FFC857] underline"
-                        >
-                          重试
-                        </button>
-                      </div>
-                    </div>
+                  {hasStory(photo) && (
+                    <button
+                      onClick={(event) => toggleStoryCard(photo.id, event)}
+                      className="absolute top-2 right-12 w-8 h-8 rounded-full bg-black/35 backdrop-blur-sm border border-white/35 text-white flex items-center justify-center hover:bg-black/50 transition-colors"
+                      aria-label="查看关于此刻"
+                      title="关于此刻"
+                    >
+                      <RotateCcw
+                        className={`w-4 h-4 transition-transform duration-300 ${
+                          storyOpenMap[photo.id] ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
                   )}
 
                   {/* 选择框 */}

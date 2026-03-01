@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, RotateCcw, Sparkles, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
+import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Album {
   id: string;
@@ -29,12 +30,62 @@ interface Photo {
   preview_url?: string | null;    // 新字段
   original_url?: string | null;   // 新字段
   folder_id: string | null;
+  story_text?: string | null;
+  has_story?: boolean;
+  is_highlight?: boolean;
+  sort_order?: number | null;
+  shot_date?: string | null;
   width: number | null;
   height: number | null;
   created_at: string;
 }
 
 const ROOT_FOLDER_SENTINEL = '__ROOT__';
+const DEFAULT_PHOTO_SORT_ORDER = 2147483647;
+const ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT = '数据库缺少 story_text / is_highlight / sort_order 字段，请先执行 SQL 迁移：photo/sql/migrations/06_album_photo_story_sort.sql';
+const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
+
+const normalizeStoryText = (value: unknown): string | null => {
+  const text = String(value ?? '').trim();
+  return text ? text : null;
+};
+
+const normalizeShotDate = (value: unknown): string | null => {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return null;
+  }
+  const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!matched) {
+    return null;
+  }
+  return `${matched[1]}-${matched[2]}-${matched[3]}`;
+};
+
+const resolvePhotoDisplayDate = (photo: Photo): string | null =>
+  normalizeShotDate(photo.shot_date) || normalizeShotDate(photo.created_at);
+
+const formatPhotoDateText = (value: string | null): string => {
+  if (!value) {
+    return '----/--/--';
+  }
+  return value.replace(/-/g, '/');
+};
+
+const isColumnMissingError = (message: string, column: string): boolean => {
+  const normalized = String(message || '').toLowerCase();
+  const target = String(column || '').trim().toLowerCase();
+  if (!target) return false;
+  return (
+    normalized.includes('unknown column') && normalized.includes(target)
+  ) || (
+    normalized.includes('column') && normalized.includes('not found') && normalized.includes(target)
+  ) || (
+    normalized.includes('does not exist') && normalized.includes(target)
+  );
+};
+
+const buildSortOrderValue = (index: number): number => (index + 1) * 10;
 
 export default function AlbumDetailPage() {
   const router = useRouter();
@@ -51,6 +102,10 @@ export default function AlbumDetailPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('batch');
+  const [singleImage, setSingleImage] = useState<File | null>(null);
+  const [singleStoryText, setSingleStoryText] = useState('');
+  const [singleHighlight, setSingleHighlight] = useState(false);
+  const [singleShotDate, setSingleShotDate] = useState(getTodayUTC8());
   const [batchImages, setBatchImages] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -70,6 +125,13 @@ export default function AlbumDetailPage() {
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [showEditRootModal, setShowEditRootModal] = useState(false);
   const [newRootFolderName, setNewRootFolderName] = useState('');
+  const [showStoryModal, setShowStoryModal] = useState(false);
+  const [editingStoryPhoto, setEditingStoryPhoto] = useState<Photo | null>(null);
+  const [editingStoryText, setEditingStoryText] = useState('');
+  const [editingHighlight, setEditingHighlight] = useState(false);
+  const [showShotDateModal, setShowShotDateModal] = useState(false);
+  const [editingShotDatePhoto, setEditingShotDatePhoto] = useState<Photo | null>(null);
+  const [editingShotDateValue, setEditingShotDateValue] = useState(getTodayUTC8());
 
   useEffect(() => {
     loadAlbumData();
@@ -105,16 +167,44 @@ export default function AlbumDetailPage() {
       return;
     }
 
-    const [albumRes, foldersRes, photosRes] = await Promise.all([
+    const [albumRes, foldersRes] = await Promise.all([
       dbClient.from('albums').select('*').eq('id', albumId).single(),
       dbClient.from('album_folders').select('*').eq('album_id', albumId).order('created_at', { ascending: false }),
-      dbClient.from('album_photos').select('*', { count: 'exact' }).eq('album_id', albumId).order('created_at', { ascending: false }).range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1),
     ]);
+
+    let photosRes = await dbClient
+      .from('album_photos')
+      .select('*', { count: 'exact' })
+      .eq('album_id', albumId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: false })
+      .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+
+    if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'sort_order')) {
+      photosRes = await dbClient
+        .from('album_photos')
+        .select('*', { count: 'exact' })
+        .eq('album_id', albumId)
+        .order('created_at', { ascending: false })
+        .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+    }
 
     if (albumRes.data) setAlbum(albumRes.data);
     if (foldersRes.data) setFolders(foldersRes.data);
+    if (photosRes.error) {
+      setShowToast({ message: `加载照片失败：${photosRes.error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    }
     if (photosRes.data) {
-      setPhotos(photosRes.data);
+      const normalized = photosRes.data.map((row: any) => ({
+        ...row,
+        story_text: normalizeStoryText(row.story_text),
+        has_story: Boolean(normalizeStoryText(row.story_text)),
+        is_highlight: Boolean(row.is_highlight),
+        shot_date: normalizeShotDate(row.shot_date),
+        sort_order: Number.isFinite(Number(row.sort_order)) ? Math.round(Number(row.sort_order)) : DEFAULT_PHOTO_SORT_ORDER,
+      }));
+      setPhotos(normalized);
       setTotalCount(photosRes.count || 0);
     }
 
@@ -374,8 +464,20 @@ export default function AlbumDetailPage() {
       width: number;
       height: number;
       blurhash: string;
+      story_text?: string | null;
+      is_highlight?: boolean;
+      sort_order?: number;
+      shot_date?: string | null;
     }
   ): Promise<{ message: string } | null> => {
+    const normalizedStory = normalizeStoryText(payload.story_text);
+    const normalizedShotDate = normalizeShotDate(payload.shot_date);
+    const hasOptionalMeta =
+      normalizedStory !== null ||
+      Boolean(payload.is_highlight) ||
+      Number.isFinite(Number(payload.sort_order)) ||
+      normalizedShotDate !== null;
+
     const withOptionalFolderId = (
       row: Record<string, unknown>,
       folderId: string | null
@@ -388,6 +490,24 @@ export default function AlbumDetailPage() {
         ...row,
         folder_id: normalizedFolderId,
       };
+    };
+
+    const withOptionalStoryAndSort = (row: Record<string, unknown>): Record<string, unknown> => {
+      const withMeta: Record<string, unknown> = { ...row };
+      if (normalizedStory !== null) {
+        withMeta.story_text = normalizedStory;
+      }
+      if (Boolean(payload.is_highlight)) {
+        withMeta.is_highlight = 1;
+      }
+      const sortOrderNumber = Number(payload.sort_order);
+      if (Number.isFinite(sortOrderNumber) && sortOrderNumber > 0) {
+        withMeta.sort_order = Math.round(sortOrderNumber);
+      }
+      if (normalizedShotDate !== null) {
+        withMeta.shot_date = normalizedShotDate;
+      }
+      return withMeta;
     };
 
     let lastError: { message: string } | null = null;
@@ -487,9 +607,17 @@ export default function AlbumDetailPage() {
         ),
       ];
 
+      const variantsWithMetaFallback: Array<Record<string, unknown>> = [];
+      for (const variant of variants) {
+        if (hasOptionalMeta) {
+          variantsWithMetaFallback.push(withOptionalStoryAndSort(variant));
+        }
+        variantsWithMetaFallback.push(variant);
+      }
+
       const uniqueVariants: Array<Record<string, unknown>> = [];
       const seenSignatures = new Set<string>();
-      for (const variant of variants) {
+      for (const variant of variantsWithMetaFallback) {
         const signature = Object.keys(variant)
           .sort()
           .map((key) => `${key}:${String((variant as Record<string, unknown>)[key])}`)
@@ -544,6 +672,348 @@ export default function AlbumDetailPage() {
     setBatchImages(Array.from(files));
   };
 
+  const handleSingleImageSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      setSingleImage(null);
+      return;
+    }
+    setSingleImage(files[0]);
+  };
+
+  const uploadOnePhotoFile = async (
+    dbClient: any,
+    file: File,
+    uploadFolderId: string | null,
+    photoIndex: number,
+    options?: {
+      storyText?: string | null;
+      isHighlight?: boolean;
+      sortOrder?: number;
+      shotDate?: string | null;
+    }
+  ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    try {
+      const versions = await generateAlbumImageVersions(file);
+      const thumbnailVersion = versions.find((v) => v.type === 'thumbnail');
+      if (!thumbnailVersion) {
+        return { ok: false, message: '生成缩略图失败' };
+      }
+
+      const blurhash = await generateBlurHash(thumbnailVersion.file);
+      const timestamp = Date.now();
+      let thumbnail_url = '';
+      let original_url = '';
+      const uploadedKeys: string[] = [];
+
+      for (const version of versions) {
+        const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
+        const fileName = `${timestamp}_${photoIndex}_${version.type}.${ext}`;
+        const publicUrl = await uploadToCloudBaseDirect(version.file, fileName, 'albums');
+        uploadedKeys.push(`albums/${fileName}`);
+        if (version.type === 'thumbnail') thumbnail_url = publicUrl;
+        if (version.type === 'original') original_url = publicUrl;
+      }
+
+      if (!thumbnail_url || !original_url) {
+        await cleanupUploadedFiles(uploadedKeys);
+        return { ok: false, message: '上传后未获取完整图片地址' };
+      }
+
+      const insertError = await insertAlbumPhotoWithCompat(dbClient, {
+        album_id: albumId,
+        folder_id: uploadFolderId,
+        url: original_url || thumbnail_url,
+        thumbnail_url,
+        preview_url: original_url,
+        original_url,
+        width: thumbnailVersion.width,
+        height: thumbnailVersion.height,
+        blurhash,
+        story_text: normalizeStoryText(options?.storyText),
+        is_highlight: Boolean(options?.isHighlight),
+        sort_order: Number.isFinite(Number(options?.sortOrder))
+          ? Math.round(Number(options?.sortOrder))
+          : undefined,
+        shot_date: normalizeShotDate(options?.shotDate),
+      });
+
+      if (insertError) {
+        await cleanupUploadedFiles(uploadedKeys);
+        return { ok: false, message: insertError.message };
+      }
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, message: String(error?.message || '上传流程异常') };
+    }
+  };
+
+  const openStoryModal = (photo: Photo) => {
+    setEditingStoryPhoto(photo);
+    setEditingStoryText(String(photo.story_text || ''));
+    setEditingHighlight(Boolean(photo.is_highlight));
+    setShowStoryModal(true);
+  };
+
+  const closeStoryModal = () => {
+    if (actionLoading) return;
+    setShowStoryModal(false);
+    setEditingStoryPhoto(null);
+    setEditingStoryText('');
+    setEditingHighlight(false);
+  };
+
+  const savePhotoStory = async () => {
+    if (!editingStoryPhoto) return;
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const storyText = normalizeStoryText(editingStoryText);
+    const payload = {
+      story_text: storyText,
+      is_highlight: editingHighlight ? 1 : 0,
+    };
+    const { data, error } = await dbClient
+      .from('album_photos')
+      .update(payload)
+      .eq('id', editingStoryPhoto.id)
+      .eq('album_id', albumId)
+      .select('id, story_text, is_highlight')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      if (isColumnMissingError(error.message || '', 'story_text') || isColumnMissingError(error.message || '', 'is_highlight')) {
+        setShowToast({ message: `保存失败：${ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT}`, type: 'warning' });
+      } else {
+        setShowToast({ message: `保存失败：${error.message}`, type: 'error' });
+      }
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!data) {
+      setShowToast({ message: '照片不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setPhotos((prev) =>
+      prev.map((photo) =>
+        String(photo.id) === String(data.id)
+          ? {
+              ...photo,
+              story_text: normalizeStoryText(data.story_text),
+              has_story: Boolean(normalizeStoryText(data.story_text)),
+              is_highlight: Boolean(data.is_highlight),
+            }
+          : photo
+      )
+    );
+    closeStoryModal();
+    setShowToast({ message: '关于此刻已更新', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
+  const openShotDateModal = (photo: Photo) => {
+    const fallbackDate = normalizeShotDate(photo.created_at) || getTodayUTC8();
+    setEditingShotDatePhoto(photo);
+    setEditingShotDateValue(normalizeShotDate(photo.shot_date) || fallbackDate);
+    setShowShotDateModal(true);
+  };
+
+  const closeShotDateModal = () => {
+    if (actionLoading) return;
+    setShowShotDateModal(false);
+    setEditingShotDatePhoto(null);
+    setEditingShotDateValue(getTodayUTC8());
+  };
+
+  const savePhotoShotDate = async () => {
+    if (!editingShotDatePhoto) return;
+
+    const normalizedShotDate = normalizeShotDate(editingShotDateValue);
+    if (!normalizedShotDate) {
+      setShowToast({ message: '请选择有效的拍摄日期', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { data, error } = await dbClient
+      .from('album_photos')
+      .update({ shot_date: normalizedShotDate })
+      .eq('id', editingShotDatePhoto.id)
+      .eq('album_id', albumId)
+      .select('id, shot_date')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      if (isColumnMissingError(error.message || '', 'shot_date')) {
+        setShowToast({ message: `保存失败：${ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT}`, type: 'warning' });
+      } else {
+        setShowToast({ message: `保存失败：${error.message}`, type: 'error' });
+      }
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!data) {
+      setShowToast({ message: '照片不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setPhotos((prev) =>
+      prev.map((photo) =>
+        String(photo.id) === String(data.id)
+          ? { ...photo, shot_date: normalizeShotDate(data.shot_date) }
+          : photo
+      )
+    );
+    closeShotDateModal();
+    setShowToast({ message: '拍摄日期已更新', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
+  const movePhotoOrder = async (photoId: string, direction: 'up' | 'down') => {
+    const list = [...filteredPhotos];
+    const currentIndex = list.findIndex((item) => String(item.id) === String(photoId));
+    if (currentIndex < 0) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= list.length) return;
+
+    const reordered = [...list];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    const currentMap = new Map<string, number>();
+    list.forEach((item, index) => {
+      const value = Number(item.sort_order);
+      currentMap.set(
+        String(item.id),
+        Number.isFinite(value) && value > 0 ? Math.round(value) : buildSortOrderValue(index)
+      );
+    });
+
+    const desiredMap = new Map<string, number>();
+    reordered.forEach((item, index) => {
+      desiredMap.set(String(item.id), buildSortOrderValue(index));
+    });
+
+    const changed = reordered.filter((item) => currentMap.get(String(item.id)) !== desiredMap.get(String(item.id)));
+    if (changed.length === 0) return;
+
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    try {
+      for (const item of changed) {
+        const sortOrder = desiredMap.get(String(item.id));
+        const { error } = await dbClient
+          .from('album_photos')
+          .update({ sort_order: sortOrder })
+          .eq('id', item.id)
+          .eq('album_id', albumId);
+        if (error) {
+          if (isColumnMissingError(error.message || '', 'sort_order')) {
+            throw new Error(ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT);
+          }
+          throw error;
+        }
+      }
+
+      setPhotos((prev) =>
+        prev.map((item) => {
+          const nextSort = desiredMap.get(String(item.id));
+          if (!Number.isFinite(nextSort as number)) return item;
+          return {
+            ...item,
+            sort_order: nextSort as number,
+          };
+        })
+      );
+      setShowToast({ message: direction === 'up' ? '已上移一位' : '已下移一位', type: 'success' });
+      setTimeout(() => setShowToast(null), 2000);
+    } catch (error: any) {
+      setShowToast({ message: `排序失败：${error.message || '请稍后重试'}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUploadSinglePhoto = async () => {
+    if (!singleImage) {
+      setShowToast({ message: '请选择图片', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setUploading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setUploading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    let uploadFolderId: string | null = await resolveUploadFolderId(dbClient, selectedFolder);
+    if (selectedFolder && !uploadFolderId) {
+      setSelectedFolder(null);
+      uploadFolderId = null;
+    }
+
+    setUploadProgress({ current: 1, total: 1 });
+    const normalizedSingleShotDate = normalizeShotDate(singleShotDate) || getTodayUTC8();
+    const result = await uploadOnePhotoFile(dbClient, singleImage, uploadFolderId, 0, {
+      storyText: singleStoryText,
+      isHighlight: singleHighlight,
+      shotDate: normalizedSingleShotDate,
+    });
+    setUploading(false);
+    setUploadProgress({ current: 0, total: 0 });
+
+    if (result.ok) {
+      setShowUploadModal(false);
+      setSingleImage(null);
+      setSingleStoryText('');
+      setSingleHighlight(false);
+      setSingleShotDate(getTodayUTC8());
+      loadAlbumData();
+      setShowToast({ message: '单图上传成功', type: 'success' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setShowToast({ message: `上传失败：${result.message}`, type: 'error' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
   const handleUploadPhotos = async () => {
     if (batchImages.length === 0) {
       setShowToast({ message: '请选择图片', type: 'warning' });
@@ -570,85 +1040,21 @@ export default function AlbumDetailPage() {
     }
 
     setUploadProgress({ current: 0, total: batchImages.length });
+    const batchShotDate = getTodayUTC8();
 
     for (let i = 0; i < batchImages.length; i++) {
       const file = batchImages[i];
       setUploadProgress({ current: i + 1, total: batchImages.length });
-
-      try {
-        // 1. 生成双版本图片（thumbnail + original）
-        const versions = await generateAlbumImageVersions(file);
-        const thumbnailVersion = versions.find(v => v.type === 'thumbnail')!;
-
-        // 2. 生成 BlurHash（基于 thumbnail）
-        const blurhash = await generateBlurHash(thumbnailVersion.file);
-
-        const timestamp = Date.now();
-        let thumbnail_url = '';
-        let original_url = '';
-        const uploadedKeys: string[] = [];
-        let uploadFailed = false;
-
-        // 3. 客户端上传两个版本到 CloudBase 云存储（albums 目录）
-        for (const version of versions) {
-          // thumbnail 使用 webp，original 保持原格式
-          const ext = version.type === 'original' ? file.name.split('.').pop() : 'webp';
-          const fileName = `${timestamp}_${i}_${version.type}.${ext}`;
-
-          try {
-            const publicUrl = await uploadToCloudBaseDirect(version.file, fileName, 'albums');
-            uploadedKeys.push(`albums/${fileName}`);
-
-            if (version.type === 'thumbnail') thumbnail_url = publicUrl;
-            else if (version.type === 'original') original_url = publicUrl;
-          } catch (uploadError) {
-            console.error(`上传 ${version.type} 失败:`, uploadError);
-            uploadFailed = true;
-            break;
-          }
-        }
-
-        if (uploadFailed) {
-          failCount++;
-          await cleanupUploadedFiles(uploadedKeys);
-          continue;
-        }
-
-        // 4. 插入数据库
-        if (thumbnail_url && original_url) {
-          const preview_url = original_url;
-          const insertError = await insertAlbumPhotoWithCompat(dbClient, {
-            album_id: albumId,
-            folder_id: uploadFolderId,
-            url: original_url || thumbnail_url,
-            thumbnail_url,
-            preview_url,
-            original_url,
-            width: thumbnailVersion.width,
-            height: thumbnailVersion.height,
-            blurhash,
-          });
-
-          if (insertError) {
-            if (!firstFailureReason) {
-              firstFailureReason = insertError.message;
-            }
-            console.error('插入 album_photos 失败:', insertError.message);
-            failCount++;
-            await cleanupUploadedFiles(uploadedKeys);
-          } else {
-            successCount++;
-          }
-        } else {
-          if (!firstFailureReason) {
-            firstFailureReason = '上传后未获取完整图片地址';
-          }
-          failCount++;
-          await cleanupUploadedFiles(uploadedKeys);
-        }
-      } catch (error) {
+      const result = await uploadOnePhotoFile(dbClient, file, uploadFolderId, i, {
+        storyText: null,
+        isHighlight: false,
+        shotDate: batchShotDate,
+      });
+      if (result.ok) {
+        successCount++;
+      } else {
         if (!firstFailureReason) {
-          firstFailureReason = error instanceof Error ? error.message : '上传流程异常';
+          firstFailureReason = result.message;
         }
         failCount++;
       }
@@ -657,6 +1063,7 @@ export default function AlbumDetailPage() {
     setUploading(false);
     setShowUploadModal(false);
     setBatchImages([]);
+    setSingleShotDate(getTodayUTC8());
     setUploadProgress({ current: 0, total: 0 });
 
     if (successCount > 0) {
@@ -673,7 +1080,7 @@ export default function AlbumDetailPage() {
     }
   };
 
-  const handleDeletePhoto = async (photoId: string, photoUrl: string | null) => {
+  const handleDeletePhoto = async (photoId: string) => {
     const photo = photos.find(p => p.id === photoId);
     if (photo) {
       setDeletingPhoto(photo);
@@ -1048,9 +1455,21 @@ export default function AlbumDetailPage() {
     }
   };
 
-  const filteredPhotos = selectedFolder
-    ? photos.filter((p) => p.folder_id === selectedFolder)
-    : photos.filter((p) => !p.folder_id);
+  const filteredPhotos = (
+    selectedFolder
+      ? photos.filter((p) => p.folder_id === selectedFolder)
+      : photos.filter((p) => !p.folder_id)
+  ).sort((a, b) => {
+    const sortA = Number(a.sort_order);
+    const sortB = Number(b.sort_order);
+    const normalizedA = Number.isFinite(sortA) && sortA > 0 ? Math.round(sortA) : DEFAULT_PHOTO_SORT_ORDER;
+    const normalizedB = Number.isFinite(sortB) && sortB > 0 ? Math.round(sortB) : DEFAULT_PHOTO_SORT_ORDER;
+    if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+
+    const timeA = new Date(String(a.created_at || '')).getTime();
+    const timeB = new Date(String(b.created_at || '')).getTime();
+    return (Number.isFinite(timeB) ? timeB : 0) - (Number.isFinite(timeA) ? timeA : 0);
+  });
   const rootFolderName = String(album?.root_folder_name ?? '').trim() || '根目录';
 
   if (loading) {
@@ -1099,7 +1518,16 @@ export default function AlbumDetailPage() {
                 <span className="sm:hidden">批量</span>
               </button>
               <button
-                onClick={() => setShowUploadModal(true)}
+                onClick={() => {
+                  setShowUploadModal(true);
+                  setUploadMode('batch');
+                  setSingleImage(null);
+                  setSingleStoryText('');
+                  setSingleHighlight(false);
+                  setSingleShotDate(getTodayUTC8());
+                  setBatchImages([]);
+                  setUploadProgress({ current: 0, total: 0 });
+                }}
                 className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full text-sm font-medium hover:shadow-md active:scale-95 transition-all whitespace-nowrap"
               >
                 <Upload className="w-4 h-4" />
@@ -1197,11 +1625,13 @@ export default function AlbumDetailPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           <AnimatePresence>
-            {filteredPhotos.map((photo) => {
+            {filteredPhotos.map((photo, index) => {
               const folderName = photo.folder_id
                 ? folders.find((folder) => String(folder.id) === String(photo.folder_id))?.name || '未知文件夹'
                 : rootFolderName;
-              const dateText = photo.created_at ? String(photo.created_at).slice(5, 10).replace('-', '/') : '--/--';
+              const dateText = formatPhotoDateText(resolvePhotoDisplayDate(photo));
+              const hasStory = Boolean(normalizeStoryText(photo.story_text));
+              const isHighlighted = hasStory || Boolean(photo.is_highlight);
               return (
                 <motion.div
                   key={photo.id}
@@ -1212,7 +1642,11 @@ export default function AlbumDetailPage() {
                     isSelectionMode
                       ? selectedPhotoIds.includes(photo.id)
                         ? 'ring-4 ring-[#FFC857]/75 shadow-[0_10px_28px_rgba(93,64,55,0.22)]'
+                        : isHighlighted
+                        ? 'ring-2 ring-[#FFC857]/70 shadow-[0_10px_26px_rgba(255,200,87,0.35)] hover:ring-[#FFC857]'
                         : 'ring-1 ring-[#5D4037]/10 shadow-[0_8px_24px_rgba(93,64,55,0.14)] hover:ring-[#FFC857]/45'
+                      : isHighlighted
+                      ? 'ring-2 ring-[#FFC857]/70 shadow-[0_10px_26px_rgba(255,200,87,0.35)] hover:translate-y-[-2px] hover:shadow-[0_14px_32px_rgba(255,200,87,0.45)] cursor-pointer'
                       : 'ring-1 ring-[#5D4037]/10 shadow-[0_8px_24px_rgba(93,64,55,0.14)] hover:translate-y-[-2px] hover:shadow-[0_14px_30px_rgba(93,64,55,0.2)] cursor-pointer'
                   }`}
                   onClick={() => {
@@ -1258,6 +1692,34 @@ export default function AlbumDetailPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            openStoryModal(photo);
+                          }}
+                          className={`absolute top-3 right-[9.75rem] w-10 h-10 rounded-full transition-colors flex items-center justify-center shadow-md ${
+                            hasStory
+                              ? 'bg-[#FFC857]/90 text-[#5D4037] border border-white/70'
+                              : Boolean(photo.is_highlight)
+                              ? 'bg-[#5D4037]/85 text-white'
+                              : 'bg-white/90 text-[#5D4037]'
+                          }`}
+                          aria-label="编辑关于此刻"
+                          title={hasStory ? '编辑关于此刻' : '添加关于此刻'}
+                        >
+                          {hasStory ? <RotateCcw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openShotDateModal(photo);
+                          }}
+                          className="absolute top-3 right-[6.5rem] w-10 h-10 bg-white/90 text-[#5D4037] rounded-full hover:bg-[#FFC857]/70 transition-colors flex items-center justify-center shadow-md border border-[#5D4037]/10"
+                          aria-label="修改拍摄日期"
+                          title="修改拍摄日期"
+                        >
+                          <Calendar className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
                             openMoveModal([photo.id]);
                           }}
                           className="absolute top-3 right-14 w-10 h-10 bg-[#FFC857] text-[#5D4037] rounded-full hover:bg-[#f2b93f] transition-colors flex items-center justify-center shadow-md"
@@ -1269,7 +1731,7 @@ export default function AlbumDetailPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeletePhoto(photo.id, photo.url);
+                            handleDeletePhoto(photo.id);
                           }}
                           className="absolute top-3 right-3 w-10 h-10 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center justify-center shadow-md"
                           aria-label="删除照片"
@@ -1285,8 +1747,51 @@ export default function AlbumDetailPage() {
                       <Folder className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">{folderName}</span>
                     </span>
-                    <span className="text-[#5D4037]/55">{dateText}</span>
+                    <div className="flex items-center gap-2">
+                      {hasStory && (
+                        <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 bg-[#FFC857]/25 text-[#5D4037]">
+                          <RotateCcw className="w-3 h-3" />
+                          <span>故事</span>
+                        </span>
+                      )}
+                      {!hasStory && Boolean(photo.is_highlight) && (
+                        <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 bg-[#5D4037]/10 text-[#5D4037]">
+                          <Sparkles className="w-3 h-3" />
+                          <span>高亮</span>
+                        </span>
+                      )}
+                      <span className="text-[#5D4037]/55">{dateText}</span>
+                    </div>
                   </div>
+
+                  {!isSelectionMode && (
+                    <div className="px-3 pb-3 flex items-center justify-end gap-2 bg-[#FFFBF0]">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          movePhotoOrder(photo.id, 'up');
+                        }}
+                        disabled={index === 0 || actionLoading}
+                        className="w-8 h-8 rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] disabled:opacity-40 flex items-center justify-center hover:bg-[#FFC857]/20 transition-colors"
+                        aria-label="上移"
+                        title="上移"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          movePhotoOrder(photo.id, 'down');
+                        }}
+                        disabled={index === filteredPhotos.length - 1 || actionLoading}
+                        className="w-8 h-8 rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] disabled:opacity-40 flex items-center justify-center hover:bg-[#FFC857]/20 transition-colors"
+                        aria-label="下移"
+                        title="下移"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </motion.div>
               );
             })}
@@ -1667,7 +2172,16 @@ export default function AlbumDetailPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-            onClick={() => setShowUploadModal(false)}
+            onClick={() => {
+              if (uploading) return;
+              setShowUploadModal(false);
+              setSingleImage(null);
+              setSingleStoryText('');
+              setSingleHighlight(false);
+              setSingleShotDate(getTodayUTC8());
+              setBatchImages([]);
+              setUploadProgress({ current: 0, total: 0 });
+            }}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -1677,9 +2191,18 @@ export default function AlbumDetailPage() {
               className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-[#5D4037]">批量上传照片</h2>
+                <h2 className="text-xl font-bold text-[#5D4037]">上传照片</h2>
                 <button
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={() => {
+                    if (uploading) return;
+                    setShowUploadModal(false);
+                    setSingleImage(null);
+                    setSingleStoryText('');
+                    setSingleHighlight(false);
+                    setSingleShotDate(getTodayUTC8());
+                    setBatchImages([]);
+                    setUploadProgress({ current: 0, total: 0 });
+                  }}
                   className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
                 >
                   <X className="w-5 h-5 text-[#5D4037]" />
@@ -1687,76 +2210,297 @@ export default function AlbumDetailPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => handleBatchImageSelect(e.target.files)}
-                    className="hidden"
-                    id="batch-upload"
-                  />
-                  <label htmlFor="batch-upload" className="cursor-pointer">
-                    <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
-                    <p className="text-sm text-[#5D4037]/60">
-                      {batchImages.length > 0
-                        ? `已选择 ${batchImages.length} 张图片`
-                        : '点击选择多张图片'}
-                    </p>
-                  </label>
+                <div className="inline-flex bg-[#FFFBF0] rounded-full p-1 border border-[#5D4037]/15">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadMode('single');
+                      setSingleImage(null);
+                      setSingleStoryText('');
+                      setSingleHighlight(false);
+                      setSingleShotDate(getTodayUTC8());
+                      setBatchImages([]);
+                      setUploadProgress({ current: 0, total: 0 });
+                    }}
+                    className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      uploadMode === 'single' ? 'bg-[#FFC857] text-[#5D4037]' : 'text-[#5D4037]/70 hover:bg-white'
+                    }`}
+                  >
+                    单图
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadMode('batch');
+                      setSingleImage(null);
+                      setSingleStoryText('');
+                      setSingleHighlight(false);
+                      setSingleShotDate(getTodayUTC8());
+                      setBatchImages([]);
+                      setUploadProgress({ current: 0, total: 0 });
+                    }}
+                    className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      uploadMode === 'batch' ? 'bg-[#FFC857] text-[#5D4037]' : 'text-[#5D4037]/70 hover:bg-white'
+                    }`}
+                  >
+                    批量
+                  </button>
                 </div>
 
-                {batchImages.length > 0 && (
-                  <div className="bg-[#FFFBF0] rounded-xl p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-[#5D4037]">
-                        已选择 {batchImages.length} 张图片
-                      </span>
-                      <button
-                        onClick={() => setBatchImages([])}
-                        className="text-xs text-red-600 hover:text-red-700"
-                      >
-                        清空
-                      </button>
+                {uploadMode === 'single' ? (
+                  <>
+                    <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleSingleImageSelect(e.target.files)}
+                        className="hidden"
+                        id="single-upload"
+                      />
+                      <label htmlFor="single-upload" className="cursor-pointer">
+                        <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                        <p className="text-sm text-[#5D4037]/60">
+                          {singleImage ? singleImage.name : '点击选择单张图片'}
+                        </p>
+                      </label>
                     </div>
-                    <div className="max-h-32 overflow-y-auto space-y-1">
-                      {batchImages.map((file, index) => (
-                        <div key={index} className="text-xs text-[#5D4037]/60 truncate">
-                          {index + 1}. {file.name}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {uploading && uploadProgress.total > 0 && (
-                  <div className="bg-[#FFFBF0] rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-[#5D4037]">
-                        上传进度
-                      </span>
-                      <span className="text-sm text-[#5D4037]/60">
-                        {uploadProgress.current} / {uploadProgress.total}
-                      </span>
-                    </div>
-                    <div className="w-full bg-white rounded-full h-2 overflow-hidden">
-                      <div
-                        className="h-full bg-[#FFC857] transition-all duration-300"
-                        style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                    <div className="rounded-xl border border-[#5D4037]/15 bg-[#FFFBF0] px-4 py-3">
+                      <label className="block text-sm text-[#5D4037] mb-1">拍摄日期（单图可选）</label>
+                      <input
+                        type="date"
+                        value={singleShotDate}
+                        onChange={(e) => setSingleShotDate(e.target.value)}
+                        className="w-full rounded-lg border border-[#5D4037]/20 bg-white px-3 py-2 text-sm text-[#5D4037] focus:outline-none focus:border-[#FFC857]"
                       />
                     </div>
-                  </div>
+
+                    <textarea
+                      value={singleStoryText}
+                      onChange={(e) => setSingleStoryText(e.target.value)}
+                      maxLength={800}
+                      placeholder="关于此刻（可选，仅单图支持）"
+                      className="w-full min-h-[120px] px-4 py-3 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] bg-[#FFFBF0]/45 text-sm text-[#5D4037]"
+                    />
+
+                    <label className="flex items-center justify-between rounded-xl border border-[#5D4037]/15 bg-[#FFFBF0] px-4 py-3 cursor-pointer">
+                      <span className="text-sm text-[#5D4037]">高亮该照片（即使没有文案）</span>
+                      <input
+                        type="checkbox"
+                        checked={singleHighlight}
+                        onChange={(e) => setSingleHighlight(e.target.checked)}
+                        className="w-4 h-4 accent-[#FFC857]"
+                      />
+                    </label>
+
+                    <button
+                      onClick={handleUploadSinglePhoto}
+                      disabled={uploading || !singleImage}
+                      className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                    >
+                      {uploading ? '上传中...' : '上传单张照片'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="border-2 border-dashed border-[#5D4037]/20 rounded-xl p-6 text-center hover:border-[#FFC857] transition-colors cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => handleBatchImageSelect(e.target.files)}
+                        className="hidden"
+                        id="batch-upload"
+                      />
+                      <label htmlFor="batch-upload" className="cursor-pointer">
+                        <Upload className="w-12 h-12 text-[#5D4037]/40 mx-auto mb-2" />
+                        <p className="text-sm text-[#5D4037]/60">
+                          {batchImages.length > 0
+                            ? `已选择 ${batchImages.length} 张图片`
+                            : '点击选择多张图片'}
+                        </p>
+                      </label>
+                    </div>
+
+                    {batchImages.length > 0 && (
+                      <div className="bg-[#FFFBF0] rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-[#5D4037]">
+                            已选择 {batchImages.length} 张图片
+                          </span>
+                          <button
+                            onClick={() => setBatchImages([])}
+                            className="text-xs text-red-600 hover:text-red-700"
+                          >
+                            清空
+                          </button>
+                        </div>
+                        <div className="max-h-32 overflow-y-auto space-y-1">
+                          {batchImages.map((file, index) => (
+                            <div key={index} className="text-xs text-[#5D4037]/60 truncate">
+                              {index + 1}. {file.name}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {uploading && uploadProgress.total > 0 && (
+                      <div className="bg-[#FFFBF0] rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-[#5D4037]">
+                            上传进度
+                          </span>
+                          <span className="text-sm text-[#5D4037]/60">
+                            {uploadProgress.current} / {uploadProgress.total}
+                          </span>
+                        </div>
+                        <div className="w-full bg-white rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full bg-[#FFC857] transition-all duration-300"
+                            style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleUploadPhotos}
+                      disabled={uploading || batchImages.length === 0}
+                      className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                    >
+                      {uploading
+                        ? `上传中 (${uploadProgress.current}/${uploadProgress.total})...`
+                        : `批量上传 (${batchImages.length} 张)`}
+                    </button>
+                  </>
                 )}
 
+                {uploadMode === 'batch' ? (
+                  <div className="text-xs text-[#5D4037]/55">批量上传默认拍摄日期为今天，且不支持“关于此刻”，可在列表中后续编辑。</div>
+                ) : (
+                  <div className="text-xs text-[#5D4037]/55">单图上传支持设置拍摄日期、“关于此刻”和高亮。</div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 关于此刻编辑弹窗 */}
+      <AnimatePresence>
+        {showStoryModal && editingStoryPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={closeStoryModal}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-[#5D4037]">编辑关于此刻</h3>
                 <button
-                  onClick={handleUploadPhotos}
-                  disabled={uploading || batchImages.length === 0}
-                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                  onClick={closeStoryModal}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
                 >
-                  {uploading
-                    ? `上传中 (${uploadProgress.current}/${uploadProgress.total})...`
-                    : `批量上传 (${batchImages.length} 张)`
-                  }
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <textarea
+                value={editingStoryText}
+                onChange={(e) => setEditingStoryText(e.target.value)}
+                maxLength={800}
+                placeholder="写下这张照片的故事（可留空）"
+                className="w-full min-h-[160px] px-4 py-3 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] bg-[#FFFBF0]/45 text-sm text-[#5D4037]"
+              />
+
+              <label className="mt-3 flex items-center justify-between rounded-xl border border-[#5D4037]/15 bg-[#FFFBF0] px-4 py-3 cursor-pointer">
+                <span className="text-sm text-[#5D4037]">高亮该照片（可独立于文案）</span>
+                <input
+                  type="checkbox"
+                  checked={editingHighlight}
+                  onChange={(e) => setEditingHighlight(e.target.checked)}
+                  className="w-4 h-4 accent-[#FFC857]"
+                />
+              </label>
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  onClick={closeStoryModal}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 transition-colors disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={savePhotoStory}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {actionLoading ? '保存中...' : '保存'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 拍摄日期编辑弹窗 */}
+      <AnimatePresence>
+        {showShotDateModal && editingShotDatePhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={closeShotDateModal}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-[#5D4037]">修改拍摄日期</h3>
+                <button
+                  onClick={closeShotDateModal}
+                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-[#5D4037]" />
+                </button>
+              </div>
+
+              <input
+                type="date"
+                value={editingShotDateValue}
+                onChange={(e) => setEditingShotDateValue(e.target.value)}
+                className="w-full px-4 py-3 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] bg-[#FFFBF0]/45 text-sm text-[#5D4037]"
+              />
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  onClick={closeShotDateModal}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 border border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 transition-colors disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={savePhotoShotDate}
+                  disabled={actionLoading}
+                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                >
+                  {actionLoading ? '保存中...' : '保存'}
                 </button>
               </div>
             </motion.div>

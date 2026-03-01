@@ -144,6 +144,53 @@ function normalizeMaybeUrlText(value: unknown): string | null {
   return raw;
 }
 
+function normalizeMaybeStoryText(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  const lowered = raw.toLowerCase();
+  if (lowered === 'null' || lowered === 'undefined') {
+    return null;
+  }
+  return raw;
+}
+
+function normalizeMaybeShotDate(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!matched) {
+    return null;
+  }
+
+  const shotDate = `${matched[1]}-${matched[2]}-${matched[3]}`;
+  const parsed = new Date(`${shotDate}T00:00:00+08:00`);
+  if (!Number.isFinite(parsed.getTime())) {
+    return null;
+  }
+
+  return shotDate;
+}
+
+function getTodayDateUTC8(): string {
+  const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function resolveAlbumFolderFilter(folderIdInput: unknown): {
   clause: string;
   params: Record<string, unknown>;
@@ -173,17 +220,26 @@ function mapAlbumPhotoRow(
   commentsByPhotoId?: Map<string, Array<Record<string, any>>>
 ): Record<string, any> {
   const photoId = String(row.id);
+  const storyText = normalizeMaybeStoryText(row.story_text);
   return {
     id: photoId,
     folder_id: row.folder_id ? String(row.folder_id) : null,
     thumbnail_url: row.thumbnail_url ?? null,
     preview_url: row.preview_url ?? null,
     original_url: row.original_url ?? null,
+    story_text: storyText,
+    has_story: Boolean(storyText),
+    is_highlight: toBoolean(row.is_highlight),
+    sort_order: toNumber(row.sort_order, 2147483647),
+    shot_date: normalizeMaybeShotDate(row.shot_date),
     width: toNumber(row.width, 0),
     height: toNumber(row.height, 0),
     blurhash: row.blurhash ?? null,
     is_public: toBoolean(row.is_public),
+    like_count: toNumber(row.like_count, 0),
+    view_count: toNumber(row.view_count, 0),
     rating: toNumber(row.rating, 0),
+    created_at: row.created_at ?? null,
     comments: commentsByPhotoId ? commentsByPhotoId.get(photoId) ?? [] : [],
   };
 }
@@ -211,8 +267,44 @@ const WALL_THUMBNAIL_MAX_WIDTH = 960;
 const WALL_PREVIEW_MAX_WIDTH = 1365;
 const WALL_THUMBNAIL_QUALITY = 76;
 const WALL_PREVIEW_QUALITY = 84;
+const SHOT_DATE_COLUMN_CACHE_TTL_MS = 60 * 1000;
+
+let albumPhotoShotDateColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
 
 let sharpModulePromise: Promise<any> | null = null;
+
+async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumPhotoShotDateColumnCache && albumPhotoShotDateColumnCache.expiresAt > now) {
+    return albumPhotoShotDateColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'album_photos'
+          AND column_name = 'shot_date'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch {
+    exists = false;
+  }
+
+  albumPhotoShotDateColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
 
 function getSafeWallSourceToken(photoId: string): string {
   const safe = String(photoId ?? '')
@@ -298,6 +390,38 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
   const offset = (pageNo - 1) * pageSize;
+  const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
+  const folderFilter = resolveAlbumFolderFilter(args.folder_id);
+  const wallValues: Record<string, unknown> = {
+    wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    ...folderFilter.params,
+  };
+
+  const wallMetaResult = await executeSQL(
+    `
+      SELECT root_folder_name
+      FROM albums
+      WHERE id = {{wall_album_id}}
+      LIMIT 1
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    }
+  );
+  const wallMetaRow = wallMetaResult.rows[0];
+
+  const foldersResult = await executeSQL(
+    `
+      SELECT id, name
+      FROM album_folders
+      WHERE album_id = {{wall_album_id}}
+      ORDER BY created_at DESC
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    }
+  );
 
   let photos: Record<string, any>[] = [];
   if (context.user?.id) {
@@ -313,19 +437,25 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.blurhash,
           p.like_count,
           p.view_count,
+          p.story_text,
+          p.is_highlight,
+          p.sort_order,
+          ${shotDateSelect},
           p.created_at,
+          p.folder_id,
           CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
         FROM album_photos p
         LEFT JOIN photo_likes pl
           ON pl.photo_id = p.id
          AND pl.user_id = {{user_id}}
         WHERE p.album_id = {{wall_album_id}}
-        ORDER BY p.created_at DESC
+          AND ${folderFilter.clause}
+        ORDER BY COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC
         LIMIT {{limit}} OFFSET {{offset}}
       `,
       {
         user_id: context.user.id,
-        wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        ...wallValues,
         limit: pageSize,
         offset,
       }
@@ -344,15 +474,21 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.blurhash,
           p.like_count,
           p.view_count,
+          p.story_text,
+          p.is_highlight,
+          p.sort_order,
+          ${shotDateSelect},
           p.created_at,
+          p.folder_id,
           0 AS is_liked
         FROM album_photos p
         WHERE p.album_id = {{wall_album_id}}
-        ORDER BY p.created_at DESC
+          AND ${folderFilter.clause}
+        ORDER BY COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC
         LIMIT {{limit}} OFFSET {{offset}}
       `,
       {
-        wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        ...wallValues,
         limit: pageSize,
         offset,
       }
@@ -363,12 +499,11 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const countResult = await executeSQL(
     `
       SELECT COUNT(*) AS total
-      FROM album_photos
-      WHERE album_id = {{wall_album_id}}
+      FROM album_photos p
+      WHERE p.album_id = {{wall_album_id}}
+        AND ${folderFilter.clause}
     `,
-    {
-      wall_album_id: SYSTEM_WALL_ALBUM_ID,
-    }
+    wallValues
   );
 
   await hydrateCloudBaseTempUrlsInRows(photos, ['thumbnail_url', 'preview_url', 'original_url']);
@@ -376,13 +511,26 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   return {
     photos: photos.map((row) => ({
       ...row,
+      story_text: normalizeMaybeStoryText(row.story_text),
       is_liked: toBoolean(row.is_liked),
       like_count: toNumber(row.like_count, 0),
       view_count: toNumber(row.view_count, 0),
       width: toNumber(row.width, 0),
       height: toNumber(row.height, 0),
+      has_story: Boolean(normalizeMaybeStoryText(row.story_text)),
+      is_highlight: toBoolean(row.is_highlight),
+      sort_order: toNumber(row.sort_order, 2147483647),
+      shot_date: normalizeMaybeShotDate(row.shot_date),
+      folder_id: row.folder_id ? String(row.folder_id) : null,
     })),
     total: toNumber(countResult.rows[0]?.total, 0),
+    folder_id: folderFilter.normalizedFolderId,
+    root_folder_name:
+      String(wallMetaRow?.root_folder_name ?? '').trim() || '照片集',
+    folders: foldersResult.rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? ''),
+    })),
   };
 }
 
@@ -392,12 +540,15 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
     throw new Error('密钥错误');
   }
   const includePhotos = resolveBooleanArg(args.include_photos, true);
+  const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const shotDateSelect = hasShotDateColumn ? 'shot_date' : 'NULL AS shot_date';
 
   const albumResult = await executeSQL(
     `
       SELECT
         id,
         title,
+        root_folder_name,
         welcome_letter,
         cover_url,
         enable_tipping,
@@ -450,14 +601,21 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
           COALESCE(thumbnail_url, url) AS thumbnail_url,
           COALESCE(preview_url, url) AS preview_url,
           COALESCE(original_url, url) AS original_url,
+          story_text,
+          is_highlight,
+          sort_order,
+          ${shotDateSelect},
           width,
           height,
           blurhash,
           is_public,
-          rating
+          like_count,
+          view_count,
+          rating,
+          created_at
         FROM album_photos
         WHERE album_id = {{album_id}}
-        ORDER BY created_at DESC
+        ORDER BY COALESCE(sort_order, 2147483647) ASC, created_at DESC
       `,
       {
         album_id: album.id,
@@ -513,6 +671,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
     album: {
       id: String(album.id),
       title: album.title ?? '',
+      root_folder_name: String(album.root_folder_name ?? '').trim() || '根目录',
       welcome_letter: album.welcome_letter ?? '',
       cover_url: normalizeMaybeUrlText(album.cover_url),
       enable_tipping: toBoolean(album.enable_tipping),
@@ -536,6 +695,8 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
   if (!inputKey) {
     throw new Error('密钥错误');
   }
+  const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
 
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
@@ -571,15 +732,22 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
         COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
         COALESCE(p.preview_url, p.url) AS preview_url,
         COALESCE(p.original_url, p.url) AS original_url,
+        p.story_text,
+        p.is_highlight,
+        p.sort_order,
+        ${shotDateSelect},
         p.width,
         p.height,
         p.blurhash,
         p.is_public,
-        p.rating
+        p.like_count,
+        p.view_count,
+        p.rating,
+        p.created_at
       FROM album_photos p
       WHERE p.album_id = {{album_id}}
         AND ${folderFilter.clause}
-      ORDER BY p.created_at DESC
+      ORDER BY COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC
       LIMIT {{limit}} OFFSET {{offset}}
     `,
     {
@@ -752,6 +920,8 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
   if (!accessKey || !photoId) {
     throw new Error('参数错误');
   }
+  const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
 
   const result = await executeSQL(
     `
@@ -764,7 +934,10 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
         p.original_url,
         p.width,
         p.height,
-        p.blurhash
+        p.blurhash,
+        p.story_text,
+        p.is_highlight,
+        ${shotDateSelect}
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE a.access_key = {{access_key}}
@@ -860,6 +1033,24 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
   );
 
   try {
+    const shotDateInsertColumn = hasShotDateColumn ? ',\n          shot_date' : '';
+    const shotDateInsertValue = hasShotDateColumn ? ',\n          {{shot_date}}' : '';
+    const insertValues: Record<string, unknown> = {
+      id: randomUUID(),
+      album_id: SYSTEM_WALL_ALBUM_ID,
+      url: previewUpload.downloadUrl,
+      thumbnail_url: thumbnailUpload.downloadUrl,
+      preview_url: previewUpload.downloadUrl,
+      story_text: normalizeMaybeStoryText(sourcePhoto.story_text),
+      is_highlight: toBoolean(sourcePhoto.is_highlight) ? 1 : 0,
+      width: wallVariant.width || toNumber(sourcePhoto.width, 0),
+      height: wallVariant.height || toNumber(sourcePhoto.height, 0),
+      blurhash: String(sourcePhoto.blurhash ?? '').trim() || null,
+    };
+    if (hasShotDateColumn) {
+      insertValues.shot_date = normalizeMaybeShotDate(sourcePhoto.shot_date) ?? getTodayDateUTC8();
+    }
+
     await executeSQL(
       `
         INSERT INTO album_photos (
@@ -870,13 +1061,16 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           thumbnail_url,
           preview_url,
           original_url,
+          story_text,
+          is_highlight,
+          sort_order,
           width,
           height,
           blurhash,
           is_public,
           view_count,
           like_count,
-          rating,
+          rating${shotDateInsertColumn},
           created_at
         ) VALUES (
           {{id}},
@@ -886,26 +1080,20 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           {{thumbnail_url}},
           {{preview_url}},
           NULL,
+          {{story_text}},
+          {{is_highlight}},
+          2147483647,
           {{width}},
           {{height}},
           {{blurhash}},
           1,
           0,
           0,
-          0,
+          0${shotDateInsertValue},
           ${NOW_UTC8_EXPR}
         )
       `,
-      {
-        id: randomUUID(),
-        album_id: SYSTEM_WALL_ALBUM_ID,
-        url: previewUpload.downloadUrl,
-        thumbnail_url: thumbnailUpload.downloadUrl,
-        preview_url: previewUpload.downloadUrl,
-        width: wallVariant.width || toNumber(sourcePhoto.width, 0),
-        height: wallVariant.height || toNumber(sourcePhoto.height, 0),
-        blurhash: String(sourcePhoto.blurhash ?? '').trim() || null,
-      }
+      insertValues
     );
   } catch (insertError) {
     await deleteCloudBaseObjects([

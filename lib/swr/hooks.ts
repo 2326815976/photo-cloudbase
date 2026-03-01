@@ -27,7 +27,8 @@ export function useGallery(
   page: number = 1,
   pageSize: number = 20,
   fallbackData?: any,
-  cacheToken: string | number = 'default'
+  cacheToken: string | number = 'default',
+  folderId: string | null = null
 ) {
   const fetcher = async () => {
     const dbClient = createClient();
@@ -41,7 +42,8 @@ export function useGallery(
 
     const queryPromise = dbClient.rpc('get_public_gallery', {
       page_no: page,
-      page_size: pageSize
+      page_size: pageSize,
+      folder_id: folderId ?? '__ROOT__',
     });
 
     const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
@@ -51,7 +53,7 @@ export function useGallery(
   };
 
   return useSWR(
-    ['gallery', cacheToken, page, pageSize],
+    ['gallery', cacheToken, page, pageSize, folderId ?? '__ROOT__'],
     fetcher,
     {
       dedupingInterval: CACHE_TIME.GALLERY,

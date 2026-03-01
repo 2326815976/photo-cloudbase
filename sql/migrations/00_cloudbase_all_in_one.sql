@@ -223,6 +223,10 @@ CREATE TABLE IF NOT EXISTS album_photos (
   thumbnail_url VARCHAR(1024) NULL,
   preview_url VARCHAR(1024) NULL,
   original_url VARCHAR(1024) NULL,
+  story_text TEXT NULL,
+  is_highlight TINYINT(1) NOT NULL DEFAULT 0,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 2147483647,
+  shot_date DATE NULL,
   width INT NULL,
   height INT NULL,
   blurhash VARCHAR(255) NULL,
@@ -237,6 +241,7 @@ CREATE TABLE IF NOT EXISTS album_photos (
   KEY idx_album_photos_public_created (is_public, created_at),
   KEY idx_album_photos_created_at (created_at),
   KEY idx_album_photos_public_likes (like_count, created_at),
+  KEY idx_album_photos_album_folder_sort (album_id, folder_id, sort_order, created_at),
   CONSTRAINT fk_album_photos_album
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
   CONSTRAINT fk_album_photos_folder

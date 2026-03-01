@@ -27,11 +27,12 @@ export async function prefetchGallery(page: number = 1, pageSize: number = 20) {
   if (!dbClient) return;
   const { data } = await dbClient.rpc('get_public_gallery', {
     page_no: page,
-    page_size: pageSize
+    page_size: pageSize,
+    folder_id: '__ROOT__',
   });
 
   if (data) {
-    mutate(['gallery', page, pageSize], data, false);
+    mutate(['gallery', 'default', page, pageSize, '__ROOT__'], data, false);
   }
 }
 
