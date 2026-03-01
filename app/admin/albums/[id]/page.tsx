@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, RotateCcw, Sparkles, Calendar } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions, generateGalleryImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
@@ -43,6 +43,8 @@ interface Photo {
 
 const ROOT_FOLDER_SENTINEL = '__ROOT__';
 const DEFAULT_PHOTO_SORT_ORDER = 2147483647;
+const TOP_PIN_SORT_ORDER = 1;
+const TOP_PIN_CONFLICT_SORT_ORDER = 11;
 const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT = '数据库缺少 story_text / is_highlight / sort_order 字段，请先执行 SQL 迁移：photo/sql/migrations/06_album_photo_story_sort.sql';
 const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
@@ -1029,6 +1031,65 @@ export default function AlbumDetailPage() {
     }
   };
 
+  const pinPhotoToTop = async (photoId: string) => {
+    const target = filteredPhotos.find((item) => String(item.id) === String(photoId));
+    if (!target) return;
+    if (actionLoading) return;
+
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    try {
+      let conflictQuery = dbClient
+        .from('album_photos')
+        .update({ sort_order: TOP_PIN_CONFLICT_SORT_ORDER })
+        .eq('album_id', albumId)
+        .eq('sort_order', TOP_PIN_SORT_ORDER)
+        .neq('id', photoId);
+
+      conflictQuery = selectedFolder
+        ? conflictQuery.eq('folder_id', selectedFolder)
+        : conflictQuery.is('folder_id', null);
+
+      const { error: conflictError } = await conflictQuery;
+      if (conflictError) {
+        if (isColumnMissingError(conflictError.message || '', 'sort_order')) {
+          throw new Error(ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT);
+        }
+        throw conflictError;
+      }
+
+      const { error: updateError } = await dbClient
+        .from('album_photos')
+        .update({ sort_order: TOP_PIN_SORT_ORDER })
+        .eq('id', photoId)
+        .eq('album_id', albumId);
+
+      if (updateError) {
+        if (isColumnMissingError(updateError.message || '', 'sort_order')) {
+          throw new Error(ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT);
+        }
+        throw updateError;
+      }
+
+      loadAlbumData();
+      invalidatePublicGalleryCache();
+      setShowToast({ message: '已置顶', type: 'success' });
+      setTimeout(() => setShowToast(null), 2000);
+    } catch (error: any) {
+      setShowToast({ message: `置顶失败：${error.message || '请稍后重试'}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleUploadSinglePhoto = async () => {
     if (!singleImage) {
       setShowToast({ message: '请选择图片', type: 'warning' });
@@ -1056,6 +1117,7 @@ export default function AlbumDetailPage() {
     const result = await uploadOnePhotoFile(dbClient, singleImage, uploadFolderId, 0, {
       storyText: singleStoryText,
       isHighlight: singleHighlight,
+      sortOrder: TOP_PIN_SORT_ORDER,
       shotDate: normalizedSingleShotDate,
     });
     setUploading(false);
@@ -1112,6 +1174,7 @@ export default function AlbumDetailPage() {
       const result = await uploadOnePhotoFile(dbClient, file, uploadFolderId, i, {
         storyText: null,
         isHighlight: false,
+        sortOrder: TOP_PIN_SORT_ORDER,
         shotDate: batchShotDate,
       });
       if (result.ok) {
@@ -1850,6 +1913,19 @@ export default function AlbumDetailPage() {
 
                   {!isSelectionMode && (
                     <div className="px-3 pb-3 flex items-center justify-end gap-2 bg-[#FFFBF0]">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          pinPhotoToTop(photo.id);
+                        }}
+                        disabled={index === 0 || actionLoading}
+                        className="h-8 rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] disabled:opacity-40 inline-flex items-center justify-center px-3 gap-1 hover:bg-[#FFC857]/20 transition-colors"
+                        aria-label="置顶"
+                        title="置顶"
+                      >
+                        <ArrowUpToLine className="w-3.5 h-3.5" />
+                        <span className="text-xs">置顶</span>
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
