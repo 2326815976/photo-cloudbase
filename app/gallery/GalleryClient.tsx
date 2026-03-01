@@ -537,9 +537,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     {/* 信息区域 */}
                     <div className="p-1.5 md:p-2">
                       {/* 互动数据 */}
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-start">
                         {/* 左侧：拍摄日期 */}
-                        <div className="flex items-center gap-1 text-[#8D6E63]/50 py-0.5 pl-1">
+                        <div className="order-2 ml-auto flex items-center gap-1 text-right text-[#8D6E63]/50 py-0.5 pl-1">
                           <span className="text-[10px]">
                             {formatDateDisplayUTC8(photo.shot_date || photo.created_at, {
                               year: 'numeric',
@@ -553,7 +553,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                         <motion.button
                           whileTap={{ scale: 0.85 }}
                           onClick={(e) => handleLike(photo.id, e)}
-                          className="compact-button flex items-center gap-0.5 py-0.5 pr-1"
+                          className="order-1 compact-button flex items-center gap-0.5 py-0.5 pr-1"
                         >
                           <motion.div
                             animate={photo.is_liked ? { scale: [1, 1.4, 1] } : {}}

@@ -545,9 +545,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
   const includePhotos = resolveBooleanArg(args.include_photos, true);
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const shotDateSelect = hasShotDateColumn ? 'shot_date' : 'NULL AS shot_date';
-  const photoOrderBy = hasShotDateColumn
-    ? 'COALESCE(sort_order, 2147483647) ASC, COALESCE(shot_date, DATE(created_at)) DESC, created_at DESC'
-    : 'COALESCE(sort_order, 2147483647) ASC, created_at DESC';
+  const photoOrderBy = 'COALESCE(sort_order, 2147483647) ASC, created_at DESC';
 
   const albumResult = await executeSQL(
     `
@@ -703,9 +701,7 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
   }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
-  const photoOrderBy = hasShotDateColumn
-    ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
-    : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
+  const photoOrderBy = 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
 
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));

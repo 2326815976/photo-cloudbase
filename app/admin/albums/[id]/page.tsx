@@ -169,6 +169,7 @@ export default function AlbumDetailPage() {
   const loadAlbumData = async () => {
     setLoading(true);
     const dbClient = createClient();
+    const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
     if (!dbClient) {
       setLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -181,26 +182,29 @@ export default function AlbumDetailPage() {
       dbClient.from('album_folders').select('*').eq('album_id', albumId).order('created_at', { ascending: false }),
     ]);
 
-    let photosRes = await dbClient
+    let photosQuery = dbClient
       .from('album_photos')
       .select('*', { count: 'exact' })
       .eq('album_id', albumId)
-      .order('sort_order', { ascending: true })
-      .order('shot_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+      .order('sort_order', { ascending: true });
+    photosQuery = isSystemWallAlbum
+      ? photosQuery.order('shot_date', { ascending: false }).order('created_at', { ascending: false })
+      : photosQuery.order('created_at', { ascending: false });
+
+    let photosRes = await photosQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
 
     if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'sort_order')) {
-      photosRes = await dbClient
+      let fallbackQuery = dbClient
         .from('album_photos')
         .select('*', { count: 'exact' })
-        .eq('album_id', albumId)
-        .order('shot_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+        .eq('album_id', albumId);
+      fallbackQuery = isSystemWallAlbum
+        ? fallbackQuery.order('shot_date', { ascending: false }).order('created_at', { ascending: false })
+        : fallbackQuery.order('created_at', { ascending: false });
+      photosRes = await fallbackQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
     }
 
-    if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'shot_date')) {
+    if (isSystemWallAlbum && photosRes.error && isColumnMissingError(photosRes.error.message || '', 'shot_date')) {
       photosRes = await dbClient
         .from('album_photos')
         .select('*', { count: 'exact' })
@@ -1531,16 +1535,19 @@ export default function AlbumDetailPage() {
       ? photos.filter((p) => p.folder_id === selectedFolder)
       : photos.filter((p) => !p.folder_id)
   ).sort((a, b) => {
+    const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
     const sortA = Number(a.sort_order);
     const sortB = Number(b.sort_order);
     const normalizedA = Number.isFinite(sortA) && sortA > 0 ? Math.round(sortA) : DEFAULT_PHOTO_SORT_ORDER;
     const normalizedB = Number.isFinite(sortB) && sortB > 0 ? Math.round(sortB) : DEFAULT_PHOTO_SORT_ORDER;
     if (normalizedA !== normalizedB) return normalizedA - normalizedB;
 
-    const displayDateA = resolvePhotoDisplayDate(a) || '';
-    const displayDateB = resolvePhotoDisplayDate(b) || '';
-    if (displayDateA !== displayDateB) {
-      return displayDateB.localeCompare(displayDateA, 'zh-CN');
+    if (isSystemWallAlbum) {
+      const displayDateA = resolvePhotoDisplayDate(a) || '';
+      const displayDateB = resolvePhotoDisplayDate(b) || '';
+      if (displayDateA !== displayDateB) {
+        return displayDateB.localeCompare(displayDateA, 'zh-CN');
+      }
     }
 
     const timeA = new Date(String(a.created_at || '')).getTime();
