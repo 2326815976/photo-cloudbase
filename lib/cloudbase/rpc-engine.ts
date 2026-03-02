@@ -183,6 +183,24 @@ function normalizeMaybeShotDate(value: unknown): string | null {
   return shotDate;
 }
 
+function normalizeMaybeShotLocation(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const lowered = raw.toLowerCase();
+  if (lowered === 'null' || lowered === 'undefined') {
+    return null;
+  }
+
+  return raw.slice(0, 255);
+}
+
 function getTodayDateUTC8(): string {
   const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
   const year = now.getUTCFullYear();
@@ -232,12 +250,14 @@ function mapAlbumPhotoRow(
     is_highlight: toBoolean(row.is_highlight),
     sort_order: toNumber(row.sort_order, 2147483647),
     shot_date: normalizeMaybeShotDate(row.shot_date),
+    shot_location: normalizeMaybeShotLocation(row.shot_location),
     width: toNumber(row.width, 0),
     height: toNumber(row.height, 0),
     blurhash: row.blurhash ?? null,
     is_public: toBoolean(row.is_public),
     like_count: toNumber(row.like_count, 0),
     view_count: toNumber(row.view_count, 0),
+    download_count: toNumber(row.download_count, 0),
     rating: toNumber(row.rating, 0),
     created_at: row.created_at ?? null,
     comments: commentsByPhotoId ? commentsByPhotoId.get(photoId) ?? [] : [],
@@ -274,6 +294,16 @@ let albumPhotoShotDateColumnCache: {
   expiresAt: number;
 } | null = null;
 
+let albumPhotoShotLocationColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumPhotoDownloadCountColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
 let sharpModulePromise: Promise<any> | null = null;
 
 async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
@@ -300,6 +330,66 @@ async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
   }
 
   albumPhotoShotDateColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumPhotoShotLocationColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumPhotoShotLocationColumnCache && albumPhotoShotLocationColumnCache.expiresAt > now) {
+    return albumPhotoShotLocationColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'album_photos'
+          AND column_name = 'shot_location'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch {
+    exists = false;
+  }
+
+  albumPhotoShotLocationColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumPhotoDownloadCountColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumPhotoDownloadCountColumnCache && albumPhotoDownloadCountColumnCache.expiresAt > now) {
+    return albumPhotoDownloadCountColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'album_photos'
+          AND column_name = 'download_count'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch {
+    exists = false;
+  }
+
+  albumPhotoDownloadCountColumnCache = {
     value: exists,
     expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
   };
@@ -391,7 +481,15 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
   const offset = (pageNo - 1) * pageSize;
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
+  const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
+  const shotLocationSelect = hasShotLocationColumn
+    ? 'p.shot_location AS shot_location'
+    : 'NULL AS shot_location';
+  const downloadCountSelect = hasDownloadCountColumn
+    ? 'p.download_count AS download_count'
+    : '0 AS download_count';
   const photoOrderBy = hasShotDateColumn
     ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
     : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
@@ -440,10 +538,12 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.blurhash,
           p.like_count,
           p.view_count,
+          ${downloadCountSelect},
           p.story_text,
           p.is_highlight,
           p.sort_order,
           ${shotDateSelect},
+          ${shotLocationSelect},
           p.created_at,
           p.folder_id,
           CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
@@ -477,10 +577,12 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.blurhash,
           p.like_count,
           p.view_count,
+          ${downloadCountSelect},
           p.story_text,
           p.is_highlight,
           p.sort_order,
           ${shotDateSelect},
+          ${shotLocationSelect},
           p.created_at,
           p.folder_id,
           0 AS is_liked
@@ -518,12 +620,14 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
       is_liked: toBoolean(row.is_liked),
       like_count: toNumber(row.like_count, 0),
       view_count: toNumber(row.view_count, 0),
+      download_count: toNumber(row.download_count, 0),
       width: toNumber(row.width, 0),
       height: toNumber(row.height, 0),
       has_story: Boolean(normalizeMaybeStoryText(row.story_text)),
       is_highlight: toBoolean(row.is_highlight),
       sort_order: toNumber(row.sort_order, 2147483647),
       shot_date: normalizeMaybeShotDate(row.shot_date),
+      shot_location: normalizeMaybeShotLocation(row.shot_location),
       folder_id: row.folder_id ? String(row.folder_id) : null,
     })),
     total: toNumber(countResult.rows[0]?.total, 0),
@@ -544,7 +648,15 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
   }
   const includePhotos = resolveBooleanArg(args.include_photos, true);
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
+  const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
   const shotDateSelect = hasShotDateColumn ? 'shot_date' : 'NULL AS shot_date';
+  const shotLocationSelect = hasShotLocationColumn
+    ? 'shot_location'
+    : 'NULL AS shot_location';
+  const downloadCountSelect = hasDownloadCountColumn
+    ? 'download_count'
+    : '0 AS download_count';
   const photoOrderBy = 'COALESCE(sort_order, 2147483647) ASC, created_at DESC';
 
   const albumResult = await executeSQL(
@@ -609,12 +721,14 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
           is_highlight,
           sort_order,
           ${shotDateSelect},
+          ${shotLocationSelect},
           width,
           height,
           blurhash,
           is_public,
           like_count,
           view_count,
+          ${downloadCountSelect},
           rating,
           created_at
         FROM album_photos
@@ -700,7 +814,15 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
     throw new Error('密钥错误');
   }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
+  const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
+  const shotLocationSelect = hasShotLocationColumn
+    ? 'p.shot_location AS shot_location'
+    : 'NULL AS shot_location';
+  const downloadCountSelect = hasDownloadCountColumn
+    ? 'p.download_count AS download_count'
+    : '0 AS download_count';
   const photoOrderBy = 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
 
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
@@ -741,12 +863,14 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
         p.is_highlight,
         p.sort_order,
         ${shotDateSelect},
+        ${shotLocationSelect},
         p.width,
         p.height,
         p.blurhash,
         p.is_public,
         p.like_count,
         p.view_count,
+        ${downloadCountSelect},
         p.rating,
         p.created_at
       FROM album_photos p
@@ -926,7 +1050,11 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     throw new Error('参数错误');
   }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
+  const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
+  const shotLocationSelect = hasShotLocationColumn
+    ? 'p.shot_location AS shot_location'
+    : 'NULL AS shot_location';
 
   const result = await executeSQL(
     `
@@ -942,7 +1070,8 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
         p.blurhash,
         p.story_text,
         p.is_highlight,
-        ${shotDateSelect}
+        ${shotDateSelect},
+        ${shotLocationSelect}
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE a.access_key = {{access_key}}
@@ -1040,6 +1169,8 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
   try {
     const shotDateInsertColumn = hasShotDateColumn ? ',\n          shot_date' : '';
     const shotDateInsertValue = hasShotDateColumn ? ',\n          {{shot_date}}' : '';
+    const shotLocationInsertColumn = hasShotLocationColumn ? ',\n          shot_location' : '';
+    const shotLocationInsertValue = hasShotLocationColumn ? ',\n          {{shot_location}}' : '';
     const insertValues: Record<string, unknown> = {
       id: randomUUID(),
       album_id: SYSTEM_WALL_ALBUM_ID,
@@ -1054,6 +1185,9 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     };
     if (hasShotDateColumn) {
       insertValues.shot_date = normalizeMaybeShotDate(sourcePhoto.shot_date) ?? getTodayDateUTC8();
+    }
+    if (hasShotLocationColumn) {
+      insertValues.shot_location = normalizeMaybeShotLocation(sourcePhoto.shot_location);
     }
 
     await executeSQL(
@@ -1075,7 +1209,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           is_public,
           view_count,
           like_count,
-          rating${shotDateInsertColumn},
+          rating${shotDateInsertColumn}${shotLocationInsertColumn},
           created_at
         ) VALUES (
           {{id}},
@@ -1094,7 +1228,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           1,
           0,
           0,
-          0${shotDateInsertValue},
+          0${shotDateInsertValue}${shotLocationInsertValue},
           ${NOW_UTC8_EXPR}
         )
       `,
@@ -1353,6 +1487,55 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
   return {
     counted,
     view_count: toNumber(countResult.rows[0]?.view_count, 0),
+  };
+}
+
+async function rpcIncrementPhotoDownload(args: Record<string, unknown>) {
+  const photoId = String(args.p_photo_id ?? '').trim();
+  const countInput = Number(args.p_count ?? 1);
+  const incrementBy = Number.isFinite(countInput)
+    ? Math.max(1, Math.min(50, Math.round(countInput)))
+    : 1;
+  if (!photoId) {
+    throw new Error('参数错误');
+  }
+
+  const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
+  if (!hasDownloadCountColumn) {
+    return {
+      counted: false,
+      download_count: 0,
+      unsupported: true,
+    };
+  }
+
+  const updateResult = await executeSQL(
+    `
+      UPDATE album_photos
+      SET download_count = download_count + {{count}}
+      WHERE id = {{photo_id}}
+    `,
+    {
+      photo_id: photoId,
+      count: incrementBy,
+    }
+  );
+
+  const countResult = await executeSQL(
+    `
+      SELECT download_count
+      FROM album_photos
+      WHERE id = {{photo_id}}
+      LIMIT 1
+    `,
+    {
+      photo_id: photoId,
+    }
+  );
+
+  return {
+    counted: updateResult.affectedRows > 0,
+    download_count: toNumber(countResult.rows[0]?.download_count, 0),
   };
 }
 
@@ -2314,6 +2497,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
         break;
       case 'increment_photo_view':
         data = await rpcIncrementPhotoView(args, context);
+        break;
+      case 'increment_photo_download':
+        data = await rpcIncrementPhotoDownload(args);
         break;
       case 'check_date_availability':
         data = await rpcCheckDateAvailability(args);

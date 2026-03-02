@@ -14,6 +14,7 @@ interface ImagePreviewProps {
   isOpen: boolean;
   onClose: () => void;
   onIndexChange?: (index: number) => void;
+  onDownload?: (index: number) => void | Promise<void>;
   showCounter?: boolean;
   showScale?: boolean;
   enableLongPressDownload?: boolean;
@@ -30,6 +31,7 @@ export default function ImagePreview({
   isOpen,
   onClose,
   onIndexChange,
+  onDownload,
   showCounter = true,
   showScale = true,
   enableLongPressDownload = true
@@ -275,6 +277,18 @@ export default function ImagePreview({
     [downloadUrls, images]
   );
 
+  const notifyDownload = useCallback(
+    async (targetIndex: number) => {
+      if (typeof onDownload !== 'function') return;
+      try {
+        await onDownload(targetIndex);
+      } catch {
+        // ignore callback errors
+      }
+    },
+    [onDownload]
+  );
+
   // 长按下载
   const startLongPress = useCallback(() => {
     if (isWechat || !enableLongPressDownload) return;
@@ -289,11 +303,16 @@ export default function ImagePreview({
     const timer = setTimeout(async () => {
       clearInterval(progressInterval);
       setLongPressProgress(0);
-      await downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
+      try {
+        await downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
+        await notifyDownload(index);
+      } catch {
+        // ignore download errors
+      }
     }, 800);
 
     longPressTimerRef.current = timer;
-  }, [isWechat, enableLongPressDownload, index, resolveDownloadUrl]);
+  }, [isWechat, enableLongPressDownload, index, notifyDownload, resolveDownloadUrl]);
 
   const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -574,9 +593,14 @@ export default function ImagePreview({
         {/* 下载原图按钮 */}
         {!isWechat && enableLongPressDownload && (
           <button
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
+              try {
+                await downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
+                await notifyDownload(index);
+              } catch {
+                // ignore download errors
+              }
             }}
             className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/20 transition-colors z-10 flex items-center gap-2"
           >

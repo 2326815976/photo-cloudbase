@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar, Eye, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions, generateGalleryImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
@@ -36,8 +36,11 @@ interface Photo {
   is_highlight?: boolean;
   sort_order?: number | null;
   shot_date?: string | null;
+  shot_location?: string | null;
   width: number | null;
   height: number | null;
+  view_count?: number | null;
+  download_count?: number | null;
   created_at: string;
 }
 
@@ -48,6 +51,7 @@ const TOP_PIN_CONFLICT_SORT_ORDER = 11;
 const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT = '数据库缺少 story_text / is_highlight / sort_order 字段，请先执行 SQL 迁移：photo/sql/migrations/06_album_photo_story_sort.sql';
 const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
+const ALBUM_PHOTO_SHOT_LOCATION_MIGRATION_HINT = '数据库缺少 shot_location 字段，请先执行 SQL 迁移：photo/sql/migrations/08_album_photo_shot_location.sql';
 
 const normalizeStoryText = (value: unknown): string | null => {
   const text = String(value ?? '').trim();
@@ -64,6 +68,18 @@ const normalizeShotDate = (value: unknown): string | null => {
     return null;
   }
   return `${matched[1]}-${matched[2]}-${matched[3]}`;
+};
+
+const normalizeShotLocation = (value: unknown): string | null => {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return null;
+  }
+  const lowered = raw.toLowerCase();
+  if (lowered === 'null' || lowered === 'undefined') {
+    return null;
+  }
+  return raw.slice(0, 255);
 };
 
 const resolvePhotoDisplayDate = (photo: Photo): string | null =>
@@ -110,6 +126,9 @@ export default function AlbumDetailPage() {
   const [singleStoryText, setSingleStoryText] = useState('');
   const [singleHighlight, setSingleHighlight] = useState(false);
   const [singleShotDate, setSingleShotDate] = useState(getTodayUTC8());
+  const [singleShotLocation, setSingleShotLocation] = useState('');
+  const [batchShotDate, setBatchShotDate] = useState(getTodayUTC8());
+  const [batchShotLocation, setBatchShotLocation] = useState('');
   const [batchImages, setBatchImages] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -136,6 +155,7 @@ export default function AlbumDetailPage() {
   const [showShotDateModal, setShowShotDateModal] = useState(false);
   const [editingShotDatePhoto, setEditingShotDatePhoto] = useState<Photo | null>(null);
   const [editingShotDateValue, setEditingShotDateValue] = useState(getTodayUTC8());
+  const [editingShotLocationValue, setEditingShotLocationValue] = useState('');
 
   const invalidatePublicGalleryCache = () => {
     if (String(albumId) !== SYSTEM_WALL_ALBUM_ID) {
@@ -238,6 +258,9 @@ export default function AlbumDetailPage() {
         has_story: Boolean(normalizeStoryText(row.story_text)),
         is_highlight: Boolean(row.is_highlight),
         shot_date: normalizeShotDate(row.shot_date),
+        shot_location: normalizeShotLocation(row.shot_location),
+        view_count: Number.isFinite(Number(row.view_count)) ? Math.max(0, Math.round(Number(row.view_count))) : 0,
+        download_count: Number.isFinite(Number(row.download_count)) ? Math.max(0, Math.round(Number(row.download_count))) : 0,
         sort_order: Number.isFinite(Number(row.sort_order)) ? Math.round(Number(row.sort_order)) : DEFAULT_PHOTO_SORT_ORDER,
       }));
       setPhotos(normalized);
@@ -507,15 +530,18 @@ export default function AlbumDetailPage() {
       is_highlight?: boolean;
       sort_order?: number;
       shot_date?: string | null;
+      shot_location?: string | null;
     }
   ): Promise<{ message: string } | null> => {
     const normalizedStory = normalizeStoryText(payload.story_text);
     const normalizedShotDate = normalizeShotDate(payload.shot_date);
+    const normalizedShotLocation = normalizeShotLocation(payload.shot_location);
     const hasOptionalMeta =
       normalizedStory !== null ||
       Boolean(payload.is_highlight) ||
       Number.isFinite(Number(payload.sort_order)) ||
-      normalizedShotDate !== null;
+      normalizedShotDate !== null ||
+      normalizedShotLocation !== null;
 
     const withOptionalFolderId = (
       row: Record<string, unknown>,
@@ -545,6 +571,9 @@ export default function AlbumDetailPage() {
       }
       if (normalizedShotDate !== null) {
         withMeta.shot_date = normalizedShotDate;
+      }
+      if (normalizedShotLocation !== null) {
+        withMeta.shot_location = normalizedShotLocation;
       }
       return withMeta;
     };
@@ -729,6 +758,7 @@ export default function AlbumDetailPage() {
       isHighlight?: boolean;
       sortOrder?: number;
       shotDate?: string | null;
+      shotLocation?: string | null;
     }
   ): Promise<{ ok: true } | { ok: false; message: string }> => {
     try {
@@ -797,6 +827,7 @@ export default function AlbumDetailPage() {
           ? Math.round(Number(options?.sortOrder))
           : undefined,
         shot_date: normalizeShotDate(options?.shotDate),
+        shot_location: normalizeShotLocation(options?.shotLocation),
       });
 
       if (insertError) {
@@ -888,6 +919,7 @@ export default function AlbumDetailPage() {
     const fallbackDate = normalizeShotDate(photo.created_at) || getTodayUTC8();
     setEditingShotDatePhoto(photo);
     setEditingShotDateValue(normalizeShotDate(photo.shot_date) || fallbackDate);
+    setEditingShotLocationValue(normalizeShotLocation(photo.shot_location) || '');
     setShowShotDateModal(true);
   };
 
@@ -896,6 +928,7 @@ export default function AlbumDetailPage() {
     setShowShotDateModal(false);
     setEditingShotDatePhoto(null);
     setEditingShotDateValue(getTodayUTC8());
+    setEditingShotLocationValue('');
   };
 
   const savePhotoShotDate = async () => {
@@ -907,6 +940,7 @@ export default function AlbumDetailPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
+    const normalizedShotLocation = normalizeShotLocation(editingShotLocationValue);
 
     setActionLoading(true);
     const dbClient = createClient();
@@ -919,17 +953,20 @@ export default function AlbumDetailPage() {
 
     const { data, error } = await dbClient
       .from('album_photos')
-      .update({ shot_date: normalizedShotDate })
+      .update({ shot_date: normalizedShotDate, shot_location: normalizedShotLocation })
       .eq('id', editingShotDatePhoto.id)
       .eq('album_id', albumId)
-      .select('id, shot_date')
+      .select('id, shot_date, shot_location')
       .maybeSingle();
 
     setActionLoading(false);
 
     if (error) {
-      if (isColumnMissingError(error.message || '', 'shot_date')) {
-        setShowToast({ message: `保存失败：${ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT}`, type: 'warning' });
+      if (isColumnMissingError(error.message || '', 'shot_date') || isColumnMissingError(error.message || '', 'shot_location')) {
+        const hint = isColumnMissingError(error.message || '', 'shot_location')
+          ? ALBUM_PHOTO_SHOT_LOCATION_MIGRATION_HINT
+          : ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT;
+        setShowToast({ message: `保存失败：${hint}`, type: 'warning' });
       } else {
         setShowToast({ message: `保存失败：${error.message}`, type: 'error' });
       }
@@ -946,13 +983,17 @@ export default function AlbumDetailPage() {
     setPhotos((prev) =>
       prev.map((photo) =>
         String(photo.id) === String(data.id)
-          ? { ...photo, shot_date: normalizeShotDate(data.shot_date) }
+          ? {
+              ...photo,
+              shot_date: normalizeShotDate(data.shot_date),
+              shot_location: normalizeShotLocation(data.shot_location),
+            }
           : photo
       )
     );
     closeShotDateModal();
     invalidatePublicGalleryCache();
-    setShowToast({ message: '拍摄日期已更新', type: 'success' });
+    setShowToast({ message: '拍摄信息已更新', type: 'success' });
     setTimeout(() => setShowToast(null), 3000);
   };
 
@@ -1119,6 +1160,7 @@ export default function AlbumDetailPage() {
       isHighlight: singleHighlight,
       sortOrder: TOP_PIN_SORT_ORDER,
       shotDate: normalizedSingleShotDate,
+      shotLocation: normalizeShotLocation(singleShotLocation),
     });
     setUploading(false);
     setUploadProgress({ current: 0, total: 0 });
@@ -1129,6 +1171,7 @@ export default function AlbumDetailPage() {
       setSingleStoryText('');
       setSingleHighlight(false);
       setSingleShotDate(getTodayUTC8());
+      setSingleShotLocation('');
       loadAlbumData();
       invalidatePublicGalleryCache();
       setShowToast({ message: '单图上传成功', type: 'success' });
@@ -1166,7 +1209,8 @@ export default function AlbumDetailPage() {
     }
 
     setUploadProgress({ current: 0, total: batchImages.length });
-    const batchShotDate = getTodayUTC8();
+    const normalizedBatchShotDate = normalizeShotDate(batchShotDate) || getTodayUTC8();
+    const normalizedBatchShotLocation = normalizeShotLocation(batchShotLocation);
 
     for (let i = 0; i < batchImages.length; i++) {
       const file = batchImages[i];
@@ -1175,7 +1219,8 @@ export default function AlbumDetailPage() {
         storyText: null,
         isHighlight: false,
         sortOrder: TOP_PIN_SORT_ORDER,
-        shotDate: batchShotDate,
+        shotDate: normalizedBatchShotDate,
+        shotLocation: normalizedBatchShotLocation,
       });
       if (result.ok) {
         successCount++;
@@ -1191,6 +1236,9 @@ export default function AlbumDetailPage() {
     setShowUploadModal(false);
     setBatchImages([]);
     setSingleShotDate(getTodayUTC8());
+    setSingleShotLocation('');
+    setBatchShotDate(getTodayUTC8());
+    setBatchShotLocation('');
     setUploadProgress({ current: 0, total: 0 });
 
     if (successCount > 0) {
@@ -1672,6 +1720,9 @@ export default function AlbumDetailPage() {
                   setSingleStoryText('');
                   setSingleHighlight(false);
                   setSingleShotDate(getTodayUTC8());
+                  setSingleShotLocation('');
+                  setBatchShotDate(getTodayUTC8());
+                  setBatchShotLocation('');
                   setBatchImages([]);
                   setUploadProgress({ current: 0, total: 0 });
                 }}
@@ -1859,8 +1910,8 @@ export default function AlbumDetailPage() {
                             openShotDateModal(photo);
                           }}
                           className="absolute top-3 right-[6.5rem] w-10 h-10 bg-white/90 text-[#5D4037] rounded-full hover:bg-[#FFC857]/70 transition-colors flex items-center justify-center shadow-md border border-[#5D4037]/10"
-                          aria-label="修改拍摄日期"
-                          title="修改拍摄日期"
+                          aria-label="修改拍摄信息"
+                          title="修改拍摄信息"
                         >
                           <Calendar className="w-4 h-4" />
                         </button>
@@ -1909,6 +1960,16 @@ export default function AlbumDetailPage() {
                       )}
                       <span className="text-[#5D4037]/55">{dateText}</span>
                     </div>
+                  </div>
+                  <div className="px-3 pb-2 bg-[#FFFBF0] flex items-center justify-end gap-3 text-[11px] text-[#5D4037]/60">
+                    <span className="inline-flex items-center gap-1">
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{Math.max(0, Number(photo.view_count || 0))}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{Math.max(0, Number(photo.download_count || 0))}</span>
+                    </span>
                   </div>
 
                   {!isSelectionMode && (
@@ -2339,6 +2400,9 @@ export default function AlbumDetailPage() {
               setSingleStoryText('');
               setSingleHighlight(false);
               setSingleShotDate(getTodayUTC8());
+              setSingleShotLocation('');
+              setBatchShotDate(getTodayUTC8());
+              setBatchShotLocation('');
               setBatchImages([]);
               setUploadProgress({ current: 0, total: 0 });
             }}
@@ -2360,6 +2424,9 @@ export default function AlbumDetailPage() {
                     setSingleStoryText('');
                     setSingleHighlight(false);
                     setSingleShotDate(getTodayUTC8());
+                    setSingleShotLocation('');
+                    setBatchShotDate(getTodayUTC8());
+                    setBatchShotLocation('');
                     setBatchImages([]);
                     setUploadProgress({ current: 0, total: 0 });
                   }}
@@ -2379,6 +2446,9 @@ export default function AlbumDetailPage() {
                       setSingleStoryText('');
                       setSingleHighlight(false);
                       setSingleShotDate(getTodayUTC8());
+                      setSingleShotLocation('');
+                      setBatchShotDate(getTodayUTC8());
+                      setBatchShotLocation('');
                       setBatchImages([]);
                       setUploadProgress({ current: 0, total: 0 });
                     }}
@@ -2396,6 +2466,9 @@ export default function AlbumDetailPage() {
                       setSingleStoryText('');
                       setSingleHighlight(false);
                       setSingleShotDate(getTodayUTC8());
+                      setSingleShotLocation('');
+                      setBatchShotDate(getTodayUTC8());
+                      setBatchShotLocation('');
                       setBatchImages([]);
                       setUploadProgress({ current: 0, total: 0 });
                     }}
@@ -2432,6 +2505,18 @@ export default function AlbumDetailPage() {
                         value={singleShotDate}
                         onChange={(e) => setSingleShotDate(e.target.value)}
                         className="w-full rounded-lg border border-[#5D4037]/20 bg-white px-3 py-2 text-sm text-[#5D4037] focus:outline-none focus:border-[#FFC857]"
+                      />
+                    </div>
+
+                    <div className="rounded-xl border border-[#5D4037]/15 bg-[#FFFBF0] px-4 py-3">
+                      <label className="block text-sm text-[#5D4037] mb-1">拍摄地点（单图可选）</label>
+                      <input
+                        type="text"
+                        value={singleShotLocation}
+                        onChange={(e) => setSingleShotLocation(e.target.value)}
+                        maxLength={255}
+                        placeholder="例如：成都·人民公园"
+                        className="w-full rounded-lg border border-[#5D4037]/20 bg-white px-3 py-2 text-sm text-[#5D4037] placeholder:text-[#5D4037]/35 focus:outline-none focus:border-[#FFC857]"
                       />
                     </div>
 
@@ -2505,6 +2590,28 @@ export default function AlbumDetailPage() {
                       </div>
                     )}
 
+                    <div className="rounded-xl border border-[#5D4037]/15 bg-[#FFFBF0] px-4 py-3">
+                      <label className="block text-sm text-[#5D4037] mb-1">拍摄日期（批量统一）</label>
+                      <input
+                        type="date"
+                        value={batchShotDate}
+                        onChange={(e) => setBatchShotDate(e.target.value)}
+                        className="w-full rounded-lg border border-[#5D4037]/20 bg-white px-3 py-2 text-sm text-[#5D4037] focus:outline-none focus:border-[#FFC857]"
+                      />
+                    </div>
+
+                    <div className="rounded-xl border border-[#5D4037]/15 bg-[#FFFBF0] px-4 py-3">
+                      <label className="block text-sm text-[#5D4037] mb-1">拍摄地点（批量统一，可选）</label>
+                      <input
+                        type="text"
+                        value={batchShotLocation}
+                        onChange={(e) => setBatchShotLocation(e.target.value)}
+                        maxLength={255}
+                        placeholder="例如：成都·人民公园"
+                        className="w-full rounded-lg border border-[#5D4037]/20 bg-white px-3 py-2 text-sm text-[#5D4037] placeholder:text-[#5D4037]/35 focus:outline-none focus:border-[#FFC857]"
+                      />
+                    </div>
+
                     {uploading && uploadProgress.total > 0 && (
                       <div className="bg-[#FFFBF0] rounded-xl p-4">
                         <div className="flex items-center justify-between mb-2">
@@ -2537,9 +2644,9 @@ export default function AlbumDetailPage() {
                 )}
 
                 {uploadMode === 'batch' ? (
-                  <div className="text-xs text-[#5D4037]/55">批量上传默认拍摄日期为今天，且不支持“关于此刻”，可在列表中后续编辑。</div>
+                  <div className="text-xs text-[#5D4037]/55">批量上传可统一设置拍摄日期和拍摄地点，不支持“关于此刻”，可在列表中后续编辑。</div>
                 ) : (
-                  <div className="text-xs text-[#5D4037]/55">单图上传支持设置拍摄日期、“关于此刻”和高亮。</div>
+                  <div className="text-xs text-[#5D4037]/55">单图上传支持设置拍摄日期、拍摄地点、“关于此刻”和高亮。</div>
                 )}
               </div>
             </motion.div>
@@ -2631,7 +2738,7 @@ export default function AlbumDetailPage() {
               className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-[#5D4037]">修改拍摄日期</h3>
+                <h3 className="text-xl font-bold text-[#5D4037]">修改拍摄信息</h3>
                 <button
                   onClick={closeShotDateModal}
                   className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
@@ -2640,12 +2747,33 @@ export default function AlbumDetailPage() {
                 </button>
               </div>
 
-              <input
-                type="date"
-                value={editingShotDateValue}
-                onChange={(e) => setEditingShotDateValue(e.target.value)}
-                className="w-full px-4 py-3 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] bg-[#FFFBF0]/45 text-sm text-[#5D4037]"
-              />
+              <div className="space-y-3">
+                <input
+                  type="date"
+                  value={editingShotDateValue}
+                  onChange={(e) => setEditingShotDateValue(e.target.value)}
+                  className="w-full px-4 py-3 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] bg-[#FFFBF0]/45 text-sm text-[#5D4037]"
+                />
+
+                <input
+                  type="text"
+                  value={editingShotLocationValue}
+                  onChange={(e) => setEditingShotLocationValue(e.target.value)}
+                  maxLength={255}
+                  placeholder="拍摄地点（可留空）"
+                  className="w-full px-4 py-3 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] bg-[#FFFBF0]/45 text-sm text-[#5D4037] placeholder:text-[#5D4037]/35"
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setEditingShotLocationValue('')}
+                    disabled={actionLoading || !editingShotLocationValue}
+                    className="px-3 py-1.5 text-xs rounded-full border border-[#5D4037]/20 text-[#5D4037]/75 hover:bg-[#5D4037]/5 disabled:opacity-40"
+                  >
+                    清空地点
+                  </button>
+                </div>
+              </div>
 
               <div className="mt-5 flex gap-2">
                 <button

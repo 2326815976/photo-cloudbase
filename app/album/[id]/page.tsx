@@ -13,6 +13,7 @@ import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
 import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
+import { getSessionId } from '@/lib/utils/session';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
 import { mutate } from 'swr';
 
@@ -107,6 +108,44 @@ export default function AlbumDetailPage() {
       undefined,
       { revalidate: false }
     );
+  };
+
+  const incrementPhotoViewCount = async (photoId: string) => {
+    const id = String(photoId || '').trim();
+    if (!id) return;
+
+    const dbClient = createClient();
+    if (!dbClient) return;
+
+    try {
+      await dbClient.rpc('increment_photo_view', {
+        p_photo_id: id,
+        p_session_id: getSessionId(),
+      });
+    } catch {
+      // ignore counting errors
+    }
+  };
+
+  const incrementPhotoDownloadCount = async (photoId: string, count = 1) => {
+    const id = String(photoId || '').trim();
+    if (!id) return;
+
+    const dbClient = createClient();
+    if (!dbClient) return;
+
+    const incrementBy = Number.isFinite(Number(count))
+      ? Math.max(1, Math.min(50, Math.round(Number(count))))
+      : 1;
+
+    try {
+      await dbClient.rpc('increment_photo_download', {
+        p_photo_id: id,
+        p_count: incrementBy,
+      });
+    } catch {
+      // ignore counting errors
+    }
   };
 
   // 检测微信浏览器环境
@@ -484,6 +523,7 @@ export default function AlbumDetailPage() {
       try {
         // 使用Android原生下载（自动降级到Web下载）
         await downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
+        void incrementPhotoDownloadCount(photo.id);
         vibrate(30); // 触觉反馈
 
         // 添加延迟避免浏览器阻止多个下载
@@ -837,6 +877,7 @@ export default function AlbumDetailPage() {
                       return;
                     }
                     setFullscreenPhoto(photo.id);
+                    void incrementPhotoViewCount(photo.id);
                   }}
                 >
                   {storyOpenMap[photo.id] && hasStory(photo) ? (
@@ -1194,10 +1235,22 @@ export default function AlbumDetailPage() {
       {/* ImagePreview 组件 */}
       <ImagePreview
         images={filteredPhotos.map(p => p.original_url)}
+        downloadUrls={filteredPhotos.map(p => p.original_url)}
         currentIndex={filteredPhotos.findIndex(p => p.id === fullscreenPhoto)}
         isOpen={!!fullscreenPhoto}
         onClose={() => setFullscreenPhoto(null)}
-        onIndexChange={(index) => setFullscreenPhoto(filteredPhotos[index]?.id || null)}
+        onIndexChange={(index) => {
+          const target = filteredPhotos[index];
+          setFullscreenPhoto(target?.id || null);
+          if (target?.id) {
+            void incrementPhotoViewCount(target.id);
+          }
+        }}
+        onDownload={(index) => {
+          const target = filteredPhotos[index];
+          if (!target?.id) return;
+          void incrementPhotoDownloadCount(target.id);
+        }}
         showCounter={true}
         showScale={true}
         enableLongPressDownload={!isWechat}
