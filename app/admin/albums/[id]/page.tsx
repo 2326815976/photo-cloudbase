@@ -55,7 +55,12 @@ const ALBUM_PHOTO_SHOT_LOCATION_MIGRATION_HINT = '数据库缺少 shot_location 
 
 const normalizeStoryText = (value: unknown): string | null => {
   const text = String(value ?? '').trim();
-  return text ? text : null;
+  if (!text) return null;
+  const lowered = text.toLowerCase();
+  if (lowered === 'null' || lowered === 'undefined' || lowered === 'none' || lowered === 'nil') {
+    return null;
+  }
+  return text;
 };
 
 const normalizeShotDate = (value: unknown): string | null => {
@@ -561,6 +566,8 @@ export default function AlbumDetailPage() {
       const withMeta: Record<string, unknown> = { ...row };
       if (normalizedStory !== null) {
         withMeta.story_text = normalizedStory;
+      } else if (Boolean(payload.is_highlight)) {
+        withMeta.story_text = '';
       }
       if (Boolean(payload.is_highlight)) {
         withMeta.is_highlight = 1;
@@ -868,7 +875,7 @@ export default function AlbumDetailPage() {
 
     const storyText = normalizeStoryText(editingStoryText);
     const payload = {
-      story_text: storyText,
+      story_text: storyText ?? '',
       is_highlight: editingHighlight ? 1 : 0,
     };
     const { data, error } = await dbClient

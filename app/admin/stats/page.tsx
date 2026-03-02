@@ -82,8 +82,8 @@ export default async function StatsPage() {
             color="from-[#FFC857] to-[#FFB347]"
           />
           <StatCard
-            title="管理员"
-            value={stats?.users?.admins || 0}
+            title="普通用户"
+            value={stats?.users?.regular_users || 0}
             icon={Users}
             color="from-[#FF9A3C] to-[#FF8C42]"
           />
@@ -116,6 +116,12 @@ export default async function StatsPage() {
             color="from-[#8B7355] to-[#6D5A4A]"
           />
           <StatCard
+            title="有效空间"
+            value={Math.max(0, Number(stats?.albums?.total || 0) - Number(stats?.albums?.expired || 0))}
+            icon={FolderOpen}
+            color="from-[#9C8063] to-[#8B7355]"
+          />
+          <StatCard
             title="今日新增"
             value={stats?.albums?.new_today || 0}
             icon={FolderOpen}
@@ -126,12 +132,6 @@ export default async function StatsPage() {
             value={stats?.albums?.expired || 0}
             icon={Clock}
             color="from-[#B8956A] to-[#A0826D]"
-          />
-          <StatCard
-            title="启用打赏"
-            value={stats?.albums?.tipping_enabled || 0}
-            icon={Heart}
-            color="from-[#D4A574] to-[#B8956A]"
           />
         </div>
       </section>
@@ -184,16 +184,17 @@ export default async function StatsPage() {
             color="from-[#FF69B4] to-[#FF1493]"
           />
           <StatCard
-            title="总评论数"
-            value={stats?.photos?.total_comments || 0}
-            icon={MessageCircle}
-            color="from-[#32CD32] to-[#228B22]"
+            title="总下载数"
+            value={stats?.photos?.total_downloads || 0}
+            icon={Package}
+            color="from-[#4DB6AC] to-[#26A69A]"
           />
           <StatCard
-            title="平均评分"
-            value={stats?.photos?.avg_rating || '0.00'}
-            icon={TrendingUp}
-            color="from-[#FFD700] to-[#FFA500]"
+            title="故事照片"
+            value={stats?.photos?.with_story || 0}
+            icon={MessageCircle}
+            color="from-[#8D6E63] to-[#6D4C41]"
+            subtitle={`高亮 ${stats?.photos?.highlighted || 0}`}
           />
         </div>
       </section>
@@ -224,19 +225,13 @@ export default async function StatsPage() {
             color="from-[#FFA500] to-[#FF8C00]"
           />
           <StatCard
-            title="即将到来"
-            value={stats?.bookings?.upcoming || 0}
-            icon={TrendingUp}
-            color="from-[#00CED1] to-[#00BFFF]"
-          />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-          <StatCard
             title="已确认"
             value={stats?.bookings?.confirmed || 0}
             icon={CheckCircle}
             color="from-[#32CD32] to-[#228B22]"
           />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           <StatCard
             title="进行中"
             value={stats?.bookings?.in_progress || 0}

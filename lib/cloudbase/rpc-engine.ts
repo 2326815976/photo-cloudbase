@@ -153,7 +153,7 @@ function normalizeMaybeStoryText(value: unknown): string | null {
     return null;
   }
   const lowered = raw.toLowerCase();
-  if (lowered === 'null' || lowered === 'undefined') {
+  if (lowered === 'null' || lowered === 'undefined' || lowered === 'none' || lowered === 'nil') {
     return null;
   }
   return raw;
@@ -1408,36 +1408,39 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
     throw new Error('参数错误');
   }
 
+  const isAdminViewer = context.role === 'admin' || context.user?.role === 'admin';
   let alreadyViewed = true;
 
-  if (context.user?.id) {
-    const viewed = await executeSQL(
-      `
-        SELECT id
-        FROM photo_views
-        WHERE photo_id = {{photo_id}} AND user_id = {{user_id}}
-        LIMIT 1
-      `,
-      {
-        photo_id: photoId,
-        user_id: context.user.id,
-      }
-    );
-    alreadyViewed = viewed.rows.length > 0;
-  } else if (sessionId) {
-    const viewed = await executeSQL(
-      `
-        SELECT id
-        FROM photo_views
-        WHERE photo_id = {{photo_id}} AND session_id = {{session_id}}
-        LIMIT 1
-      `,
-      {
-        photo_id: photoId,
-        session_id: sessionId,
-      }
-    );
-    alreadyViewed = viewed.rows.length > 0;
+  if (!isAdminViewer) {
+    if (context.user?.id) {
+      const viewed = await executeSQL(
+        `
+          SELECT id
+          FROM photo_views
+          WHERE photo_id = {{photo_id}} AND user_id = {{user_id}}
+          LIMIT 1
+        `,
+        {
+          photo_id: photoId,
+          user_id: context.user.id,
+        }
+      );
+      alreadyViewed = viewed.rows.length > 0;
+    } else if (sessionId) {
+      const viewed = await executeSQL(
+        `
+          SELECT id
+          FROM photo_views
+          WHERE photo_id = {{photo_id}} AND session_id = {{session_id}}
+          LIMIT 1
+        `,
+        {
+          photo_id: photoId,
+          session_id: sessionId,
+        }
+      );
+      alreadyViewed = viewed.rows.length > 0;
+    }
   }
 
   let counted = false;
@@ -1930,6 +1933,39 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     totalReleases,
   ] = await runScalarQueryTasks(scalarTasks, 6);
 
+  const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
+  const photosTotalDownloads = hasDownloadCountColumn
+    ? await scalar('SELECT COALESCE(SUM(download_count), 0) AS value FROM album_photos')
+    : 0;
+
+  let photosWithStory = 0;
+  let photosHighlighted = 0;
+  try {
+    photosWithStory = await scalar(
+      `
+        SELECT COUNT(*) AS value
+        FROM album_photos
+        WHERE story_text IS NOT NULL
+          AND LENGTH(TRIM(story_text)) > 0
+          AND LOWER(TRIM(story_text)) NOT IN ('null', 'undefined', 'none', 'nil')
+      `
+    );
+  } catch {
+    photosWithStory = 0;
+  }
+
+  try {
+    photosHighlighted = await scalar(
+      `
+        SELECT COUNT(*) AS value
+        FROM album_photos
+        WHERE is_highlight = 1
+      `
+    );
+  } catch {
+    photosHighlighted = 0;
+  }
+
   const bookingsTypesResult = await executeSQL(
     `
       SELECT bt.name AS type_name, COUNT(b.id) AS count
@@ -2006,6 +2042,9 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       private: photosPrivate,
       total_views: photosTotalViews,
       total_likes: photosTotalLikes,
+      total_downloads: photosTotalDownloads,
+      with_story: photosWithStory,
+      highlighted: photosHighlighted,
       total_comments: photosTotalComments,
       avg_rating: photosAvgRating,
     },
