@@ -2685,6 +2685,9 @@ async function cleanupExpiredData() {
 async function rpcRunMaintenanceTasks(context: AuthContext) {
   requireAdmin(context);
 
+  const PASSWORD_RESET_TOKEN_RETENTION_DAYS = 30;
+  const USER_ACTIVE_LOG_RETENTION_DAYS = 365;
+
   const cleanupResult = await cleanupExpiredData();
 
   const sessionsResult = await executeSQL(
@@ -2715,10 +2718,28 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     `
   );
 
-  await executeSQL(
+  const photoViewsCleanupResult = await executeSQL(
     `
       DELETE FROM photo_views
       WHERE viewed_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 90 DAY)
+    `
+  );
+
+  const passwordResetTokenCleanupResult = await executeSQL(
+    `
+      DELETE FROM password_reset_tokens
+      WHERE expires_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${PASSWORD_RESET_TOKEN_RETENTION_DAYS} DAY)
+        OR (
+          !(used_at <=> NULL)
+          AND used_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${PASSWORD_RESET_TOKEN_RETENTION_DAYS} DAY)
+        )
+    `
+  );
+
+  const userActiveLogCleanupResult = await executeSQL(
+    `
+      DELETE FROM user_active_logs
+      WHERE active_date < DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${USER_ACTIVE_LOG_RETENTION_DAYS} DAY)
     `
   );
 
@@ -2747,7 +2768,13 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     sessions_cleaned: sessionsResult.affectedRows,
     ip_attempts_cleaned: ipAttemptsResult.affectedRows,
     beta_feature_bindings_cleaned: betaBindingCleanupResult.affectedRows,
-    photo_views_cleaned: true,
+    photo_views_cleaned: photoViewsCleanupResult.affectedRows,
+    password_reset_tokens_cleaned: passwordResetTokenCleanupResult.affectedRows,
+    user_active_logs_cleaned: userActiveLogCleanupResult.affectedRows,
+    safety_history_retention: {
+      password_reset_tokens_days: PASSWORD_RESET_TOKEN_RETENTION_DAYS,
+      user_active_logs_days: USER_ACTIVE_LOG_RETENTION_DAYS,
+    },
     bookings_updated: true,
     analytics_updated: true,
     timestamp: new Date().toISOString(),
