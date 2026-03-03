@@ -40,7 +40,16 @@ function toAuthUser(row: Record<string, any>): AuthUser {
 export async function findUserByEmail(email: string): Promise<Record<string, any> | null> {
   const result = await executeSQL(
     `
-      SELECT u.id, u.email, u.phone, u.password_hash, COALESCE(p.role, u.role, 'user') AS role, p.name
+      SELECT
+        u.id,
+        u.email,
+        u.phone,
+        u.password_hash,
+        CASE
+          WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+          ELSE 'user'
+        END AS role,
+        p.name
       FROM users u
       LEFT JOIN profiles p ON p.id = u.id
       WHERE u.email = {{email}} AND u.deleted_at <=> NULL
@@ -57,7 +66,16 @@ export async function findUserByEmail(email: string): Promise<Record<string, any
 export async function findUserByPhone(phone: string): Promise<Record<string, any> | null> {
   const result = await executeSQL(
     `
-      SELECT u.id, u.email, u.phone, u.password_hash, COALESCE(p.role, u.role, 'user') AS role, p.name
+      SELECT
+        u.id,
+        u.email,
+        u.phone,
+        u.password_hash,
+        CASE
+          WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+          ELSE 'user'
+        END AS role,
+        p.name
       FROM users u
       LEFT JOIN profiles p ON p.id = u.id
       WHERE u.phone = {{phone}} AND u.deleted_at <=> NULL
@@ -479,7 +497,16 @@ export async function createPasswordResetToken(email: string): Promise<{ token: 
 export async function consumePasswordResetToken(tokenHash: string): Promise<{ user: AuthUser | null; sessionToken: string | null; error: string | null }> {
   const tokenResult = await executeSQL(
     `
-      SELECT prt.id, prt.user_id, u.email, u.phone, COALESCE(p.role, u.role, 'user') AS role, p.name
+      SELECT
+        prt.id,
+        prt.user_id,
+        u.email,
+        u.phone,
+        CASE
+          WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+          ELSE 'user'
+        END AS role,
+        p.name
       FROM password_reset_tokens prt
       JOIN users u ON u.id = prt.user_id
       LEFT JOIN profiles p ON p.id = u.id

@@ -201,6 +201,26 @@ function normalizeMaybeShotLocation(value: unknown): string | null {
   return raw.slice(0, 255);
 }
 
+function normalizeBetaFeatureCode(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+function normalizeBetaRoutePath(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (raw.startsWith('/')) {
+    return raw;
+  }
+  return `/${raw}`;
+}
+
+function normalizeMaybeBetaDescription(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  return raw ? raw : null;
+}
+
 function getTodayDateUTC8(): string {
   const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
   const year = now.getUTCFullYear();
@@ -1040,6 +1060,218 @@ async function rpcUnbindUserFromAlbum(args: Record<string, unknown>, context: Au
   return {
     album_id: targetAlbumId,
     unbound: deleteResult.affectedRows > 0,
+  };
+}
+
+async function rpcBindUserToBetaFeature(args: Record<string, unknown>, context: AuthContext) {
+  const userId = requireUser(context);
+  const featureCode = normalizeBetaFeatureCode(args.p_feature_code);
+  if (!featureCode) {
+    throw new Error('请输入内测码');
+  }
+
+  const featureResult = await executeSQL(
+    `
+      SELECT
+        v.id AS feature_id,
+        v.feature_name,
+        v.feature_description,
+        v.feature_code,
+        v.is_active AS feature_is_active,
+        v.expires_at,
+        CASE
+          WHEN v.expires_at IS NOT NULL AND v.expires_at < ${NOW_UTC8_EXPR} THEN 1
+          ELSE 0
+        END AS is_expired,
+        r.id AS route_id,
+        r.route_path,
+        r.route_title,
+        r.route_description,
+        r.is_active AS route_is_active
+      FROM feature_beta_versions v
+      JOIN feature_beta_routes r ON r.id = v.route_id
+      WHERE UPPER(v.feature_code) = UPPER({{feature_code}})
+      LIMIT 1
+    `,
+    {
+      feature_code: featureCode,
+    }
+  );
+
+  const feature = featureResult.rows[0];
+  if (!feature) {
+    throw new Error('内测码无效');
+  }
+
+  const featureIsActive = toBoolean(feature.feature_is_active);
+  const routeIsActive = toBoolean(feature.route_is_active);
+  const expiresAtRaw = feature.expires_at;
+  const isExpired = toBoolean(feature.is_expired);
+
+  if (!featureIsActive) {
+    throw new Error('该内测功能已下线');
+  }
+  if (!routeIsActive) {
+    throw new Error('该内测功能入口已关闭');
+  }
+  if (isExpired) {
+    throw new Error('该内测码已过期');
+  }
+
+  const bindResult = await executeSQL(
+    `
+      INSERT IGNORE INTO user_beta_feature_bindings (id, user_id, feature_id, created_at)
+      VALUES ({{id}}, {{user_id}}, {{feature_id}}, ${NOW_UTC8_EXPR})
+    `,
+    {
+      id: randomUUID(),
+      user_id: userId,
+      feature_id: String(feature.feature_id),
+    }
+  );
+
+  return {
+    feature_id: String(feature.feature_id),
+    feature_name: String(feature.feature_name ?? ''),
+    feature_description: normalizeMaybeBetaDescription(feature.feature_description),
+    feature_code: String(feature.feature_code ?? ''),
+    route_id: toNumber(feature.route_id, 0),
+    route_path: normalizeBetaRoutePath(feature.route_path),
+    route_title: String(feature.route_title ?? ''),
+    route_description: normalizeMaybeBetaDescription(feature.route_description),
+    expires_at: expiresAtRaw ?? null,
+    bound_newly: bindResult.affectedRows > 0,
+  };
+}
+
+async function rpcGetUserBetaFeatures(context: AuthContext) {
+  const userId = requireUser(context);
+  const result = await executeSQL(
+    `
+      SELECT
+        b.id AS binding_id,
+        b.created_at AS bound_at,
+        v.id AS feature_id,
+        v.feature_name,
+        v.feature_description,
+        v.feature_code,
+        v.expires_at,
+        r.id AS route_id,
+        r.route_path,
+        r.route_title,
+        r.route_description
+      FROM user_beta_feature_bindings b
+      JOIN feature_beta_versions v ON v.id = b.feature_id
+      JOIN feature_beta_routes r ON r.id = v.route_id
+      WHERE b.user_id = {{user_id}}
+        AND v.is_active = 1
+        AND r.is_active = 1
+        AND (v.expires_at IS NULL OR v.expires_at >= ${NOW_UTC8_EXPR})
+      ORDER BY b.created_at DESC
+    `,
+    {
+      user_id: userId,
+    }
+  );
+
+  return result.rows.map((row) => ({
+    binding_id: String(row.binding_id ?? ''),
+    bound_at: row.bound_at ?? null,
+    feature_id: String(row.feature_id ?? ''),
+    feature_name: String(row.feature_name ?? ''),
+    feature_description: normalizeMaybeBetaDescription(row.feature_description),
+    feature_code: String(row.feature_code ?? ''),
+    expires_at: row.expires_at ?? null,
+    route_id: toNumber(row.route_id, 0),
+    route_path: normalizeBetaRoutePath(row.route_path),
+    route_title: String(row.route_title ?? ''),
+    route_description: normalizeMaybeBetaDescription(row.route_description),
+  }));
+}
+
+async function rpcCheckUserBetaFeatureAccess(args: Record<string, unknown>, context: AuthContext) {
+  const userId = requireUser(context);
+  const featureId = String(args.p_feature_id ?? '').trim();
+  if (!featureId) {
+    throw new Error('参数错误：缺少功能标识');
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT
+        b.id AS binding_id,
+        v.id AS feature_id,
+        v.feature_name,
+        v.feature_description,
+        v.feature_code,
+        v.is_active AS feature_is_active,
+        v.expires_at,
+        CASE
+          WHEN v.expires_at IS NOT NULL AND v.expires_at < ${NOW_UTC8_EXPR} THEN 1
+          ELSE 0
+        END AS is_expired,
+        r.id AS route_id,
+        r.route_path,
+        r.route_title,
+        r.route_description,
+        r.is_active AS route_is_active
+      FROM user_beta_feature_bindings b
+      JOIN feature_beta_versions v ON v.id = b.feature_id
+      JOIN feature_beta_routes r ON r.id = v.route_id
+      WHERE b.user_id = {{user_id}}
+        AND b.feature_id = {{feature_id}}
+      LIMIT 1
+    `,
+    {
+      user_id: userId,
+      feature_id: featureId,
+    }
+  );
+
+  const feature = result.rows[0];
+  if (!feature) {
+    throw new Error('该内测功能未绑定或已失效');
+  }
+
+  const featureIsActive = toBoolean(feature.feature_is_active);
+  const routeIsActive = toBoolean(feature.route_is_active);
+  const expiresAtRaw = feature.expires_at;
+  const isExpired = toBoolean(feature.is_expired);
+
+  if (!featureIsActive || !routeIsActive || isExpired) {
+    await executeSQL(
+      `
+        DELETE FROM user_beta_feature_bindings
+        WHERE user_id = {{user_id}}
+          AND feature_id = {{feature_id}}
+        LIMIT 1
+      `,
+      {
+        user_id: userId,
+        feature_id: featureId,
+      }
+    );
+
+    if (!featureIsActive) {
+      throw new Error('该内测功能已下线');
+    }
+    if (!routeIsActive) {
+      throw new Error('该内测功能入口已关闭');
+    }
+    throw new Error('该内测功能已过期');
+  }
+
+  return {
+    allowed: true,
+    feature_id: String(feature.feature_id),
+    feature_name: String(feature.feature_name ?? ''),
+    feature_description: normalizeMaybeBetaDescription(feature.feature_description),
+    feature_code: String(feature.feature_code ?? ''),
+    expires_at: expiresAtRaw ?? null,
+    route_id: toNumber(feature.route_id, 0),
+    route_path: normalizeBetaRoutePath(feature.route_path),
+    route_title: String(feature.route_title ?? ''),
+    route_description: normalizeMaybeBetaDescription(feature.route_description),
   };
 }
 
@@ -2461,6 +2693,20 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     `
   );
 
+  const betaBindingCleanupResult = await executeSQL(
+    `
+      DELETE b
+      FROM user_beta_feature_bindings b
+      LEFT JOIN feature_beta_versions v ON v.id = b.feature_id
+      LEFT JOIN feature_beta_routes r ON r.id = v.route_id
+      WHERE v.id IS NULL
+        OR r.id IS NULL
+        OR v.is_active <> 1
+        OR r.is_active <> 1
+        OR (v.expires_at IS NOT NULL AND v.expires_at < ${NOW_UTC8_EXPR})
+    `
+  );
+
   await executeSQL(
     `
       DELETE FROM photo_views
@@ -2492,6 +2738,7 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     cleanup_result: cleanupResult,
     sessions_cleaned: sessionsResult.affectedRows,
     ip_attempts_cleaned: ipAttemptsResult.affectedRows,
+    beta_feature_bindings_cleaned: betaBindingCleanupResult.affectedRows,
     photo_views_cleaned: true,
     bookings_updated: true,
     analytics_updated: true,
@@ -2518,6 +2765,15 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
         break;
       case 'get_user_bound_albums':
         data = await rpcGetUserBoundAlbums(context);
+        break;
+      case 'bind_user_to_beta_feature':
+        data = await rpcBindUserToBetaFeature(args, context);
+        break;
+      case 'get_user_beta_features':
+        data = await rpcGetUserBetaFeatures(context);
+        break;
+      case 'check_user_beta_feature_access':
+        data = await rpcCheckUserBetaFeatureAccess(args, context);
         break;
       case 'unbind_user_from_album':
         data = await rpcUnbindUserFromAlbum(args, context);

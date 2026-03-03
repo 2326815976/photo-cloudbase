@@ -318,7 +318,62 @@ CREATE TABLE IF NOT EXISTS photo_views (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='照片浏览去重记录';
 
 -- ================================================================================================
--- 5) 预约系统
+-- 5) 功能内测系统
+-- ================================================================================================
+
+CREATE TABLE IF NOT EXISTS feature_beta_routes (
+  id INT NOT NULL AUTO_INCREMENT,
+  route_path VARCHAR(255) NOT NULL,
+  route_title VARCHAR(128) NOT NULL,
+  route_description VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_feature_beta_routes_path (route_path),
+  KEY idx_feature_beta_routes_active (is_active),
+  KEY idx_feature_beta_routes_title (route_title)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='内测功能路由定义';
+
+CREATE TABLE IF NOT EXISTS feature_beta_versions (
+  id CHAR(36) NOT NULL,
+  feature_name VARCHAR(128) NOT NULL,
+  feature_description VARCHAR(255) NULL,
+  feature_code VARCHAR(64) NOT NULL,
+  route_id INT NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  expires_at DATETIME NULL,
+  created_by CHAR(36) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_feature_beta_versions_code (feature_code),
+  KEY idx_feature_beta_versions_route_id (route_id),
+  KEY idx_feature_beta_versions_active (is_active),
+  KEY idx_feature_beta_versions_expires_at (expires_at),
+  CONSTRAINT fk_feature_beta_versions_route
+    FOREIGN KEY (route_id) REFERENCES feature_beta_routes(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_feature_beta_versions_creator
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='内测功能版本（密钥）';
+
+CREATE TABLE IF NOT EXISTS user_beta_feature_bindings (
+  id CHAR(36) NOT NULL,
+  user_id CHAR(36) NOT NULL,
+  feature_id CHAR(36) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_beta_feature_bindings_user_feature (user_id, feature_id),
+  KEY idx_user_beta_feature_bindings_user_id (user_id),
+  KEY idx_user_beta_feature_bindings_feature_id (feature_id),
+  CONSTRAINT fk_user_beta_feature_bindings_user
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_user_beta_feature_bindings_feature
+    FOREIGN KEY (feature_id) REFERENCES feature_beta_versions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户绑定的内测功能';
+
+-- ================================================================================================
+-- 6) 预约系统
 -- ================================================================================================
 
 CREATE TABLE IF NOT EXISTS booking_types (
@@ -487,7 +542,7 @@ CREATE TABLE IF NOT EXISTS booking_blackouts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='档期锁定';
 
 -- ================================================================================================
--- 6) 版本发布、安全限流
+-- 7) 版本发布、安全限流
 -- ================================================================================================
 
 CREATE TABLE IF NOT EXISTS app_releases (
@@ -522,7 +577,7 @@ CREATE TABLE IF NOT EXISTS ip_registration_attempts (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ================================================================================================
--- 7) 初始化数据
+-- 8) 初始化数据
 -- ================================================================================================
 
 INSERT INTO booking_types (name, description, is_active)
@@ -570,7 +625,7 @@ WHERE NOT EXISTS (
 );
 
 -- ================================================================================================
--- 8) 摆姿标签维护（应用层）
+-- 9) 摆姿标签维护（应用层）
 -- ================================================================================================
 -- 为避免 CloudBase SQL 跨环境迁移时出现 definer 失效问题，这里不再创建存储过程/触发器。
 -- 以下逻辑统一由应用层维护（lib/cloudbase/query-engine.ts）：
@@ -588,7 +643,7 @@ SET usage_count = (
 );
 
 -- ================================================================================================
--- 9) 备注（执行后）
+-- 10) 备注（执行后）
 -- ================================================================================================
 -- 1. 本脚本仅创建表结构、索引、约束、默认数据，不创建数据库函数型 RPC（由应用层 rpc-engine.ts 承担）。
 -- 2. 旧 RLS 已迁移为应用层权限，请勿绕过应用层 API 直接给前端暴露 SQL 凭据。

@@ -81,7 +81,10 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
         u.id,
         u.email,
         u.phone,
-        COALESCE(p.role, u.role, 'user') AS role,
+        CASE
+          WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+          ELSE 'user'
+        END AS role,
         p.name
       FROM user_sessions s
       JOIN users u ON u.id = s.user_id

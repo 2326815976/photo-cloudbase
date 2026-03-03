@@ -166,7 +166,7 @@ export default function DeleteAccountPage() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => setShowConfirm(true)}
-              className="w-full h-14 sm:h-16 rounded-full bg-red-500 border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] text-white font-bold text-base sm:text-lg transition-all"
+              className="w-[calc(100%+16px)] -mx-2 h-14 sm:h-16 rounded-full bg-red-500 border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] text-white font-bold text-base sm:text-lg transition-all"
             >
               我已了解风险，继续删除
             </motion.button>

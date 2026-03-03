@@ -133,6 +133,8 @@ const booleanColumnsByTable: Record<string, string[]> = {
   album_photos: ['is_public', 'is_highlight'],
   booking_types: ['is_active'],
   allowed_cities: ['is_active'],
+  feature_beta_routes: ['is_active'],
+  feature_beta_versions: ['is_active'],
   app_releases: ['force_update'],
 };
 
