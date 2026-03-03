@@ -13,6 +13,8 @@ interface RpcExecuteResult {
   error: { message: string; code?: string } | null;
 }
 
+const BETA_FEATURE_CODE_LENGTH = 8;
+
 function normalizeRpcError(error: unknown, fallback: string): { message: string; code?: string } {
   if (error instanceof Error) {
     const maybeCode = (error as Error & { code?: unknown; errno?: unknown }).code;
@@ -202,7 +204,11 @@ function normalizeMaybeShotLocation(value: unknown): string | null {
 }
 
 function normalizeBetaFeatureCode(value: unknown): string {
-  return String(value ?? '').trim().toUpperCase();
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, BETA_FEATURE_CODE_LENGTH);
 }
 
 function normalizeBetaRoutePath(value: unknown): string {
@@ -1069,6 +1075,9 @@ async function rpcBindUserToBetaFeature(args: Record<string, unknown>, context: 
   if (!featureCode) {
     throw new Error('请输入内测码');
   }
+  if (featureCode.length !== BETA_FEATURE_CODE_LENGTH) {
+    throw new Error(`内测码必须是 ${BETA_FEATURE_CODE_LENGTH} 位大写字母或数字`);
+  }
 
   const featureResult = await executeSQL(
     `
@@ -1090,7 +1099,7 @@ async function rpcBindUserToBetaFeature(args: Record<string, unknown>, context: 
         r.is_active AS route_is_active
       FROM feature_beta_versions v
       JOIN feature_beta_routes r ON r.id = v.route_id
-      WHERE UPPER(v.feature_code) = UPPER({{feature_code}})
+      WHERE LEFT(REPLACE(REPLACE(REPLACE(UPPER(v.feature_code), '-', ''), '_', ''), ' ', ''), ${BETA_FEATURE_CODE_LENGTH}) = {{feature_code}}
       LIMIT 1
     `,
     {
@@ -1134,7 +1143,7 @@ async function rpcBindUserToBetaFeature(args: Record<string, unknown>, context: 
     feature_id: String(feature.feature_id),
     feature_name: String(feature.feature_name ?? ''),
     feature_description: normalizeMaybeBetaDescription(feature.feature_description),
-    feature_code: String(feature.feature_code ?? ''),
+    feature_code: normalizeBetaFeatureCode(feature.feature_code),
     route_id: toNumber(feature.route_id, 0),
     route_path: normalizeBetaRoutePath(feature.route_path),
     route_title: String(feature.route_title ?? ''),
@@ -1180,7 +1189,7 @@ async function rpcGetUserBetaFeatures(context: AuthContext) {
     feature_id: String(row.feature_id ?? ''),
     feature_name: String(row.feature_name ?? ''),
     feature_description: normalizeMaybeBetaDescription(row.feature_description),
-    feature_code: String(row.feature_code ?? ''),
+    feature_code: normalizeBetaFeatureCode(row.feature_code),
     expires_at: row.expires_at ?? null,
     route_id: toNumber(row.route_id, 0),
     route_path: normalizeBetaRoutePath(row.route_path),
@@ -1266,7 +1275,7 @@ async function rpcCheckUserBetaFeatureAccess(args: Record<string, unknown>, cont
     feature_id: String(feature.feature_id),
     feature_name: String(feature.feature_name ?? ''),
     feature_description: normalizeMaybeBetaDescription(feature.feature_description),
-    feature_code: String(feature.feature_code ?? ''),
+    feature_code: normalizeBetaFeatureCode(feature.feature_code),
     expires_at: expiresAtRaw ?? null,
     route_id: toNumber(feature.route_id, 0),
     route_path: normalizeBetaRoutePath(feature.route_path),

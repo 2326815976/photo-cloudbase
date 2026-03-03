@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS feature_beta_versions (
   id CHAR(36) NOT NULL,
   feature_name VARCHAR(128) NOT NULL,
   feature_description VARCHAR(255) NULL,
-  feature_code VARCHAR(64) NOT NULL,
+  feature_code VARCHAR(8) NOT NULL,
   route_id INT NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   expires_at DATETIME NULL,
