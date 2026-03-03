@@ -1080,7 +1080,7 @@ async function rpcBindUserToBetaFeature(args: Record<string, unknown>, context: 
         v.is_active AS feature_is_active,
         v.expires_at,
         CASE
-          WHEN v.expires_at IS NOT NULL AND v.expires_at < ${NOW_UTC8_EXPR} THEN 1
+          WHEN !(v.expires_at <=> NULL) AND v.expires_at < ${NOW_UTC8_EXPR} THEN 1
           ELSE 0
         END AS is_expired,
         r.id AS route_id,
@@ -1166,7 +1166,7 @@ async function rpcGetUserBetaFeatures(context: AuthContext) {
       WHERE b.user_id = {{user_id}}
         AND v.is_active = 1
         AND r.is_active = 1
-        AND (v.expires_at IS NULL OR v.expires_at >= ${NOW_UTC8_EXPR})
+        AND ((v.expires_at <=> NULL) OR v.expires_at >= ${NOW_UTC8_EXPR})
       ORDER BY b.created_at DESC
     `,
     {
@@ -1207,7 +1207,7 @@ async function rpcCheckUserBetaFeatureAccess(args: Record<string, unknown>, cont
         v.is_active AS feature_is_active,
         v.expires_at,
         CASE
-          WHEN v.expires_at IS NOT NULL AND v.expires_at < ${NOW_UTC8_EXPR} THEN 1
+          WHEN !(v.expires_at <=> NULL) AND v.expires_at < ${NOW_UTC8_EXPR} THEN 1
           ELSE 0
         END AS is_expired,
         r.id AS route_id,
@@ -2177,9 +2177,8 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       `
         SELECT COUNT(*) AS value
         FROM album_photos
-        WHERE story_text IS NOT NULL
-          AND LENGTH(TRIM(story_text)) > 0
-          AND LOWER(TRIM(story_text)) NOT IN ('null', 'undefined', 'none', 'nil')
+        WHERE LENGTH(TRIM(COALESCE(story_text, ''))) > 0
+          AND LOWER(TRIM(COALESCE(story_text, ''))) NOT IN ('null', 'undefined', 'none', 'nil')
       `
     );
   } catch {
@@ -2699,11 +2698,11 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
       FROM user_beta_feature_bindings b
       LEFT JOIN feature_beta_versions v ON v.id = b.feature_id
       LEFT JOIN feature_beta_routes r ON r.id = v.route_id
-      WHERE v.id IS NULL
-        OR r.id IS NULL
+      WHERE (v.id <=> NULL)
+        OR (r.id <=> NULL)
         OR v.is_active <> 1
         OR r.is_active <> 1
-        OR (v.expires_at IS NOT NULL AND v.expires_at < ${NOW_UTC8_EXPR})
+        OR (!(v.expires_at <=> NULL) AND v.expires_at < ${NOW_UTC8_EXPR})
     `
   );
 

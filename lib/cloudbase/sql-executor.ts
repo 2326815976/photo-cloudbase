@@ -89,6 +89,21 @@ function isRetryableSqlError(error: unknown): boolean {
   );
 }
 
+function isWeDaIsKeywordError(error: unknown): boolean {
+  const message = extractErrorMessage(error).toLowerCase();
+  return message.includes('does not support the is keyword');
+}
+
+function rewriteNullPredicatesForWeDa(sql: string): string {
+  let rewritten = String(sql || '');
+
+  // WeDa 预编译模式不支持 `IS [NOT] NULL`，统一改为 NULL-safe 等价写法。
+  rewritten = rewritten.replace(/([`A-Za-z0-9_.]+)\s+IS\s+NOT\s+NULL\b/gi, '!($1 <=> NULL)');
+  rewritten = rewritten.replace(/([`A-Za-z0-9_.]+)\s+IS\s+NULL\b/gi, '($1 <=> NULL)');
+
+  return rewritten;
+}
+
 async function wait(ms: number): Promise<void> {
   if (ms <= 0) {
     return;
@@ -107,17 +122,29 @@ export async function executeSQL(
   sql: string,
   values: Record<string, unknown> = {}
 ): Promise<SqlExecuteResult> {
+  let sqlText = String(sql || '');
+  let hasAppliedWeDaRewrite = false;
   let response: any = null;
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= SQL_EXECUTE_RETRY_TIMES; attempt += 1) {
     try {
       const sqlModel = getCloudBaseSqlModel();
-      response = await sqlModel.$runSQL(sql, values);
+      response = await sqlModel.$runSQL(sqlText, values);
       lastError = null;
       break;
     } catch (error) {
       lastError = error;
+
+      if (!hasAppliedWeDaRewrite && isWeDaIsKeywordError(error)) {
+        const rewritten = rewriteNullPredicatesForWeDa(sqlText);
+        if (rewritten !== sqlText) {
+          sqlText = rewritten;
+          hasAppliedWeDaRewrite = true;
+          continue;
+        }
+      }
+
       const canRetry = attempt < SQL_EXECUTE_RETRY_TIMES && isRetryableSqlError(error);
       if (!canRetry) {
         throw error;
