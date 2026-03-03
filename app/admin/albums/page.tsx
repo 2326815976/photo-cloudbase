@@ -22,6 +22,8 @@ interface Album {
   expires_at: string | null;
 }
 
+const FIXED_PUBLIC_ORIGIN = 'https://guangyao666.xyz';
+
 export default function AlbumsPage() {
   const router = useRouter();
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -538,7 +540,7 @@ export default function AlbumsPage() {
   };
 
   const copyAccessLink = async (accessKey: string) => {
-    const link = `${window.location.origin}/album/${accessKey}`;
+    const link = `${FIXED_PUBLIC_ORIGIN}/album/${accessKey}`;
     const { setClipboardText } = await import('@/lib/android');
     const success = setClipboardText(link);
     if (success) {
@@ -550,7 +552,7 @@ export default function AlbumsPage() {
   };
 
   const generateQrCode = (accessKey: string) => {
-    const link = `${window.location.origin}/album/${accessKey}`;
+    const link = `${FIXED_PUBLIC_ORIGIN}/album/${accessKey}`;
     return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(link)}`;
   };
 
