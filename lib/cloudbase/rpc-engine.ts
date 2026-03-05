@@ -82,6 +82,33 @@ function normalizeRpcError(error: unknown, fallback: string): { message: string;
   return { message: fallback };
 }
 
+function isDuplicateEntryError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  if (error instanceof Error) {
+    const maybeCode = (error as Error & { code?: unknown; errno?: unknown }).code;
+    const maybeErrno = (error as Error & { code?: unknown; errno?: unknown }).errno;
+    if (maybeCode === 'ER_DUP_ENTRY' || maybeCode === '1062' || maybeErrno === 1062) {
+      return true;
+    }
+    return /duplicate entry/i.test(String(error.message || ''));
+  }
+
+  if (typeof error === 'object') {
+    const maybeCode = (error as { code?: unknown }).code;
+    const maybeErrno = (error as { errno?: unknown }).errno;
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (maybeCode === 'ER_DUP_ENTRY' || maybeCode === '1062' || maybeErrno === 1062) {
+      return true;
+    }
+    return /duplicate entry/i.test(String(maybeMessage || ''));
+  }
+
+  return /duplicate entry/i.test(String(error));
+}
+
 function toNumber(value: any, defaultValue: number = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : defaultValue;
@@ -1649,58 +1676,68 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
     throw new Error('参数错误');
   }
 
-  const isAdminViewer = context.role === 'admin' || context.user?.role === 'admin';
-  let alreadyViewed = true;
-
-  if (!isAdminViewer) {
-    if (context.user?.id) {
-      const viewed = await executeSQL(
-        `
-          SELECT id
-          FROM photo_views
-          WHERE photo_id = {{photo_id}} AND user_id = {{user_id}}
-          LIMIT 1
-        `,
-        {
-          photo_id: photoId,
-          user_id: context.user.id,
-        }
-      );
-      alreadyViewed = viewed.rows.length > 0;
-    } else if (sessionId) {
-      const viewed = await executeSQL(
-        `
-          SELECT id
-          FROM photo_views
-          WHERE photo_id = {{photo_id}} AND session_id = {{session_id}}
-          LIMIT 1
-        `,
-        {
-          photo_id: photoId,
-          session_id: sessionId,
-        }
-      );
-      alreadyViewed = viewed.rows.length > 0;
-    }
+  let alreadyViewed = false;
+  if (context.user?.id) {
+    const viewed = await executeSQL(
+      `
+        SELECT id
+        FROM photo_views
+        WHERE photo_id = {{photo_id}} AND user_id = {{user_id}}
+        LIMIT 1
+      `,
+      {
+        photo_id: photoId,
+        user_id: context.user.id,
+      }
+    );
+    alreadyViewed = viewed.rows.length > 0;
+  } else if (sessionId) {
+    const viewed = await executeSQL(
+      `
+        SELECT id
+        FROM photo_views
+        WHERE photo_id = {{photo_id}} AND session_id = {{session_id}}
+        LIMIT 1
+      `,
+      {
+        photo_id: photoId,
+        session_id: sessionId,
+      }
+    );
+    alreadyViewed = viewed.rows.length > 0;
   }
 
   let counted = false;
   if (!alreadyViewed) {
     try {
-      await executeSQL(
-        `
-          INSERT INTO photo_views (id, photo_id, user_id, session_id, viewed_at)
-          VALUES ({{id}}, {{photo_id}}, {{user_id}}, {{session_id}}, ${NOW_UTC8_EXPR})
-        `,
-        {
-          id: randomUUID(),
-          photo_id: photoId,
-          user_id: context.user?.id ?? null,
-          session_id: context.user?.id ? null : (sessionId || null),
-        }
-      );
+      if (context.user?.id) {
+        // CloudBase SQL 占位符传 null 会被序列化为字符串，显式拆分 SQL 避免外键异常。
+        await executeSQL(
+          `
+            INSERT INTO photo_views (id, photo_id, user_id, viewed_at)
+            VALUES ({{id}}, {{photo_id}}, {{user_id}}, ${NOW_UTC8_EXPR})
+          `,
+          {
+            id: randomUUID(),
+            photo_id: photoId,
+            user_id: context.user.id,
+          }
+        );
+      } else if (sessionId) {
+        await executeSQL(
+          `
+            INSERT INTO photo_views (id, photo_id, session_id, viewed_at)
+            VALUES ({{id}}, {{photo_id}}, {{session_id}}, ${NOW_UTC8_EXPR})
+          `,
+          {
+            id: randomUUID(),
+            photo_id: photoId,
+            session_id: sessionId,
+          }
+        );
+      }
 
-      await executeSQL(
+      const updateResult = await executeSQL(
         `
           UPDATE album_photos
           SET view_count = view_count + 1
@@ -1710,9 +1747,21 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
           photo_id: photoId,
         }
       );
-      counted = true;
-    } catch {
-      counted = false;
+      counted = updateResult.affectedRows > 0;
+    } catch (error) {
+      if (!isDuplicateEntryError(error)) {
+        const fallbackUpdateResult = await executeSQL(
+          `
+            UPDATE album_photos
+            SET view_count = view_count + 1
+            WHERE id = {{photo_id}}
+          `,
+          {
+            photo_id: photoId,
+          }
+        );
+        counted = fallbackUpdateResult.affectedRows > 0;
+      }
     }
   }
 
