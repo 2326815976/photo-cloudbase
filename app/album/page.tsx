@@ -412,9 +412,9 @@ export default function AlbumLoginPage() {
                             event.stopPropagation();
                             handleRequestUnbindAlbum(album);
                           }}
-                          className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-600 disabled:opacity-60"
+                          className="inline-flex items-center gap-[3px] rounded-full border border-red-200 bg-red-50 px-[7px] py-[5.5px] text-[10px] font-medium text-red-600 disabled:opacity-60 max-w-[100px] whitespace-nowrap"
                         >
-                          <Unlink2 className="h-3.5 w-3.5" />
+                          <Unlink2 className="h-[13px] w-[13px] flex-shrink-0" />
                           <span>{unbindingAlbumId === album.id ? '解除中...' : '解除绑定'}</span>
                         </motion.button>
                       </div>
@@ -457,20 +457,21 @@ export default function AlbumLoginPage() {
             </motion.div>
 
             {/* 输入卡片 */}
-            <div className="bg-white rounded-2xl shadow-sm border border-[#5D4037]/10 p-6 relative overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-sm border border-[#5D4037]/10 p-[14px] relative overflow-hidden">
               {/* 装饰性背景 */}
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#FFC857]/10 rounded-full blur-3xl -z-10" />
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <div className="relative">
+                  <div className="relative p-[3px] rounded-[18px] bg-gradient-to-b from-[#FFC857]/20 to-[#FFC857]/10 border border-[#FFC857]/34 shadow-[inset_0_0.5px_0_rgba(255,255,255,0.9)]">
                     <input
                       type="text"
                       placeholder="输入神秘密钥..."
                       value={accessKey}
                       onChange={(e) => setAccessKey(normalizeAccessKey(e.target.value))}
                       disabled={isLoading}
-                      className={`w-full px-4 py-3 ${!isWechat ? 'pr-12' : ''} text-center text-lg tracking-wider bg-[#FFFBF0] border-2 border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none focus:shadow-[0_0_0_3px_rgba(255,200,87,0.15)] transition-all disabled:opacity-50`}
+                      className={`w-full h-[50px] ${!isWechat ? 'pr-12' : ''} px-[15px] text-center text-[15px] font-bold tracking-[0.08em] bg-[#FFFCF4] border-[1.5px] border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none transition-all disabled:opacity-50`}
+                      style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif" }}
                     />
                     {!isWechat && (
                       <motion.button
@@ -483,7 +484,6 @@ export default function AlbumLoginPage() {
                               setAccessKey(normalizeAccessKey(text));
                               setError('');
                             } else {
-                              // 提示用户可以手动粘贴
                               setError('💡 提示：您也可以直接在输入框中长按粘贴');
                             }
                           } catch (err) {
@@ -491,10 +491,10 @@ export default function AlbumLoginPage() {
                           }
                         }}
                         disabled={isLoading}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#FFC857]/20 hover:bg-[#FFC857]/30 flex items-center justify-center transition-colors disabled:opacity-50"
+                        className="absolute right-[9px] top-1/2 -translate-y-1/2 w-[31px] h-[31px] rounded-full bg-[#FFE8B0] border border-[#5D4037]/14 shadow-[0_3px_6px_rgba(93,64,55,0.12)] hover:bg-[#FFD989] flex items-center justify-center transition-colors disabled:opacity-50 z-10"
                         title="粘贴"
                       >
-                        <Clipboard className="w-4 h-4 text-[#5D4037]" />
+                        <Clipboard className="w-4 h-4 text-[#5D4037] opacity-90" />
                       </motion.button>
                     )}
                   </div>
@@ -512,9 +512,8 @@ export default function AlbumLoginPage() {
                 <motion.button
                   type="submit"
                   disabled={isLoading}
-                  whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="w-full h-12 rounded-2xl bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] hover:shadow-[2px_2px_0px_#5D4037] hover:translate-x-[2px] hover:translate-y-[2px] text-[#5D4037] font-bold flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+                  className="w-[74%] min-w-[180px] max-w-[250px] h-[51px] mx-auto rounded-2xl bg-gradient-to-b from-[#FFD86A] to-[#FFC857] border-2 border-[#5D4037] shadow-[0_5px_0_#704D3B] active:shadow-[0_2px_0_#704D3B] active:translate-y-[3px] text-[#5D4037] font-black text-[15px] flex items-center justify-center gap-2 disabled:opacity-60 transition-all"
                 >
                   {isLoading ? (
                     <>
@@ -522,13 +521,13 @@ export default function AlbumLoginPage() {
                         animate={{ rotate: 360 }}
                         transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                       >
-                        <Sparkles className="w-5 h-5" />
+                        <Sparkles className="w-[17px] h-[17px]" />
                       </motion.div>
                       <span>验证中...</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" />
+                      <Sparkles className="w-[17px] h-[17px]" />
                       <span>解锁相册</span>
                     </>
                   )}
@@ -536,12 +535,12 @@ export default function AlbumLoginPage() {
               </form>
 
               {/* 提示信息 */}
-              <div className="mt-6 pt-6 border-t border-[#5D4037]/10">
-                <p className="text-xs text-[#5D4037]/50 text-center mb-2 whitespace-nowrap overflow-x-auto">
-                  💡 提示：{isLoggedIn ? '输入密钥后将自动绑定并直接进入返图空间' : '登录后可绑定空间，下次无需输入密钥'}
+              <div className="mt-[11px] pt-[9px] border-t border-[#5D4037]/10 flex flex-col gap-[5px]">
+                <p className="text-[11px] text-[#5D4037]/50 text-center">
+                  💡 提示：输入密钥后即可进入临时相册空间
                 </p>
-                <p className="text-xs text-[#5D4037]/50 text-center whitespace-nowrap overflow-x-auto">
-                  密钥由摄影师提供，请妥善保管
+                <p className="text-[11px] text-[#5D4037]/50 text-center">
+                  密钥由管理员提供，到期后空间将自动销毁
                 </p>
               </div>
             </div>

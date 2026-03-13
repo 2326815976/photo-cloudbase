@@ -425,30 +425,28 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         </div>
       </motion.div>
 
-      <div className="flex-none px-2 py-2 border-b border-[#5D4037]/8 bg-[#FFFBF0]/95">
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hidden">
+      <div className="flex-none px-2 py-2 border-b border-[#5D4037]/5 bg-[#FFFBF0]/95">
+        <div className="flex items-center gap-2.5 overflow-x-auto scrollbar-hidden">
           <button
             onClick={() => setSelectedFolderId('__ROOT__')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
               selectedFolderId === '__ROOT__'
-                ? 'bg-[#FFC857] text-[#5D4037] border border-[#5D4037]/20 shadow-sm'
-                : 'bg-white text-[#5D4037]/75 border border-[#5D4037]/15'
+                ? 'bg-[#FFC857] text-[#5D4037] border-[1.5px] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
+                : 'bg-white/60 text-[#5D4037]/60 border-[1.5px] border-dashed border-[#5D4037]/15'
             }`}
           >
-            <FolderIcon className="w-3.5 h-3.5" />
             <span>{rootFolderName}</span>
           </button>
           {folders.map((folder) => (
             <button
               key={folder.id}
               onClick={() => setSelectedFolderId(String(folder.id))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
                 selectedFolderId === String(folder.id)
-                  ? 'bg-[#FFC857] text-[#5D4037] border border-[#5D4037]/20 shadow-sm'
-                  : 'bg-white text-[#5D4037]/75 border border-[#5D4037]/15'
+                  ? 'bg-[#FFC857] text-[#5D4037] border-[1.5px] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
+                  : 'bg-white/60 text-[#5D4037]/60 border-[1.5px] border-dashed border-[#5D4037]/15'
               }`}
             >
-              <FolderIcon className="w-3.5 h-3.5" />
               <span>{folder.name}</span>
             </button>
           ))}
@@ -475,21 +473,21 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 >
                   {/* 小红书风格卡片 */}
                   <div
-                    className={`bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-all duration-300 border ${
+                    className={`bg-white rounded-xl overflow-hidden transition-all duration-300 ${
                       isHighlighted(photo)
-                        ? 'border-[3px] border-[#FFB703] bg-gradient-to-b from-[#FFFDF7] to-white ring-2 ring-[#FFD978] ring-offset-1 ring-offset-[#FFFBF0] shadow-[inset_0_0_0_1px_rgba(255,244,210,0.92),0_0_0_3px_rgba(255,183,3,0.42),0_18px_40px_rgba(255,183,3,0.46),0_8px_20px_rgba(93,64,55,0.2)]'
-                        : 'border-transparent'
+                        ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_16px_rgba(255,183,3,0.48),0_4px_10px_rgba(93,64,55,0.20)] translate-y-[-1px]'
+                        : 'border border-transparent shadow-[0_5px_15px_rgba(93,64,55,0.10)]'
                     }`}
                   >
                     {/* 图片区域 */}
                     <div className="relative">
                       {storyOpenMap[photo.id] && hasStory(photo) ? (
-                        <div className="min-h-[190px] p-3 bg-gradient-to-br from-[#FFF8E8] via-[#FFF1D6] to-[#FDE6B7] border-b border-[#5D4037]/10">
-                          <div className="rounded-xl border border-[#C9B085]/35 bg-[linear-gradient(180deg,rgba(255,252,245,0.98)_0%,rgba(255,246,231,0.98)_100%)] px-3.5 py-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_10px_22px_rgba(93,64,55,0.12)]">
-                            <span className="mb-2 inline-flex h-6 items-center rounded-full border border-[#5D4037]/20 bg-[#FFC857]/25 px-2.5 text-[11px] font-semibold text-[#5D4037]/85">
+                        <div className="min-h-[190px] p-2 bg-gradient-to-br from-[#FFFDF7] via-[#FFF5DC] to-[#FCEBC5]">
+                          <div className="relative rounded-[9px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[9px] py-[9px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
+                            <span className="mb-[5px] inline-flex h-[17px] items-center justify-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
                               关于此刻
                             </span>
-                            <p className="text-[13px] leading-6 text-[#5D4037]/92 font-medium whitespace-pre-wrap break-words tracking-[0.01em]">
+                            <p className="text-[12.5px] leading-[1.78] text-[#5D4037]/93 font-semibold whitespace-pre-wrap break-words tracking-[0.02em]">
                               {String(photo.story_text || '').trim()}
                             </p>
                           </div>
@@ -506,9 +504,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                           />
 
                           {/* 浏览量气泡 - 左上角 */}
-                          <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm">
+                          <div className="absolute top-[6px] left-[6px] flex items-center gap-[4px] px-[6px] py-[3px] rounded-full bg-black/40">
                             <Eye className="w-3 h-3 text-white" />
-                            <span className="text-[10px] text-white font-medium">{photo.view_count}</span>
+                            <span className="text-[10px] text-white font-bold">{photo.view_count}</span>
                           </div>
 
                         </div>
@@ -517,18 +515,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       {hasStory(photo) && (
                         <button
                           onClick={(e) => toggleStoryCard(photo.id, e)}
-                          className={`absolute top-2 right-2 w-8 h-8 rounded-full backdrop-blur-sm border text-white flex items-center justify-center transition-all ${
+                          className={`absolute top-[5px] right-[5px] w-[26px] h-[26px] rounded-full backdrop-blur-sm border flex items-center justify-center transition-all ${
                             isHighlighted(photo)
-                              ? 'bg-[#FFC857] border-[#5D4037]/45 text-[#5D4037] ring-2 ring-[#FFE3A0]/95 shadow-[0_10px_22px_rgba(255,183,3,0.62)] hover:scale-105 animate-pulse'
-                              : 'bg-black/35 border-white/35 hover:bg-black/50'
+                              ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border-[1.5px] border-[#5D4037]/45 text-[#5D4037] shadow-[0_0_0_1px_rgba(255,229,156,0.9),0_5px_12px_rgba(255,183,3,0.55)] animate-pulse'
+                              : 'bg-black/38 border border-white/45 text-white'
                           }`}
                           aria-label="查看关于此刻"
                           title="关于此刻"
                         >
                           <RotateCcw
-                            className={`w-4 h-4 transition-transform duration-300 ${
+                            className={`w-[14px] h-[14px] transition-transform duration-200 ${
                               storyOpenMap[photo.id] ? 'rotate-180' : ''
-                            } ${isHighlighted(photo) ? 'drop-shadow-[0_1px_0_rgba(255,255,255,0.45)]' : ''}`}
+                            } ${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
                           />
                         </button>
                       )}
@@ -579,10 +577,21 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex justify-center items-center gap-2 mt-6 mb-4"
+                className="flex justify-center items-center gap-3 mt-6 mb-4"
               >
-                <div className="w-6 h-6 border-3 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-sm text-[#5D4037]/60" style={{ fontFamily: "'ZQKNNY', cursive" }}>拾光中...</p>
+                <div className="relative w-10 h-10">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-0 rounded-full border-[2.5px] border-[#FFC857]/30 border-t-[#FFC857]"
+                  />
+                  <motion.div
+                    animate={{ rotate: -360 }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-[6px] rounded-full border-[2.5px] border-[#5D4037]/20 border-b-[#5D4037]"
+                  />
+                </div>
+                <p className="text-sm text-[#5D4037]/60 font-bold">拾光中...</p>
               </motion.div>
             )}
 
