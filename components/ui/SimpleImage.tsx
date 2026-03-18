@@ -20,6 +20,7 @@ interface SimpleImageProps {
   priority?: boolean;
   onClick?: () => void;
   onLoad?: () => void;
+  onLoadDimensions?: (dimensions: { width: number; height: number }) => void;
   aspectRatio?: number;
 }
 
@@ -30,6 +31,7 @@ export default function SimpleImage({
   priority = false,
   onClick,
   onLoad,
+  onLoadDimensions,
   aspectRatio,
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
@@ -98,6 +100,7 @@ export default function SimpleImage({
       clearLoadingAnimationDelayTimer();
       setIsLoading(false);
       setShowLoadingAnimation(false);
+      notifyDimensionsReady(img);
       onLoad?.();
     }
 
@@ -124,6 +127,19 @@ export default function SimpleImage({
     ? Number(aspectRatio)
     : 0;
   const hasFixedAspectRatio = normalizedAspectRatio > 0;
+
+  const notifyDimensionsReady = (imgElement?: HTMLImageElement | null) => {
+    const target = imgElement ?? imgRef.current;
+    if (!target) {
+      return;
+    }
+
+    const width = Number(target.naturalWidth || 0);
+    const height = Number(target.naturalHeight || 0);
+    if (width > 0 && height > 0) {
+      onLoadDimensions?.({ width, height });
+    }
+  };
 
   return (
     <div
@@ -280,14 +296,15 @@ export default function SimpleImage({
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
           style={{ objectFit: 'cover' }}
-          onLoad={() => {
+          onLoad={(event) => {
             const loadTime = performance.now() - loadStartTimeRef.current;
             if (loadTime > 3000) {
-              console.warn(`⚠️ 图片加载缓慢: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
+              console.warn(`?? ??????: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
             }
             clearLoadingAnimationDelayTimer();
             setIsLoading(false);
             setShowLoadingAnimation(false);
+            notifyDimensionsReady(event.currentTarget);
             onLoad?.();
           }}
           onError={() => {

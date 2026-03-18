@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, Eye, Camera, RotateCcw, Folder as FolderIcon } from 'lucide-react';
@@ -57,12 +57,15 @@ function clampPhotoAspectRatio(width: number, height: number, fallback = 1) {
   return Math.min(2.6, Math.max(0.72, ratio));
 }
 
-function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean) {
+function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean, aspectRatio?: number) {
   const hasStoryText = Boolean(String(photo.story_text || '').trim());
+  const resolvedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
+    ? Number(aspectRatio)
+    : clampPhotoAspectRatio(photo.width, photo.height, 1);
   const mediaHeight = isStoryOpen && hasStoryText
     ? 190
-    : clampPhotoAspectRatio(photo.width, photo.height, 1) * 180;
-  return mediaHeight + 48;
+    : resolvedAspectRatio * 180;
+  return mediaHeight + 56;
 }
 
 const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
@@ -111,6 +114,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [folders, setFolders] = useState<GalleryFolder[]>([]);
   const [rootFolderName, setRootFolderName] = useState<string>('照片集');
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
+  const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const [galleryCacheToken] = useState<string>(() => {
     const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
@@ -191,11 +197,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }, [data, page, pageSize]);
 
   useEffect(() => {
+    isLoadingMoreRef.current = false;
     setPage(1);
     setAllPhotos([]);
     setHasMore(true);
     setIsLoadingMore(false);
     setStoryOpenMap({});
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
   }, [selectedFolderId]);
 
   // 缓存首页照片墙数据，用于下次进入秒开
@@ -248,30 +256,67 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     isLoadingMoreRef.current = isLoadingMore;
   }, [isLoadingMore]);
 
-  // 无限滚动监听
+  const requestNextPage = useCallback(() => {
+    if (isLoadingMoreRef.current || !hasMore) {
+      return false;
+    }
+
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    setPage((prev) => prev + 1);
+    return true;
+  }, [hasMore]);
+
   useEffect(() => {
-    const scrollContainer = document.querySelector<HTMLElement>('.gallery-scroll-container');
+    const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       return;
     }
 
+    let ticking = false;
     const handleScroll = () => {
-      if (isLoadingMoreRef.current || !hasMore) return;
-
-      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-      const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
-
-      // 当滚动到底部 80% 时加载更多
-      if (scrollPercentage > 0.8) {
-        isLoadingMoreRef.current = true;
-        setIsLoadingMore(true);
-        setPage(prev => prev + 1);
+      if (ticking) {
+        return;
       }
+
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        ticking = false;
+        if (isLoadingMoreRef.current || !hasMore) {
+          return;
+        }
+
+        const remaining = scrollContainer.scrollHeight - (scrollContainer.scrollTop + scrollContainer.clientHeight);
+        if (remaining <= 420) {
+          requestNextPage();
+        }
+      });
     };
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [hasMore]);
+  }, [hasMore, requestNextPage, selectedFolderId]);
+
+  useEffect(() => {
+    if (isLoading || isLoadingMore || !hasMore || photos.length === 0) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) {
+        return;
+      }
+
+      if (scrollContainer.scrollHeight <= scrollContainer.clientHeight + 180) {
+        requestNextPage();
+      }
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [hasMore, isLoading, isLoadingMore, photos.length, requestNextPage, selectedFolderId]);
 
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
@@ -374,6 +419,52 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }));
   };
 
+  const selectedFolderName = useMemo(() => {
+    if (selectedFolderId === '__ROOT__') {
+      return rootFolderName;
+    }
+    return folders.find((folder) => String(folder.id) === selectedFolderId)?.name || rootFolderName;
+  }, [folders, rootFolderName, selectedFolderId]);
+
+  const setFolderButtonRef = useCallback(
+    (folderId: string) => (node: HTMLButtonElement | null) => {
+      folderButtonRefs.current[folderId] = node;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const targetButton = folderButtonRefs.current[selectedFolderId];
+    if (!targetButton) {
+      return;
+    }
+
+    targetButton.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    });
+  }, [selectedFolderId, folders.length, rootFolderName]);
+
+  const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
+    const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 1);
+    setPhotoAspectRatioMap((prev) => {
+      const currentRatio = prev[photoId];
+      if (typeof currentRatio === 'number' && Math.abs(currentRatio - nextRatio) < 0.01) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [photoId]: nextRatio,
+      };
+    });
+  }, []);
+
+  const resolvePhotoAspectRatio = useCallback(
+    (photo: Photo) => photoAspectRatioMap[photo.id] ?? clampPhotoAspectRatio(photo.width, photo.height, 1),
+    [photoAspectRatioMap]
+  );
+
   const showPageLoading = isLoading && allPhotos.length === 0;
 
   const galleryMasonryItems = useMemo(
@@ -384,7 +475,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const { columns: galleryColumns } = useStableMasonryColumns({
     items: galleryMasonryItems,
     getItemId: ({ photo }) => photo.id,
-    estimateItemHeight: ({ photo }) => estimateGalleryCardHeight(photo, Boolean(storyOpenMap[photo.id])),
+    estimateItemHeight: ({ photo }) => estimateGalleryCardHeight(
+      photo,
+      Boolean(storyOpenMap[photo.id]),
+      resolvePhotoAspectRatio(photo)
+    ),
     resetKey: selectedFolderId,
   });
 
@@ -440,51 +535,72 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
+    <div className="flex flex-col h-full w-full bg-[#FFFBF0]">
+      {/* 照片墙页头 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
+        className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>照片墙</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📸 贩卖人间路过的温柔 📸</p>
+        <div className="px-4 pt-3 pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>照片墙</h1>
+              <p className="mt-1 text-[11px] font-bold tracking-[0.08em] text-[#8D6E63]/70">拾光流转，记录此刻的不期而遇</p>
+            </div>
+            <div className="inline-flex max-w-[160px] flex-shrink-0 items-center justify-center rounded-full bg-[#FFC857]/28 px-3 py-1 text-[10px] font-bold text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.42)]">
+              ?? 贩卖人间路过的温柔 ??
+            </div>
           </div>
         </div>
       </motion.div>
 
-      <div className="flex-none px-2 py-2 border-b border-[#5D4037]/5 bg-[#FFFBF0]/95">
-        <div className="flex items-center gap-2.5 overflow-x-auto scrollbar-hidden">
-          <button
-            onClick={() => setSelectedFolderId('__ROOT__')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-              selectedFolderId === '__ROOT__'
-                ? 'bg-[#FFC857] text-[#5D4037] border-[1.5px] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
-                : 'bg-white/60 text-[#5D4037]/60 border-[1.5px] border-dashed border-[#5D4037]/15'
-            }`}
-          >
-            <span>{rootFolderName}</span>
-          </button>
-          {folders.map((folder) => (
-            <button
-              key={folder.id}
-              onClick={() => setSelectedFolderId(String(folder.id))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                selectedFolderId === String(folder.id)
-                  ? 'bg-[#FFC857] text-[#5D4037] border-[1.5px] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
-                  : 'bg-white/60 text-[#5D4037]/60 border-[1.5px] border-dashed border-[#5D4037]/15'
-              }`}
-            >
-              <span>{folder.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-20 gallery-scroll-container">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-20 gallery-scroll-container">
+        <div className="sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0]/96 backdrop-blur-md">
+          <div className="px-3 py-2">
+            <div className="relative overflow-hidden rounded-[22px] border border-[#5D4037]/6 bg-white/45 px-1 py-1.5 shadow-[0_6px_18px_rgba(93,64,55,0.06)]">
+              <div className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[#FFFBF0] via-[#FFFBF0]/90 to-transparent" />
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-[#FFFBF0] via-[#FFFBF0]/90 to-transparent" />
+              <div className="flex items-center gap-2 overflow-x-auto px-1 scrollbar-hidden snap-x snap-mandatory">
+                <button
+                  ref={setFolderButtonRef('__ROOT__')}
+                  onClick={() => setSelectedFolderId('__ROOT__')}
+                  className={`snap-start flex h-11 shrink-0 items-center justify-center rounded-full border px-5 text-[14px] font-bold whitespace-nowrap transition-all duration-200 ${
+                    selectedFolderId === '__ROOT__'
+                      ? 'bg-[#FFC857] text-[#5D4037] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
+                      : 'bg-white/75 text-[#8D6E63] border-dashed border-[#5D4037]/15'
+                  }`}
+                >
+                  <span>{rootFolderName}</span>
+                </button>
+                {folders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    ref={setFolderButtonRef(String(folder.id))}
+                    onClick={() => setSelectedFolderId(String(folder.id))}
+                    className={`snap-start flex h-11 shrink-0 items-center justify-center rounded-full border px-5 text-[14px] font-bold whitespace-nowrap transition-all duration-200 ${
+                      selectedFolderId === String(folder.id)
+                        ? 'bg-[#FFC857] text-[#5D4037] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
+                        : 'bg-white/75 text-[#8D6E63] border-dashed border-[#5D4037]/15'
+                    }`}
+                  >
+                    <span>{folder.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-[#8D6E63]/70">
+              <div className="flex min-w-0 items-center gap-1.5 font-semibold">
+                <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate">{selectedFolderName}</span>
+              </div>
+              <span className="whitespace-nowrap">{photos.length}/{Math.max(total, photos.length)} 张</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-3 pt-3">
         {photos.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-[#5D4037]/60">暂无照片</p>
@@ -492,23 +608,23 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         ) : (
           <>
             {/* 双列瀑布流布局 */}
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-3">
               {galleryColumns.map((column, columnIndex) => (
                 <div
                   key={`gallery-column-${columnIndex}`}
-                  className="flex min-w-0 flex-1 flex-col gap-2"
+                  className="flex min-w-0 flex-1 flex-col gap-3"
                 >
                   {column.map(({ photo, index }) => (
                 <motion.div
                   key={photo.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+                  transition={{ delay: Math.min(index, 10) * 0.04 }}
                   className="min-w-0"
                 >
                   {/* 小红书风格卡片 */}
                   <div
-                    className={`bg-white rounded-xl overflow-hidden transition-all duration-300 ${
+                    className={`bg-white rounded-[26px] overflow-hidden transition-all duration-300 ${
                       isHighlighted(photo)
                         ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_16px_rgba(255,183,3,0.48),0_4px_10px_rgba(93,64,55,0.20)] translate-y-[-1px]'
                         : 'border border-transparent shadow-[0_5px_15px_rgba(93,64,55,0.10)]'
@@ -535,8 +651,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                           <SimpleImage
                             src={photo.thumbnail_url}
                             alt="照片"
-                            aspectRatio={clampPhotoAspectRatio(photo.width, photo.height, 1)}
-                            className="w-full rounded-t-xl"
+                            aspectRatio={resolvePhotoAspectRatio(photo)}
+                            onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
+                            className="w-full rounded-t-[26px]"
                           />
 
                           {/* 浏览量气泡 - 左上角 */}
@@ -569,7 +686,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     </div>
 
                     {/* 信息区域 */}
-                    <div className="p-1.5 md:p-2">
+                    <div className="px-2.5 pb-3 pt-2">
                       {/* 互动数据 */}
                       <div className="flex items-center justify-start">
                         {/* 左侧：拍摄日期 */}
@@ -646,8 +763,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
           </>
         )}
       </div>
+    </div>
 
-      {/* 便利贴风格预览弹窗 */}
       <AnimatePresence>
         {previewPhoto && (
           <>
