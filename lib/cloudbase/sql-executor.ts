@@ -9,6 +9,9 @@ export interface SqlExecuteResult {
   raw: any;
 }
 
+export const TRANSIENT_BACKEND_ERROR_CODE = 'TRANSIENT_BACKEND';
+export const TRANSIENT_BACKEND_ERROR_MESSAGE = '服务暂时不可用，请稍后重试';
+
 function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
@@ -49,7 +52,7 @@ function toNumber(value: any, defaultValue: number = 0): number {
   return Number.isFinite(numeric) ? numeric : defaultValue;
 }
 
-function extractErrorMessage(error: unknown): string {
+export function extractErrorMessage(error: unknown): string {
   if (!error) {
     return '';
   }
@@ -74,7 +77,7 @@ function extractErrorMessage(error: unknown): string {
   return '';
 }
 
-function isRetryableSqlError(error: unknown): boolean {
+export function isRetryableSqlError(error: unknown): boolean {
   const message = extractErrorMessage(error).toLowerCase();
   return (
     message.includes('connect timeout') ||
@@ -85,7 +88,9 @@ function isRetryableSqlError(error: unknown): boolean {
     message.includes('econnreset') ||
     message.includes('network') ||
     message.includes('database connection failed') ||
-    message.includes('invalidparameter')
+    message.includes('invalidparameter') ||
+    message.includes('parameter error') && message.includes('run query failed') ||
+    message.includes('run query failed, database')
   );
 }
 

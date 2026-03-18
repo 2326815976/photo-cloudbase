@@ -5,7 +5,13 @@ import { AuthContext } from '@/lib/auth/types';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { formatDateTimeUTC8, getDateAfterDaysUTC8 } from '@/lib/utils/date-helpers';
 import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
-import { executeSQL, escapeIdentifier } from './sql-executor';
+import {
+  executeSQL,
+  escapeIdentifier,
+  isRetryableSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from './sql-executor';
 import { enforceQueryPermissions } from './permissions';
 import { DbQueryPayload, QueryFilter } from './query-types';
 import { assertColumnAllowed, getTableMetadata } from './table-metadata';
@@ -17,6 +23,13 @@ export interface DbExecuteResult {
 }
 
 function normalizeDbError(error: unknown, fallback: string): { message: string; code?: string } {
+  if (isRetryableSqlError(error)) {
+    return {
+      message: TRANSIENT_BACKEND_ERROR_MESSAGE,
+      code: TRANSIENT_BACKEND_ERROR_CODE,
+    };
+  }
+
   if (error instanceof Error) {
     const maybeCode = (error as Error & { code?: unknown; errno?: unknown }).code;
     const maybeErrno = (error as Error & { code?: unknown; errno?: unknown }).errno;

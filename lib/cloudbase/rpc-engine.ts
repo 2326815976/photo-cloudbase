@@ -6,7 +6,12 @@ import { AuthContext } from '@/lib/auth/types';
 import { deleteCloudBaseObjects, uploadFileToCloudBase } from '@/lib/cloudbase/storage';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
-import { executeSQL } from './sql-executor';
+import {
+  executeSQL,
+  isRetryableSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from './sql-executor';
 
 interface RpcExecuteResult {
   data: any;
@@ -16,6 +21,13 @@ interface RpcExecuteResult {
 const BETA_FEATURE_CODE_LENGTH = 8;
 
 function normalizeRpcError(error: unknown, fallback: string): { message: string; code?: string } {
+  if (isRetryableSqlError(error)) {
+    return {
+      message: TRANSIENT_BACKEND_ERROR_MESSAGE,
+      code: TRANSIENT_BACKEND_ERROR_CODE,
+    };
+  }
+
   if (error instanceof Error) {
     const maybeCode = (error as Error & { code?: unknown; errno?: unknown }).code;
     const maybeErrno = (error as Error & { code?: unknown; errno?: unknown }).errno;
