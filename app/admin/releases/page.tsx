@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/cloudbase/client';
 import { Package, Plus, Trash2, Download, Smartphone, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,6 +20,7 @@ interface Release {
 }
 
 export default function ReleasesPage() {
+  const router = useRouter();
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingRelease, setDeletingRelease] = useState<Release | null>(null);
@@ -122,7 +124,7 @@ export default function ReleasesPage() {
           <p className="text-sm text-[#5D4037]/60">管理应用安装包发布</p>
         </div>
         <button
-          onClick={() => window.location.href = '/admin/releases/new'}
+          onClick={() => router.push('/admin/releases/new')}
           className="flex items-center justify-center gap-2 px-6 py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow whitespace-nowrap"
         >
           <Plus className="w-5 h-5" />

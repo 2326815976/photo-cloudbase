@@ -7,6 +7,7 @@ import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Ca
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDateDisplayUTC8, formatDateUTC8, getDateAfterDaysUTC8, getDateTimeAfterDaysUTC8, getDaysDifference, getTodayUTC8, parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
+import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 
 interface Album {
   id: string;
@@ -44,6 +45,7 @@ export default function AlbumsPage() {
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [editingCover, setEditingCover] = useState<Album | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
+  useBeforeUnloadGuard(uploadingQrCode || uploadingCover);
   const [editingTitle, setEditingTitle] = useState<Album | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const todayDate = getTodayUTC8();

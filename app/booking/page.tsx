@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
@@ -116,6 +117,7 @@ function inferNearestAllowedCityByCoordinates(
 }
 
 export default function BookingPage() {
+  const router = useRouter();
   const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
   const [allowedCities, setAllowedCities] = useState<AllowedCity[]>([]);
   const [formData, setFormData] = useState({
@@ -870,7 +872,7 @@ export default function BookingPage() {
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={() => {
-                    window.location.href = '/login';
+                    router.push('/login');
                   }}
                   className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
                 >

@@ -10,6 +10,7 @@ import { generateBlurHash } from '@/lib/utils/blurhash';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
+import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 
 interface Album {
   id: string;
@@ -126,6 +127,7 @@ export default function AlbumDetailPage() {
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [uploading, setUploading] = useState(false);
+  useBeforeUnloadGuard(uploading);
   const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('batch');
   const [singleImage, setSingleImage] = useState<File | null>(null);
   const [singleStoryText, setSingleStoryText] = useState('');

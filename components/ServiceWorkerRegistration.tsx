@@ -21,9 +21,6 @@ export function ServiceWorkerRegistration() {
                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                   // 新版本可用，显示Toast并3秒后自动刷新
                   setShowUpdateToast(true);
-                  setTimeout(() => {
-                    window.location.reload();
-                  }, 3000);
                 }
               });
             }
@@ -37,7 +34,7 @@ export function ServiceWorkerRegistration() {
 
   return showUpdateToast ? (
     <Toast
-      message="发现新版本，即将自动刷新..."
+      message="New version ready. It will apply next time you reopen."
       type="success"
       onClose={() => setShowUpdateToast(false)}
       duration={3000}

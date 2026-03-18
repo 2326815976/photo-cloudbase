@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CheckCircle, Mail, MessageSquare, Phone, QrCode, Save, User } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
+import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 
 interface AboutFormData {
   author_name: string;
@@ -32,6 +33,7 @@ export default function AdminAboutPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingQr, setUploadingQr] = useState(false);
+  useBeforeUnloadGuard(uploadingQr);
   const [rowId, setRowId] = useState<number | null>(null);
   const [form, setForm] = useState<AboutFormData>(DEFAULT_FORM);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);

@@ -44,8 +44,18 @@ export default function RegisterServiceWorker() {
             // 忽略更新检查失败
           });
 
+          const markUpdateReady = () => {
+            if (!navigator.serviceWorker.controller) return;
+            try {
+              sessionStorage.setItem('sw-update-ready', '1');
+            } catch {
+              // ignore storage write errors
+            }
+            console.info('[SW] Update ready and will be applied on next reopen.');
+          };
+
           if (registration.waiting) {
-            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+            markUpdateReady();
           }
 
           registration.addEventListener('updatefound', () => {
@@ -53,8 +63,8 @@ export default function RegisterServiceWorker() {
             if (!installingWorker) return;
 
             installingWorker.addEventListener('statechange', () => {
-              if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                installingWorker.postMessage({ type: 'SKIP_WAITING' });
+              if (installingWorker.state === 'installed') {
+                markUpdateReady();
               }
             });
           });
@@ -63,15 +73,6 @@ export default function RegisterServiceWorker() {
           console.error('[SW] 注册失败:', error);
         });
 
-      const onControllerChange = () => {
-        window.location.reload();
-      };
-
-      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
-
-      return () => {
-        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
-      };
     }
   }, []);
 

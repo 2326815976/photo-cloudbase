@@ -6,6 +6,7 @@ import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCirc
 import { motion, AnimatePresence } from 'framer-motion';
 import { generatePoseImage } from '@/lib/utils/image-versions';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
+import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 
 interface Pose {
   id: number;
@@ -184,6 +185,7 @@ export default function PosesPage() {
   const [editingPose, setEditingPose] = useState<Pose | null>(null);
   const [poseFormData, setPoseFormData] = useState({ image: null as File | null, tags: [] as string[] });
   const [uploading, setUploading] = useState(false);
+  useBeforeUnloadGuard(uploading);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [batchImages, setBatchImages] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });

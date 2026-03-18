@@ -21,8 +21,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     if (process.env.NODE_ENV === 'production') {
       const noop = () => {};
       console.log = noop;
-      console.warn = noop;
-      console.error = noop;
       console.info = noop;
       console.debug = noop;
     }
@@ -40,10 +38,14 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         const dbClient = createClient();
         if (!dbClient) return;
 
-        const { data: { user } } = await dbClient.auth.getUser();
+        try {
+          const { data: { user } } = await dbClient.auth.getUser();
 
-        if (user) {
-          await dbClient.rpc('log_user_activity');
+          if (user) {
+            await dbClient.rpc('log_user_activity');
+          }
+        } catch (error) {
+          console.warn('log_user_activity failed:', error);
         }
       };
 

@@ -35,7 +35,6 @@ self.addEventListener('install', (event) => {
       caches.open(PAGE_CACHE).then((cache) => cache.add('/')),
     ]).then(() => {
       console.log('[SW] 字体和静态资源预缓存完成');
-      return self.skipWaiting();
     })
   );
 });

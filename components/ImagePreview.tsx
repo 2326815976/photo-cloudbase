@@ -37,6 +37,13 @@ export default function ImagePreview({
   enableLongPressDownload = true
 }: ImagePreviewProps) {
   const [index, setIndex] = useState(currentIndex);
+  const clampIndex = useCallback((targetIndex: number) => {
+    if (images.length <= 0) return 0;
+    const normalizedIndex = Number.isFinite(Number(targetIndex))
+      ? Math.round(Number(targetIndex))
+      : 0;
+    return Math.max(0, Math.min(images.length - 1, normalizedIndex));
+  }, [images.length]);
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
   const [baseSize, setBaseSize] = useState({ width: 0, height: 0 });
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -180,11 +187,27 @@ export default function ImagePreview({
 
   // 同步外部索引
   useEffect(() => {
-    if (currentIndex !== index) {
-      setIndex(currentIndex);
+    const nextIndex = clampIndex(currentIndex);
+    if (nextIndex !== index) {
+      setIndex(nextIndex);
       resetImageState();
     }
-  }, [currentIndex]);
+  }, [clampIndex, currentIndex, index]);
+
+  useEffect(() => {
+    if (images.length === 0) {
+      if (index !== 0) {
+        setIndex(0);
+      }
+      return;
+    }
+
+    const nextIndex = clampIndex(index);
+    if (nextIndex !== index) {
+      setIndex(nextIndex);
+      resetImageState();
+    }
+  }, [clampIndex, images.length, index]);
 
   // 重置图片状态
   const resetImageState = useCallback(() => {
@@ -304,8 +327,8 @@ export default function ImagePreview({
       clearInterval(progressInterval);
       setLongPressProgress(0);
       try {
-        await downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
-        await notifyDownload(index);
+        await downloadPhoto(resolveDownloadUrl(activeIndex), `photo_${activeIndex + 1}.jpg`);
+        await notifyDownload(activeIndex);
       } catch {
         // ignore download errors
       }
@@ -473,7 +496,10 @@ export default function ImagePreview({
     }
   );
 
-  if (!isOpen) return null;
+  const activeIndex = clampIndex(index);
+  const activeImage = images[activeIndex] ?? '';
+
+  if (!isOpen || images.length === 0) return null;
 
   return (
     <AnimatePresence>
@@ -519,7 +545,7 @@ export default function ImagePreview({
         {showCounter && images.length > 1 && (
           <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-3 py-1 z-10">
             <p className="text-white text-xs font-medium">
-              {index + 1} / {images.length}
+              {activeIndex + 1} / {images.length}
             </p>
           </div>
         )}
@@ -535,8 +561,8 @@ export default function ImagePreview({
         <AnimatePresence mode="wait">
           <motion.img
             ref={imageRef}
-            key={images[index]}
-            src={images[index]}
+            key={activeImage}
+            src={activeImage}
             alt={`图片 ${index + 1}`}
             className="max-w-full max-h-full object-contain select-none touch-none"
             initial={{ opacity: 0 }}
@@ -596,8 +622,8 @@ export default function ImagePreview({
             onClick={async (e) => {
               e.stopPropagation();
               try {
-                await downloadPhoto(resolveDownloadUrl(index), `photo_${index + 1}.jpg`);
-                await notifyDownload(index);
+                await downloadPhoto(resolveDownloadUrl(activeIndex), `photo_${activeIndex + 1}.jpg`);
+                await notifyDownload(activeIndex);
               } catch {
                 // ignore download errors
               }

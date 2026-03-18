@@ -9,10 +9,11 @@
 
 import { motion } from 'framer-motion';
 import { Heart, Eye } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import CuteImage from '@/components/ui/CuteImage';
 import { isAndroidApp } from '@/lib/platform';
 import { vibrate } from '@/lib/android';
+import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 
 interface Photo {
   id: string;
@@ -30,6 +31,13 @@ interface VirtualGalleryProps {
   onLike: (photoId: string, e: React.MouseEvent) => void;
 }
 
+function estimateVirtualGalleryCardHeight(photo: Photo) {
+  const safeWidth = Number(photo.width || 0);
+  const safeHeight = Number(photo.height || 0);
+  const ratio = safeWidth > 0 && safeHeight > 0 ? safeHeight / safeWidth : 1;
+  return Math.min(2.8, Math.max(0.72, ratio)) * 180 + 40;
+}
+
 export default function VirtualGallery({
   photos,
   onPhotoClick,
@@ -41,14 +49,30 @@ export default function VirtualGallery({
     setIsAndroid(isAndroidApp());
   }, []);
 
+  const masonryItems = useMemo(
+    () => photos.map((photo, index) => ({ photo, index })),
+    [photos]
+  );
+
+  const { columns } = useStableMasonryColumns({
+    items: masonryItems,
+    getItemId: ({ photo }) => photo.id,
+    estimateItemHeight: ({ photo }) => estimateVirtualGalleryCardHeight(photo),
+  });
+
   // Android: 使用纯 CSS 动画
   if (isAndroid) {
     return (
-      <div className="columns-2 gap-2">
-        {photos.map((photo, index) => (
+      <div className="flex items-start gap-2">
+        {columns.map((column, columnIndex) => (
+          <div
+            key={`virtual-gallery-android-column-${columnIndex}`}
+            className="flex min-w-0 flex-1 flex-col gap-2"
+          >
+            {column.map(({ photo, index }) => (
           <div
             key={photo.id}
-            className="break-inside-avoid mb-2 animate-in fade-in slide-in-from-bottom-4 duration-300"
+            className="min-w-0 animate-in fade-in slide-in-from-bottom-4 duration-300"
             style={{ animationDelay: `${index * 50}ms` }}
           >
             <div className="bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-shadow duration-300">
@@ -94,6 +118,8 @@ export default function VirtualGallery({
               </div>
             </div>
           </div>
+            ))}
+          </div>
         ))}
       </div>
     );
@@ -101,14 +127,19 @@ export default function VirtualGallery({
 
   // Web/iOS: 使用 Framer Motion
   return (
-    <div className="columns-2 gap-2">
-      {photos.map((photo, index) => (
+    <div className="flex items-start gap-2">
+      {columns.map((column, columnIndex) => (
+        <div
+          key={`virtual-gallery-column-${columnIndex}`}
+          className="flex min-w-0 flex-1 flex-col gap-2"
+        >
+          {column.map(({ photo, index }) => (
         <motion.div
           key={photo.id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.05 }}
-          className="break-inside-avoid mb-2"
+          className="min-w-0"
         >
           <div className="bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-shadow duration-300">
             {/* 图片区域 */}
@@ -154,6 +185,8 @@ export default function VirtualGallery({
             </div>
           </div>
         </motion.div>
+          ))}
+        </div>
       ))}
     </div>
   );

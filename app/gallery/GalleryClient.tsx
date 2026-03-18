@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, Eye, Camera, RotateCcw, Folder as FolderIcon } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
@@ -16,6 +17,7 @@ import {
 
 import SimpleImage from '@/components/ui/SimpleImage';
 import ImagePreview from '@/components/ImagePreview';
+import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 
 interface Photo {
   id: string;
@@ -46,6 +48,21 @@ interface GalleryClientProps {
 interface GalleryFolder {
   id: string;
   name: string;
+}
+
+function clampPhotoAspectRatio(width: number, height: number, fallback = 1) {
+  const safeWidth = Number(width || 0);
+  const safeHeight = Number(height || 0);
+  const ratio = safeWidth > 0 && safeHeight > 0 ? safeHeight / safeWidth : fallback;
+  return Math.min(2.6, Math.max(0.72, ratio));
+}
+
+function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean) {
+  const hasStoryText = Boolean(String(photo.story_text || '').trim());
+  const mediaHeight = isStoryOpen && hasStoryText
+    ? 190
+    : clampPhotoAspectRatio(photo.width, photo.height, 1) * 180;
+  return mediaHeight + 48;
 }
 
 const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
@@ -89,6 +106,7 @@ const clearGalleryMemoryCache = () => {
 };
 
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
+  const router = useRouter();
   const [selectedFolderId, setSelectedFolderId] = useState<string>('__ROOT__');
   const [folders, setFolders] = useState<GalleryFolder[]>([]);
   const [rootFolderName, setRootFolderName] = useState<string>('照片集');
@@ -358,6 +376,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const showPageLoading = isLoading && allPhotos.length === 0;
 
+  const galleryMasonryItems = useMemo(
+    () => photos.map((photo, index) => ({ photo, index })),
+    [photos]
+  );
+
+  const { columns: galleryColumns } = useStableMasonryColumns({
+    items: galleryMasonryItems,
+    getItemId: ({ photo }) => photo.id,
+    estimateItemHeight: ({ photo }) => estimateGalleryCardHeight(photo, Boolean(storyOpenMap[photo.id])),
+    resetKey: selectedFolderId,
+  });
+
   // Android WebView 常见：服务端未预取时，主动触发首屏拉取，避免停留在loading
   useEffect(() => {
     if (hasClientInitialFetchStartedRef.current) return;
@@ -462,14 +492,19 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         ) : (
           <>
             {/* 双列瀑布流布局 */}
-            <div className="columns-2 gap-2">
-              {photos.map((photo: Photo, index: number) => (
+            <div className="flex items-start gap-2">
+              {galleryColumns.map((column, columnIndex) => (
+                <div
+                  key={`gallery-column-${columnIndex}`}
+                  className="flex min-w-0 flex-1 flex-col gap-2"
+                >
+                  {column.map(({ photo, index }) => (
                 <motion.div
                   key={photo.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className="break-inside-avoid mb-2"
+                  className="min-w-0"
                 >
                   {/* 小红书风格卡片 */}
                   <div
@@ -500,7 +535,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                           <SimpleImage
                             src={photo.thumbnail_url}
                             alt="照片"
-                            className="w-full h-auto rounded-t-xl"
+                            aspectRatio={clampPhotoAspectRatio(photo.width, photo.height, 1)}
+                            className="w-full rounded-t-xl"
                           />
 
                           {/* 浏览量气泡 - 左上角 */}
@@ -569,6 +605,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     </div>
                   </div>
                 </motion.div>
+                  ))}
+                </div>
               ))}
             </div>
 
@@ -735,7 +773,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                   whileTap={{ scale: 0.95 }}
                   onClick={() => {
                     setShowLoginPrompt(false);
-                    window.location.href = '/login';
+                    router.push('/login');
                   }}
                   className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
                 >

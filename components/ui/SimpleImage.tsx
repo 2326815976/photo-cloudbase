@@ -20,6 +20,7 @@ interface SimpleImageProps {
   priority?: boolean;
   onClick?: () => void;
   onLoad?: () => void;
+  aspectRatio?: number;
 }
 
 export default function SimpleImage({
@@ -28,7 +29,8 @@ export default function SimpleImage({
   className = '',
   priority = false,
   onClick,
-  onLoad
+  onLoad,
+  aspectRatio,
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
@@ -118,8 +120,17 @@ export default function SimpleImage({
     return () => clearInterval(timer);
   }, [isLoading]);
 
+  const normalizedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
+    ? Number(aspectRatio)
+    : 0;
+  const hasFixedAspectRatio = normalizedAspectRatio > 0;
+
   return (
-    <div className={`relative overflow-hidden ${className}`} onClick={onClick}>
+    <div
+      className={`relative overflow-hidden ${className}`}
+      onClick={onClick}
+      style={hasFixedAspectRatio ? { paddingTop: `${normalizedAspectRatio * 100}%` } : undefined}
+    >
       {/* 加载占位符 - 优化版 */}
       <AnimatePresence>
         {showLoadingAnimation && isLoading && !hasError && (
@@ -265,7 +276,7 @@ export default function SimpleImage({
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
           fetchPriority={priority ? 'high' : 'low'}
-          className={`w-full h-auto transition-opacity duration-300 ${
+          className={`${hasFixedAspectRatio ? 'absolute inset-0 w-full h-full' : 'w-full h-auto'} transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
           style={{ objectFit: 'cover' }}

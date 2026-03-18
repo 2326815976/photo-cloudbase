@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart, RotateCcw } from 'lucide-react';
@@ -15,6 +15,7 @@ import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { getSessionId } from '@/lib/utils/session';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
+import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 import { mutate } from 'swr';
 
 interface Folder {
@@ -65,6 +66,21 @@ interface AlbumData {
 
 const ALBUM_PAGE_SIZE = 20;
 
+function clampPhotoAspectRatio(width: number, height: number, fallback = 4 / 3) {
+  const safeWidth = Number(width || 0);
+  const safeHeight = Number(height || 0);
+  const ratio = safeWidth > 0 && safeHeight > 0 ? safeHeight / safeWidth : fallback;
+  return Math.min(2.8, Math.max(0.72, ratio));
+}
+
+function estimateAlbumCardHeight(photo: Photo, isStoryOpen: boolean) {
+  const hasStoryText = Boolean(String(photo.story_text || '').trim());
+  const mediaHeight = isStoryOpen && hasStoryText
+    ? 220
+    : clampPhotoAspectRatio(photo.width, photo.height, 4 / 3) * 180;
+  return mediaHeight + 64;
+}
+
 export default function AlbumDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -95,10 +111,12 @@ export default function AlbumDetailPage() {
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
+  const [previewPhotoPool, setPreviewPhotoPool] = useState<Photo[] | null>(null);
   const photosRef = useRef<Photo[]>([]);
   const photoScrollRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
   const photoLoadTokenRef = useRef(0);
+  const previewPhotoLoadTokenRef = useRef(0);
   const selectedFolderRef = useRef(selectedFolder);
 
   const markGalleryDirty = () => {
@@ -149,6 +167,35 @@ export default function AlbumDetailPage() {
   };
 
   // 检测微信浏览器环境
+  const preloadAlbumPreviewPhotos = useCallback(async () => {
+    if (!normalizedAccessKey) return;
+    if (previewPhotoPool && previewPhotoPool.length > 0) return;
+
+    const dbClient = createClient();
+    if (!dbClient) return;
+
+    const loadToken = previewPhotoLoadTokenRef.current + 1;
+    previewPhotoLoadTokenRef.current = loadToken;
+
+    try {
+      const { data, error } = await dbClient.rpc('get_album_content', {
+        input_key: normalizedAccessKey,
+        include_photos: true,
+      });
+
+      if (error) return;
+      if (loadToken !== previewPhotoLoadTokenRef.current) return;
+
+      const payload = (data && typeof data === 'object') ? (data as Partial<AlbumData>) : null;
+      const nextPhotos = Array.isArray(payload?.photos) ? (payload.photos as Photo[]) : [];
+      if (nextPhotos.length > 0) {
+        setPreviewPhotoPool(nextPhotos);
+      }
+    } catch {
+      // ignore preview prefetch errors
+    }
+  }, [normalizedAccessKey, previewPhotoPool]);
+
   useEffect(() => {
     setIsWechat(isWechatBrowser());
   }, []);
@@ -167,6 +214,23 @@ export default function AlbumDetailPage() {
       return () => clearTimeout(timer);
     }
   }, [loading, albumData]);
+
+  useEffect(() => {
+    if (!albumData) return;
+    if (previewPhotoPool && previewPhotoPool.length > 0) return;
+    if (photos.length === 0) return;
+
+    if (totalPhotos <= photos.length) {
+      setPreviewPhotoPool(photos);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void preloadAlbumPreviewPhotos();
+    }, 160);
+
+    return () => window.clearTimeout(timer);
+  }, [albumData, photos, preloadAlbumPreviewPhotos, previewPhotoPool, totalPhotos]);
 
   useEffect(() => {
     if (loading || !normalizedAccessKey || typeof window === 'undefined') {
@@ -293,10 +357,19 @@ export default function AlbumDetailPage() {
     setPageNo(0);
     setTotalPhotos(0);
     setPhotos([]);
+    setPreviewPhotoPool(null);
+    setSelectedPhotos(new Set());
+    setLoadedImages(new Set());
+    setFailedImages(new Set());
+    setStoryOpenMap({});
+    setFullscreenPhoto(null);
+    setConfirmPhotoId(null);
+    setShowDeleteConfirm(false);
     photosRef.current = [];
     setSelectedFolder('all');
     selectedFolderRef.current = 'all';
     photoLoadTokenRef.current += 1;
+    previewPhotoLoadTokenRef.current += 1;
 
     if (!normalizedAccessKey) {
       setLoading(false);
@@ -334,7 +407,6 @@ export default function AlbumDetailPage() {
 
     const payload = data as AlbumData;
     setAlbumData(payload);
-    setLoading(false);
 
     // 根据管理员设置决定是否显示欢迎信（仅首次打开显示）
     const hasSeenWelcome = typeof window !== 'undefined' && localStorage.getItem(welcomeStorageKey);
@@ -361,6 +433,7 @@ export default function AlbumDetailPage() {
 
     setSelectedFolder(normalized);
     selectedFolderRef.current = normalized;
+    setFullscreenPhoto(null);
     setStoryOpenMap({});
     setSelectedPhotos(new Set());
     setLoadedImages(new Set());
@@ -379,6 +452,26 @@ export default function AlbumDetailPage() {
     if (selectedFolder === 'all') return photos;
     return photos.filter(photo => String(photo.folder_id || '') === selectedFolder);
   }, [photos, selectedFolder]);
+
+  const previewPhotos = useMemo(() => {
+    const sourcePhotos = previewPhotoPool && previewPhotoPool.length > 0
+      ? previewPhotoPool
+      : photos;
+    const currentPhotoMap = new Map(photos.map((photo) => [String(photo.id), photo]));
+    const mergedPhotos = sourcePhotos.map((photo) => {
+      const currentPhoto = currentPhotoMap.get(String(photo.id));
+      return currentPhoto ? { ...photo, ...currentPhoto } : photo;
+    });
+
+    if (selectedFolder === 'all') return mergedPhotos;
+    return mergedPhotos.filter(photo => String(photo.folder_id || '') === selectedFolder);
+  }, [photos, previewPhotoPool, selectedFolder]);
+
+  const previewCurrentIndex = useMemo(() => {
+    if (!fullscreenPhoto) return 0;
+    const targetIndex = previewPhotos.findIndex((photo) => photo.id === fullscreenPhoto);
+    return targetIndex >= 0 ? targetIndex : 0;
+  }, [fullscreenPhoto, previewPhotos]);
 
   const loadNextPhotoPage = async () => {
     if (loading || loadingMore || !hasMore) return;
@@ -409,6 +502,18 @@ export default function AlbumDetailPage() {
       [photoId]: !prev[photoId],
     }));
   };
+
+  const albumMasonryItems = useMemo(
+    () => filteredPhotos.map((photo, index) => ({ photo, index })),
+    [filteredPhotos]
+  );
+
+  const { columns: albumColumns } = useStableMasonryColumns({
+    items: albumMasonryItems,
+    getItemId: ({ photo }) => photo.id,
+    estimateItemHeight: ({ photo }) => estimateAlbumCardHeight(photo, Boolean(storyOpenMap[photo.id])),
+    resetKey: `${normalizedAccessKey}_${selectedFolder}`,
+  });
 
   useEffect(() => {
     loadingMoreRef.current = loadingMore;
@@ -462,6 +567,10 @@ export default function AlbumDetailPage() {
         photosRef.current = next;
         return next;
       });
+      setPreviewPhotoPool(prev => prev
+        ? prev.map(p => (p.id === photoId ? { ...p, is_public: newIsPublic } : p))
+        : prev
+      );
       markGalleryDirty();
 
       // 显示提示信息
@@ -588,6 +697,16 @@ export default function AlbumDetailPage() {
         photosRef.current = next;
         return next;
       });
+      setPreviewPhotoPool(prev => prev
+        ? prev.filter(photo => !deletedPhotoIds.has(photo.id))
+        : prev
+      );
+      if (confirmPhotoId && deletedPhotoIds.has(confirmPhotoId)) {
+        setConfirmPhotoId(null);
+      }
+      if (fullscreenPhoto && deletedPhotoIds.has(fullscreenPhoto)) {
+        setFullscreenPhoto(null);
+      }
       setSelectedPhotos(prev => new Set(Array.from(prev).filter(id => !deletedPhotoIds.has(id))));
       if (hasDeletedPublicPhoto) {
         markGalleryDirty();
@@ -852,14 +971,19 @@ export default function AlbumDetailPage() {
         onScroll={handlePhotoScroll}
         className="flex-1 overflow-y-auto px-2 pt-3 pb-32"
       >
-        <div className="columns-2 gap-2">
-          {filteredPhotos.map((photo, index) => (
+        <div className="flex items-start gap-2">
+          {albumColumns.map((column, columnIndex) => (
+            <div
+              key={`album-column-${columnIndex}`}
+              className="flex min-w-0 flex-1 flex-col gap-2"
+            >
+              {column.map(({ photo, index }) => (
             <motion.div
               key={photo.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="break-inside-avoid mb-2"
+              className="min-w-0"
             >
               {/* 瀑布流卡片 */}
               <div
@@ -893,15 +1017,20 @@ export default function AlbumDetailPage() {
                     </div>
                   ) : (
                     <>
-                      <img
-                        src={photo.thumbnail_url}
-                        alt={`照片 ${photo.id}`}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-auto object-cover"
-                        onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
-                        onError={() => setFailedImages(prev => new Set([...prev, photo.id]))}
-                      />
+                      <div
+                        className="relative w-full overflow-hidden"
+                        style={{ paddingTop: `${clampPhotoAspectRatio(photo.width, photo.height, 4 / 3) * 100}%` }}
+                      >
+                        <img
+                          src={photo.thumbnail_url}
+                          alt={`照片 ${photo.id}`}
+                          loading="lazy"
+                          decoding="async"
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
+                          onError={() => setFailedImages(prev => new Set([...prev, photo.id]))}
+                        />
+                      </div>
 
                       {/* 拾光中加载动画 */}
                       {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
@@ -1088,6 +1217,8 @@ export default function AlbumDetailPage() {
                 </div>
               </div>
             </motion.div>
+              ))}
+            </div>
           ))}
         </div>
 
@@ -1234,20 +1365,20 @@ export default function AlbumDetailPage() {
 
       {/* ImagePreview 组件 */}
       <ImagePreview
-        images={filteredPhotos.map(p => p.original_url)}
-        downloadUrls={filteredPhotos.map(p => p.original_url)}
-        currentIndex={filteredPhotos.findIndex(p => p.id === fullscreenPhoto)}
+        images={previewPhotos.map(p => p.original_url)}
+        downloadUrls={previewPhotos.map(p => p.original_url)}
+        currentIndex={previewCurrentIndex}
         isOpen={!!fullscreenPhoto}
         onClose={() => setFullscreenPhoto(null)}
         onIndexChange={(index) => {
-          const target = filteredPhotos[index];
+          const target = previewPhotos[index];
           setFullscreenPhoto(target?.id || null);
           if (target?.id) {
             void incrementPhotoViewCount(target.id);
           }
         }}
         onDownload={(index) => {
-          const target = filteredPhotos[index];
+          const target = previewPhotos[index];
           if (!target?.id) return;
           void incrementPhotoDownloadCount(target.id);
         }}
@@ -1296,7 +1427,5 @@ export default function AlbumDetailPage() {
     </div>
   );
 }
-
-
 
 

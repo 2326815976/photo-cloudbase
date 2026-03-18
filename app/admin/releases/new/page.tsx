@@ -1,17 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/cloudbase/client';
 import { ArrowLeft, Upload, CheckCircle, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 
 export default function NewReleasePage() {
+  const router = useRouter();
   const [version, setVersion] = useState('');
   const [platform, setPlatform] = useState('Android');
   const [updateLog, setUpdateLog] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [forceUpdate, setForceUpdate] = useState(false);
   const [uploading, setUploading] = useState(false);
+  useBeforeUnloadGuard(uploading);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -102,7 +106,7 @@ export default function NewReleasePage() {
 
       setShowToast({ message: '版本发布成功', type: 'success' });
       setTimeout(() => {
-        window.location.href = '/admin/releases';
+        router.push('/admin/releases');
       }, 1500);
     } catch (error) {
       console.error('发布失败:', error);
@@ -121,7 +125,7 @@ export default function NewReleasePage() {
       {/* 页面标题 */}
       <div className="flex items-center gap-4">
         <button
-          onClick={() => window.location.href = '/admin/releases'}
+          onClick={() => router.push('/admin/releases')}
           className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
         >
           <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
