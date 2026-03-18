@@ -369,6 +369,45 @@ let albumPhotoDownloadCountColumnCache: {
   expiresAt: number;
 } | null = null;
 
+const tableExistenceCache = new Map<string, {
+  value: boolean;
+  expiresAt: number;
+}>();
+
+async function hasTable(tableName: string): Promise<boolean> {
+  const now = Date.now();
+  const cacheKey = `table:${tableName}`;
+  const cached = tableExistenceCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = {{table_name}}
+        LIMIT 1
+      `,
+      {
+        table_name: tableName,
+      }
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch {
+    exists = false;
+  }
+
+  tableExistenceCache.set(cacheKey, {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  });
+  return exists;
+}
+
 let sharpModulePromise: Promise<any> | null = null;
 
 async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
@@ -1684,12 +1723,30 @@ async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext)
 async function rpcIncrementPhotoView(args: Record<string, unknown>, context: AuthContext) {
   const photoId = String(args.p_photo_id ?? '').trim();
   const sessionId = args.p_session_id ? String(args.p_session_id).trim() : '';
+  const userId = context.user?.id ? String(context.user.id).trim() : '';
   if (!photoId) {
     throw new Error('参数错误');
   }
 
+  const hasViewerIdentity = Boolean(userId || sessionId);
   let alreadyViewed = false;
-  if (context.user?.id) {
+  if (userId && sessionId) {
+    const viewed = await executeSQL(
+      `
+        SELECT id
+        FROM photo_views
+        WHERE photo_id = {{photo_id}}
+          AND (user_id = {{user_id}} OR session_id = {{session_id}})
+        LIMIT 1
+      `,
+      {
+        photo_id: photoId,
+        user_id: userId,
+        session_id: sessionId,
+      }
+    );
+    alreadyViewed = viewed.rows.length > 0;
+  } else if (userId) {
     const viewed = await executeSQL(
       `
         SELECT id
@@ -1699,7 +1756,7 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
       `,
       {
         photo_id: photoId,
-        user_id: context.user.id,
+        user_id: userId,
       }
     );
     alreadyViewed = viewed.rows.length > 0;
@@ -1720,10 +1777,22 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
   }
 
   let counted = false;
-  if (!alreadyViewed) {
+  if (hasViewerIdentity && !alreadyViewed) {
     try {
-      if (context.user?.id) {
-        // CloudBase SQL 占位符传 null 会被序列化为字符串，显式拆分 SQL 避免外键异常。
+      if (userId && sessionId) {
+        await executeSQL(
+          `
+            INSERT INTO photo_views (id, photo_id, user_id, session_id, viewed_at)
+            VALUES ({{id}}, {{photo_id}}, {{user_id}}, {{session_id}}, ${NOW_UTC8_EXPR})
+          `,
+          {
+            id: randomUUID(),
+            photo_id: photoId,
+            user_id: userId,
+            session_id: sessionId,
+          }
+        );
+      } else if (userId) {
         await executeSQL(
           `
             INSERT INTO photo_views (id, photo_id, user_id, viewed_at)
@@ -1732,10 +1801,10 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
           {
             id: randomUUID(),
             photo_id: photoId,
-            user_id: context.user.id,
+            user_id: userId,
           }
         );
-      } else if (sessionId) {
+      } else {
         await executeSQL(
           `
             INSERT INTO photo_views (id, photo_id, session_id, viewed_at)
@@ -1761,18 +1830,8 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
       );
       counted = updateResult.affectedRows > 0;
     } catch (error) {
-      if (!isDuplicateEntryError(error)) {
-        const fallbackUpdateResult = await executeSQL(
-          `
-            UPDATE album_photos
-            SET view_count = view_count + 1
-            WHERE id = {{photo_id}}
-          `,
-          {
-            photo_id: photoId,
-          }
-        );
-        counted = fallbackUpdateResult.affectedRows > 0;
+      if (isDuplicateEntryError(error)) {
+        counted = false;
       }
     }
   }
@@ -2638,11 +2697,15 @@ async function cleanupExpiredData() {
       SELECT id, cover_url, donation_qr_code_url
       FROM albums
       WHERE COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
+        AND id <> {{wall_album_id}}
         AND id NOT IN (
           SELECT album_id
           FROM album_photos
         )
-    `
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    }
   );
 
   const albumRows = expiredAlbumAssets.rows.map((row) => ({
@@ -2671,12 +2734,16 @@ async function cleanupExpiredData() {
           DELETE FROM albums
           WHERE id IN (${placeholders.join(', ')})
             AND COALESCE(expires_at, DATE_ADD(created_at, INTERVAL 7 DAY)) < ${NOW_UTC8_EXPR}
+            AND id <> {{wall_album_id}}
             AND id NOT IN (
               SELECT album_id
               FROM album_photos
             )
         `,
-        values
+        {
+          ...values,
+          wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        }
       );
       deletedAlbumsCount += deleteResult.affectedRows;
     }
@@ -2746,9 +2813,15 @@ async function cleanupExpiredData() {
 async function rpcRunMaintenanceTasks(context: AuthContext) {
   requireAdmin(context);
 
+  const IP_REGISTRATION_ATTEMPT_RETENTION_DAYS = 7;
+  const PHOTO_VIEW_RETENTION_DAYS = 90;
   const PASSWORD_RESET_TOKEN_RETENTION_DAYS = 30;
   const USER_ACTIVE_LOG_RETENTION_DAYS = 365;
+  const ANALYTICS_DAILY_RETENTION_DAYS = 365 * 5;
+  const SLIDER_CAPTCHA_RETENTION_DAYS = 1;
+  const SLIDER_CAPTCHA_GRACE_MINUTES = 2;
 
+  const skippedTasks = new Set<string>();
   const cleanupResult = await cleanupExpiredData();
 
   const sessionsResult = await executeSQL(
@@ -2761,28 +2834,39 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
   const ipAttemptsResult = await executeSQL(
     `
       DELETE FROM ip_registration_attempts
-      WHERE attempted_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 7 DAY)
+      WHERE attempted_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${IP_REGISTRATION_ATTEMPT_RETENTION_DAYS} DAY)
     `
   );
 
-  const betaBindingCleanupResult = await executeSQL(
-    `
-      DELETE b
-      FROM user_beta_feature_bindings b
-      LEFT JOIN feature_beta_versions v ON v.id = b.feature_id
-      LEFT JOIN feature_beta_routes r ON r.id = v.route_id
-      WHERE (v.id <=> NULL)
-        OR (r.id <=> NULL)
-        OR v.is_active <> 1
-        OR r.is_active <> 1
-        OR (!(v.expires_at <=> NULL) AND v.expires_at < ${NOW_UTC8_EXPR})
-    `
-  );
+  let betaFeatureBindingsCleaned = 0;
+  const hasBetaFeatureTables = await Promise.all([
+    hasTable('user_beta_feature_bindings'),
+    hasTable('feature_beta_versions'),
+    hasTable('feature_beta_routes'),
+  ]);
+  if (hasBetaFeatureTables.every(Boolean)) {
+    const betaBindingCleanupResult = await executeSQL(
+      `
+        DELETE b
+        FROM user_beta_feature_bindings b
+        LEFT JOIN feature_beta_versions v ON v.id = b.feature_id
+        LEFT JOIN feature_beta_routes r ON r.id = v.route_id
+        WHERE (v.id <=> NULL)
+          OR (r.id <=> NULL)
+          OR v.is_active <> 1
+          OR r.is_active <> 1
+          OR (!(v.expires_at <=> NULL) AND v.expires_at < ${NOW_UTC8_EXPR})
+      `
+    );
+    betaFeatureBindingsCleaned = betaBindingCleanupResult.affectedRows;
+  } else {
+    skippedTasks.add('beta_feature_bindings_cleanup');
+  }
 
   const photoViewsCleanupResult = await executeSQL(
     `
       DELETE FROM photo_views
-      WHERE viewed_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL 90 DAY)
+      WHERE viewed_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${PHOTO_VIEW_RETENTION_DAYS} DAY)
     `
   );
 
@@ -2804,6 +2888,54 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     `
   );
 
+  let sliderCaptchaChallengesCleaned = 0;
+  if (await hasTable('slider_captcha_challenges')) {
+    const sliderCaptchaCleanupResult = await executeSQL(
+      `
+        DELETE FROM slider_captcha_challenges
+        WHERE !(consumed_at <=> NULL)
+          OR expires_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${SLIDER_CAPTCHA_GRACE_MINUTES} MINUTE)
+          OR (
+            !(verify_token_expires_at <=> NULL)
+            AND verify_token_expires_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${SLIDER_CAPTCHA_GRACE_MINUTES} MINUTE)
+          )
+          OR created_at < DATE_SUB(${NOW_UTC8_EXPR}, INTERVAL ${SLIDER_CAPTCHA_RETENTION_DAYS} DAY)
+      `
+    );
+    sliderCaptchaChallengesCleaned = sliderCaptchaCleanupResult.affectedRows;
+  } else {
+    skippedTasks.add('slider_captcha_challenges_cleanup');
+  }
+
+  let bookingBlackoutsCleaned = 0;
+  if (await hasTable('booking_blackouts')) {
+    const bookingBlackoutCleanupResult = await executeSQL(
+      `
+        DELETE FROM booking_blackouts
+        WHERE date < ${TODAY_UTC8_EXPR}
+      `
+    );
+    bookingBlackoutsCleaned = bookingBlackoutCleanupResult.affectedRows;
+  } else {
+    skippedTasks.add('booking_blackouts_cleanup');
+  }
+
+  let analyticsDailyCleaned = 0;
+  let analyticsUpdated = false;
+  const hasAnalyticsDailyTable = await hasTable('analytics_daily');
+  if (hasAnalyticsDailyTable) {
+    const analyticsDailyCleanupResult = await executeSQL(
+      `
+        DELETE FROM analytics_daily
+        WHERE date < DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${ANALYTICS_DAILY_RETENTION_DAYS} DAY)
+      `
+    );
+    analyticsDailyCleaned = analyticsDailyCleanupResult.affectedRows;
+  } else {
+    skippedTasks.add('analytics_daily_cleanup');
+    skippedTasks.add('analytics_snapshot_update');
+  }
+
   await executeSQL(
     `
       UPDATE bookings
@@ -2822,22 +2954,34 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     `
   );
 
-  await updateDailyAnalyticsSnapshot();
+  if (hasAnalyticsDailyTable) {
+    await updateDailyAnalyticsSnapshot();
+    analyticsUpdated = true;
+  }
 
   return {
     cleanup_result: cleanupResult,
     sessions_cleaned: sessionsResult.affectedRows,
     ip_attempts_cleaned: ipAttemptsResult.affectedRows,
-    beta_feature_bindings_cleaned: betaBindingCleanupResult.affectedRows,
+    beta_feature_bindings_cleaned: betaFeatureBindingsCleaned,
     photo_views_cleaned: photoViewsCleanupResult.affectedRows,
     password_reset_tokens_cleaned: passwordResetTokenCleanupResult.affectedRows,
     user_active_logs_cleaned: userActiveLogCleanupResult.affectedRows,
+    slider_captcha_challenges_cleaned: sliderCaptchaChallengesCleaned,
+    booking_blackouts_cleaned: bookingBlackoutsCleaned,
+    analytics_daily_cleaned: analyticsDailyCleaned,
+    skipped_tasks: Array.from(skippedTasks),
     safety_history_retention: {
+      ip_registration_attempts_days: IP_REGISTRATION_ATTEMPT_RETENTION_DAYS,
+      photo_views_days: PHOTO_VIEW_RETENTION_DAYS,
       password_reset_tokens_days: PASSWORD_RESET_TOKEN_RETENTION_DAYS,
       user_active_logs_days: USER_ACTIVE_LOG_RETENTION_DAYS,
+      analytics_daily_days: ANALYTICS_DAILY_RETENTION_DAYS,
+      slider_captcha_challenges_days: SLIDER_CAPTCHA_RETENTION_DAYS,
+      booking_blackouts_policy: 'delete_before_today',
     },
     bookings_updated: true,
-    analytics_updated: true,
+    analytics_updated: analyticsUpdated,
     timestamp: new Date().toISOString(),
   };
 }

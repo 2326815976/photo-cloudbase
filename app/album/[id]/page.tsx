@@ -653,7 +653,7 @@ export default function AlbumDetailPage() {
               时光中...
             </p>
             <p className="text-sm text-[#5D4037]/60">
-              正在为你打开专属回忆
+              正在为你打开相册
             </p>
           </motion.div>
         </motion.div>
@@ -695,7 +695,7 @@ export default function AlbumDetailPage() {
 
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              {albumData.album.title || '专属回忆'}
+              {albumData.album.title || '相册空间'}
             </h1>
           </div>
 
