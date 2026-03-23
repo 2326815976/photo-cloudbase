@@ -73,13 +73,23 @@ function resolveCloudBaseStorageDomain(): string {
 }
 
 // 导出所有环境变量访问函数
+function getTencentMapJsKey(): string {
+  return getEnv('TMAP_JS_KEY') || getEnv('TMAP_KEY');
+}
+
+function getTencentMapServerKey(): string {
+  return getServerEnv('TMAP_SERVER_KEY', 'TMAP_WEBSERVICE_KEY');
+}
+
 export const env = {
   // 应用配置
   APP_URL: () => getEnv('APP_URL'),
 
   // 腾讯地图配置
-  TMAP_KEY: () => getEnv('TMAP_KEY') || getEnv('TMAP_SERVER_KEY') || getEnv('TMAP_WEBSERVICE_KEY'),
-  TMAP_SERVER_KEY: () => getEnv('TMAP_SERVER_KEY') || getEnv('TMAP_WEBSERVICE_KEY') || getEnv('TMAP_KEY'),
+  TMAP_KEY: () => getTencentMapJsKey(),
+  TMAP_JS_KEY: () => getTencentMapJsKey(),
+  TMAP_SERVER_KEY: () => getTencentMapServerKey(),
+  TMAP_WEBSERVICE_KEY: () => getTencentMapServerKey(),
 
   // 腾讯云 CloudBase 配置（服务端）
   CLOUDBASE_ID: () => getServerEnv('CLOUDBASE_ID'),

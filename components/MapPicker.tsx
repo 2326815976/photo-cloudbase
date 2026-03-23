@@ -29,6 +29,12 @@ interface SearchResult {
   adcode?: string;
 }
 
+type BackendRecoveryAwareRequestInit = RequestInit & {
+  backendRecovery?: {
+    disabled?: boolean;
+  };
+};
+
 function normalizeSelectMeta(input: Record<string, unknown> | null | undefined): MapPickerSelectMeta {
   const cityName = String(input?.cityName ?? input?.city ?? '').trim();
   const province = String(input?.province ?? '').trim();
@@ -183,150 +189,144 @@ function normalizeSearchResultsPayload(payload: any): SearchResult[] {
   return results;
 }
 
-async function invokeTencentService(
-  instance: any,
-  methodNames: string[],
-  payloadCandidates: unknown[]
-): Promise<any | null> {
-  for (const methodName of methodNames) {
-    const method = instance?.[methodName];
-    if (typeof method !== 'function') {
-      continue;
-    }
-
-    for (const payload of payloadCandidates) {
-      try {
-        const returned = method.call(instance, payload);
-        if (returned && typeof returned.then === 'function') {
-          const asyncResult = await returned;
-          if (asyncResult !== null && asyncResult !== undefined) {
-            return asyncResult;
-          }
-        } else if (returned !== undefined) {
-          return returned;
-        }
-      } catch {
-        // ignore and try next payload/call style
-      }
-
-      const callbackResult = await new Promise<any | null>((resolve) => {
-        let finished = false;
-        const timer = window.setTimeout(() => {
-          if (!finished) {
-            finished = true;
-            resolve(null);
-          }
-        }, 1200);
-
-        try {
-          method.call(instance, payload, (...args: any[]) => {
-            if (finished) {
-              return;
-            }
-            finished = true;
-            window.clearTimeout(timer);
-            if (args.length <= 1) {
-              resolve(args[0] ?? null);
-              return;
-            }
-            resolve({
-              status: args[0],
-              result: args[1],
-            });
-          });
-        } catch {
-          if (!finished) {
-            finished = true;
-            window.clearTimeout(timer);
-            resolve(null);
-          }
-        }
-      });
-
-      if (callbackResult !== null && callbackResult !== undefined) {
-        return callbackResult;
-      }
-    }
-  }
-
-  return null;
-}
-
-async function reverseGeocodeByClientService(lat: number, lng: number): Promise<{ formattedAddress: string; addressComponent: MapPickerSelectMeta } | null> {
+function createTencentLatLng(lat: number, lng: number) {
   const TMap = (window as any).TMap;
-  const Geocoder = TMap?.service?.Geocoder;
-  if (!Geocoder) {
+  if (!TMap?.LatLng) {
     return null;
   }
 
-  let geocoder: any = null;
   try {
-    geocoder = new Geocoder();
+    return new TMap.LatLng(lat, lng);
   } catch {
     return null;
   }
-
-  const latLng = (() => {
-    try {
-      return new TMap.LatLng(lat, lng);
-    } catch {
-      return { lat, lng };
-    }
-  })();
-
-  const serviceResult = await invokeTencentService(
-    geocoder,
-    ['getAddress', 'reverseGeocoder', 'search'],
-    [
-      { location: latLng, get_poi: 0 },
-      { location: `${lat},${lng}`, get_poi: 0 },
-      { location: { lat, lng }, get_poi: 0 },
-      latLng,
-      `${lat},${lng}`,
-    ]
-  );
-
-  return normalizeReverseGeocodePayload(serviceResult);
 }
 
-async function searchByClientService(keyword: string, cityName?: string): Promise<SearchResult[] | null> {
-  const TMap = (window as any).TMap;
-  const service = TMap?.service;
-  if (!service) {
+function readMarkerPosition(marker: any): { lat: number; lng: number } | null {
+  const geometries = typeof marker?.getGeometries === 'function' ? marker.getGeometries() : [];
+  if (!Array.isArray(geometries) || geometries.length === 0) {
     return null;
   }
 
-  const payloadCandidates = [
-    { keyword, region: cityName || undefined, pageSize: 10 },
-    { keyword, boundary: cityName ? `region(${cityName},0)` : undefined, pageSize: 10 },
-    { keyword, pageSize: 10 },
-    keyword,
-  ];
+  return extractLatLng(geometries[0]?.position);
+}
 
-  const serviceClasses = [service.Suggestion, service.Search].filter((entry) => typeof entry === 'function');
-  for (const ServiceClass of serviceClasses) {
-    let serviceInstance: any = null;
-    try {
-      serviceInstance = new ServiceClass({
-        pageSize: 10,
-        region: cityName || undefined,
-      });
-    } catch {
-      continue;
-    }
-
-    const serviceResult = await invokeTencentService(
-      serviceInstance,
-      ['getSuggestions', 'search', 'getPoiList'],
-      payloadCandidates
-    );
-    const normalized = normalizeSearchResultsPayload(serviceResult);
-    if (normalized.length > 0) {
-      return normalized;
-    }
+function readMapCenterPosition(map: any): { lat: number; lng: number } | null {
+  if (!map || typeof map.getCenter !== 'function') {
+    return null;
   }
 
-  return null;
+  try {
+    return extractLatLng(map.getCenter());
+  } catch {
+    return null;
+  }
+}
+
+async function reverseGeocodeByClientService(
+  lat: number,
+  lng: number
+): Promise<{ formattedAddress: string; addressComponent: MapPickerSelectMeta } | null> {
+  const TMap = (window as any).TMap;
+  const Geocoder = TMap?.service?.Geocoder;
+  const location = createTencentLatLng(lat, lng);
+
+  if (!Geocoder || !location) {
+    return null;
+  }
+
+  try {
+    const geocoder = new Geocoder();
+    const result = await geocoder.getAddress({
+      location,
+      getPoi: false,
+    });
+    return normalizeReverseGeocodePayload(result);
+  } catch {
+    return null;
+  }
+}
+
+async function searchByClientService(
+  keyword: string,
+  cityName?: string,
+  referenceLocation?: { lat: number; lng: number } | null
+): Promise<SearchResult[]> {
+  const TMap = (window as any).TMap;
+  const service = TMap?.service;
+  if (!service) {
+    return [];
+  }
+
+  const normalizedKeyword = String(keyword || '').trim();
+  if (!normalizedKeyword) {
+    return [];
+  }
+
+  const latLng = referenceLocation ? createTencentLatLng(referenceLocation.lat, referenceLocation.lng) : null;
+
+  try {
+    if (typeof service.Suggestion === 'function') {
+      const suggestion = new service.Suggestion({
+        pageSize: 10,
+        region: cityName || undefined,
+        regionFix: Boolean(cityName),
+      });
+
+      const suggestionResult = await suggestion.getSuggestions({
+        keyword: normalizedKeyword,
+        location: latLng || undefined,
+        getSubpois: false,
+        addressFormat: 'short',
+        pageIndex: 1,
+      });
+
+      const normalizedSuggestions = normalizeSearchResultsPayload(suggestionResult);
+      if (normalizedSuggestions.length > 0) {
+        return normalizedSuggestions;
+      }
+    }
+  } catch {
+    // ignore and continue with Search service
+  }
+
+  try {
+    if (typeof service.Search === 'function') {
+      const search = new service.Search({ pageSize: 10 });
+
+      if (cityName) {
+        const regionResult = await search.searchRegion({
+          keyword: normalizedKeyword,
+          cityName,
+          autoExtend: true,
+          referenceLocation: latLng || undefined,
+          pageIndex: 1,
+        });
+
+        const normalizedRegionResults = normalizeSearchResultsPayload(regionResult);
+        if (normalizedRegionResults.length > 0) {
+          return normalizedRegionResults;
+        }
+      }
+
+      if (latLng) {
+        const nearbyResult = await search.searchNearby({
+          keyword: normalizedKeyword,
+          center: latLng,
+          radius: 1000,
+          autoExtend: true,
+          orderby: '_distance',
+          pageIndex: 1,
+        });
+
+        return normalizeSearchResultsPayload(nearbyResult);
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
 }
 
 export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProps) {
@@ -347,6 +347,14 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
 
   useEffect(() => {
     setIsAndroid(isAndroidApp());
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('backend-recovery-indicator', { detail: { muted: true } }));
+
+    return () => {
+      window.dispatchEvent(new CustomEvent('backend-recovery-indicator', { detail: { muted: false } }));
+    };
   }, []);
 
   useEffect(() => {
@@ -516,8 +524,9 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
       const response = await fetch('/api/tencent-map/reverse-geocode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        backendRecovery: { disabled: true },
         body: JSON.stringify({ lat, lng }),
-      });
+      } as BackendRecoveryAwareRequestInit);
       const payload = await readJsonSafe(response);
       const normalized = normalizeReverseGeocodePayload(payload);
 
@@ -531,7 +540,6 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
       if (sdkFallback) {
         setAddress(sdkFallback.formattedAddress || fallbackAddress);
         setSelectedMeta(sdkFallback.addressComponent);
-        showTencentMapHintOnce(payload?.hint, 'reverse');
         return;
       }
 
@@ -561,12 +569,15 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
       return;
     }
 
+    const referenceLocation = readMarkerPosition(marker) ?? readMapCenterPosition(map);
+
     try {
       const response = await fetch('/api/tencent-map/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        backendRecovery: { disabled: true },
         body: JSON.stringify({ keyword: searchQuery, cityName }),
-      });
+      } as BackendRecoveryAwareRequestInit);
       const payload = await readJsonSafe(response);
 
       if (response.ok) {
@@ -576,11 +587,10 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
         return;
       }
 
-      const sdkResults = await searchByClientService(searchQuery, cityName);
-      if (sdkResults && sdkResults.length > 0) {
+      const sdkResults = await searchByClientService(searchQuery, cityName, referenceLocation);
+      if (sdkResults.length > 0) {
         setSearchResults(sdkResults);
         setShowResults(true);
-        showTencentMapHintOnce(payload?.hint, 'search');
         return;
       }
 
@@ -588,8 +598,8 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
       setShowResults(false);
       showTencentMapHintOnce(payload?.hint, 'search');
     } catch {
-      const sdkResults = await searchByClientService(searchQuery, cityName);
-      if (sdkResults && sdkResults.length > 0) {
+      const sdkResults = await searchByClientService(searchQuery, cityName, referenceLocation);
+      if (sdkResults.length > 0) {
         setSearchResults(sdkResults);
         setShowResults(true);
         return;

@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, lazy, Suspense } from 'react';
 import { MotionConfig } from 'framer-motion';
+import BackendRecoveryIndicator from './BackendRecoveryIndicator';
 import BottomNav from './BottomNav';
 import { createClient } from '@/lib/cloudbase/client';
 import SWRProvider from './providers/SWRProvider';
@@ -85,7 +86,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     // 管理后台：使用桌面端全屏布局
     return (
       <SWRProvider>
-        <MotionConfig reducedMotion="user">{children}</MotionConfig>
+        <MotionConfig reducedMotion="user">
+          {children}
+          <BackendRecoveryIndicator />
+        </MotionConfig>
       </SWRProvider>
     );
   }
@@ -108,6 +112,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <BottomNav />
           </main>
         </div>
+        <BackendRecoveryIndicator />
         <Suspense fallback={null}>
           <VersionChecker />
         </Suspense>

@@ -18,13 +18,13 @@ export type TencentWebServiceResult = {
 
 function buildWebServiceHint(status: number, message: string): string | undefined {
   if (status === 112) {
-    return '腾讯地图 WebService Key 未授权当前服务器出口IP，请在腾讯地图控制台将当前公网IP加入白名单，或改用已授权的 TMAP_SERVER_KEY。';
+    return '腾讯地图 WebService Key 未授权当前服务器出口IP。服务端 fetch 不支持仅配域名白名单的 Key，请改用配置了授权IP或签名校验的 TMAP_SERVER_KEY。';
   }
   if (status === 199) {
     return '当前腾讯地图 Key 未开启 WebService API，请在腾讯地图控制台开启后重试。';
   }
   if (status === 110 || status === 111) {
-    return '腾讯地图 Key 无效或已被禁用，请检查 TMAP_SERVER_KEY / TMAP_KEY 配置。';
+    return '腾讯地图 Key 无效或已被禁用，请分别检查前端 TMAP_JS_KEY 与服务端 TMAP_SERVER_KEY，避免两者混用。';
   }
   if (status === 120 || status === 121 || status === 122) {
     return '腾讯地图 WebService 调用达到频率限制，请稍后再试。';
@@ -53,7 +53,7 @@ export async function requestTencentWebService(
       status: -1,
       message: '腾讯地图 Key 未配置',
       raw: {},
-      hint: '请在环境变量中配置 TMAP_SERVER_KEY（或 TMAP_KEY）。',
+      hint: '请在服务端环境变量中配置 TMAP_SERVER_KEY（或 TMAP_WEBSERVICE_KEY），不要复用前端 JS Key。',
     };
   }
 

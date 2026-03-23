@@ -32,7 +32,7 @@ export default function RootLayout({
   const runtimeConfig = {
     NEXT_PUBLIC_APP_URL: env.APP_URL(),
     NEXT_PUBLIC_CLOUDBASE_STORAGE_DOMAIN: storageDomain,
-    NEXT_PUBLIC_TMAP_KEY: env.TMAP_KEY(),
+    NEXT_PUBLIC_TMAP_KEY: env.TMAP_JS_KEY(),
   };
 
   return (
@@ -56,7 +56,7 @@ export default function RootLayout({
 
         {/* 腾讯地图 JS API */}
         <script
-          src={`https://map.qq.com/api/gljs?v=1.exp&libraries=service&key=${encodeURIComponent(env.TMAP_KEY())}`}
+          src={`https://map.qq.com/api/gljs?v=1.exp&libraries=service&key=${encodeURIComponent(env.TMAP_JS_KEY())}`}
           async
         />
 

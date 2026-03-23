@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Eye, Camera, RotateCcw, Folder as FolderIcon } from 'lucide-react';
+import { Heart, Eye, Camera, RotateCcw } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { getSessionId } from '@/lib/utils/session';
@@ -50,6 +50,8 @@ interface GalleryFolder {
   name: string;
 }
 
+const TAG_GUIDE_AUTO_DISMISS_MS = 15000;
+
 function clampPhotoAspectRatio(width: number, height: number, fallback = 1) {
   const safeWidth = Number(width || 0);
   const safeHeight = Number(height || 0);
@@ -65,7 +67,7 @@ function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean, aspectRat
   const mediaHeight = isStoryOpen && hasStoryText
     ? 190
     : resolvedAspectRatio * 180;
-  return mediaHeight + 56;
+  return mediaHeight + 46;
 }
 
 const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
@@ -113,10 +115,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [selectedFolderId, setSelectedFolderId] = useState<string>('__ROOT__');
   const [folders, setFolders] = useState<GalleryFolder[]>([]);
   const [rootFolderName, setRootFolderName] = useState<string>('照片集');
+  const [showTagGuide, setShowTagGuide] = useState(false);
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const tagGuideTimerRef = useRef<number | null>(null);
+  const tagGuideShownOnceRef = useRef(false);
 
   const [galleryCacheToken] = useState<string>(() => {
     const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
@@ -419,12 +424,29 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }));
   };
 
-  const selectedFolderName = useMemo(() => {
-    if (selectedFolderId === '__ROOT__') {
-      return rootFolderName;
+
+  const galleryFolders = useMemo<GalleryFolder[]>(() => {
+    return [{ id: '__ROOT__', name: rootFolderName }, ...folders];
+  }, [folders, rootFolderName]);
+
+  const dismissTagGuide = useCallback(() => {
+    if (tagGuideTimerRef.current) {
+      window.clearTimeout(tagGuideTimerRef.current);
+      tagGuideTimerRef.current = null;
     }
-    return folders.find((folder) => String(folder.id) === selectedFolderId)?.name || rootFolderName;
-  }, [folders, rootFolderName, selectedFolderId]);
+    setShowTagGuide(false);
+  }, []);
+
+  const handleSwitchFolder = useCallback(
+    (folderId: string) => {
+      dismissTagGuide();
+      setSelectedFolderId((current) => {
+        const next = String(folderId || '__ROOT__').trim() || '__ROOT__';
+        return current === next ? current : next;
+      });
+    },
+    [dismissTagGuide]
+  );
 
   const setFolderButtonRef = useCallback(
     (folderId: string) => (node: HTMLButtonElement | null) => {
@@ -444,7 +466,29 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       inline: 'center',
       block: 'nearest',
     });
-  }, [selectedFolderId, folders.length, rootFolderName]);
+  }, [selectedFolderId, galleryFolders.length]);
+
+  useEffect(() => {
+    dismissTagGuide();
+
+    if (tagGuideShownOnceRef.current || isLoading || isLoadingMore || galleryFolders.length <= 1) {
+      return;
+    }
+
+    tagGuideShownOnceRef.current = true;
+    setShowTagGuide(true);
+    tagGuideTimerRef.current = window.setTimeout(() => {
+      setShowTagGuide(false);
+      tagGuideTimerRef.current = null;
+    }, TAG_GUIDE_AUTO_DISMISS_MS);
+
+    return () => {
+      if (tagGuideTimerRef.current) {
+        window.clearTimeout(tagGuideTimerRef.current);
+        tagGuideTimerRef.current = null;
+      }
+    };
+  }, [dismissTagGuide, galleryFolders.length, isLoading, isLoadingMore]);
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
     const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 1);
@@ -549,7 +593,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               <p className="mt-1 text-[11px] font-bold tracking-[0.08em] text-[#8D6E63]/70">拾光流转，记录此刻的不期而遇</p>
             </div>
             <div className="inline-flex max-w-[160px] flex-shrink-0 items-center justify-center rounded-full bg-[#FFC857]/28 px-3 py-1 text-[10px] font-bold text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.42)]">
-              ?? 贩卖人间路过的温柔 ??
+              📸 贩卖人间路过的温柔 📸
             </div>
           </div>
         </div>
@@ -559,43 +603,54 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-20 gallery-scroll-container">
         <div className="sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0]/96 backdrop-blur-md">
           <div className="px-3 py-2">
-            <div className="relative overflow-hidden rounded-[22px] border border-[#5D4037]/6 bg-white/45 px-1 py-1.5 shadow-[0_6px_18px_rgba(93,64,55,0.06)]">
-              <div className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[#FFFBF0] via-[#FFFBF0]/90 to-transparent" />
-              <div className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-[#FFFBF0] via-[#FFFBF0]/90 to-transparent" />
-              <div className="flex items-center gap-2 overflow-x-auto px-1 scrollbar-hidden snap-x snap-mandatory">
-                <button
-                  ref={setFolderButtonRef('__ROOT__')}
-                  onClick={() => setSelectedFolderId('__ROOT__')}
-                  className={`snap-start flex h-11 shrink-0 items-center justify-center rounded-full border px-5 text-[14px] font-bold whitespace-nowrap transition-all duration-200 ${
-                    selectedFolderId === '__ROOT__'
-                      ? 'bg-[#FFC857] text-[#5D4037] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
-                      : 'bg-white/75 text-[#8D6E63] border-dashed border-[#5D4037]/15'
-                  }`}
-                >
-                  <span>{rootFolderName}</span>
-                </button>
-                {folders.map((folder) => (
-                  <button
-                    key={folder.id}
-                    ref={setFolderButtonRef(String(folder.id))}
-                    onClick={() => setSelectedFolderId(String(folder.id))}
-                    className={`snap-start flex h-11 shrink-0 items-center justify-center rounded-full border px-5 text-[14px] font-bold whitespace-nowrap transition-all duration-200 ${
-                      selectedFolderId === String(folder.id)
-                        ? 'bg-[#FFC857] text-[#5D4037] border-[#5D4037]/20 shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
-                        : 'bg-white/75 text-[#8D6E63] border-dashed border-[#5D4037]/15'
-                    }`}
-                  >
-                    <span>{folder.name}</span>
-                  </button>
-                ))}
+            <div className="flex min-h-[46px] items-start gap-2">
+              <div className={`relative min-w-0 flex-1 bg-[#FFFBF0] ${showTagGuide ? 'pt-[38px]' : ''}`}>
+                <AnimatePresence>
+                  {showTagGuide && (
+                    <motion.button
+                      type="button"
+                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                      transition={{ duration: 0.18 }}
+                      onClick={dismissTagGuide}
+                      className="absolute left-0 top-0 z-[3] inline-flex h-[30px] max-w-[220px] items-center rounded-[12px] bg-[#5D4037] px-3 text-left shadow-[0_8px_20px_rgba(93,64,55,0.28)]"
+                    >
+                      <span className="whitespace-nowrap text-[11px] font-semibold text-[#FFFAF0]">
+                        左右滑动 / 点击标签可切换
+                      </span>
+                      <span className="absolute left-4 top-[24px] h-[10px] w-[10px] rotate-45 bg-[#5D4037]" />
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+                <div className="scrollbar-hidden overflow-x-auto whitespace-nowrap" onScroll={showTagGuide ? dismissTagGuide : undefined}>
+                  <div className="inline-flex items-center gap-2 px-[3px] py-[1px] pb-[2px]">
+                    {galleryFolders.map((folder) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        ref={setFolderButtonRef(String(folder.id))}
+                        onClick={() => handleSwitchFolder(String(folder.id))}
+                        className={`inline-flex h-[38px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 text-[13px] font-bold leading-none transition-all duration-200 active:scale-[0.98] ${
+                          selectedFolderId === String(folder.id)
+                            ? 'border border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
+                            : 'border border-dashed border-[#5D4037]/15 bg-white/60 text-[#8D6E63]/90 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
+                        }`}
+                        aria-pressed={selectedFolderId === String(folder.id)}
+                      >
+                        {folder.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-[#8D6E63]/70">
-              <div className="flex min-w-0 items-center gap-1.5 font-semibold">
-                <FolderIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{selectedFolderName}</span>
-              </div>
-              <span className="whitespace-nowrap">{photos.length}/{Math.max(total, photos.length)} 张</span>
+              <button
+                type="button"
+                onClick={() => handleSwitchFolder('__ROOT__')}
+                className="inline-flex h-[38px] shrink-0 items-center justify-center rounded-full border border-[#5D4037] bg-[#5D4037] px-4 text-[13px] font-bold leading-none text-white transition-all duration-200 hover:bg-[#6A4B41] active:scale-[0.98]"
+              >
+                全部
+              </button>
             </div>
           </div>
         </div>
@@ -608,11 +663,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         ) : (
           <>
             {/* 双列瀑布流布局 */}
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-2">
               {galleryColumns.map((column, columnIndex) => (
                 <div
                   key={`gallery-column-${columnIndex}`}
-                  className="flex min-w-0 flex-1 flex-col gap-3"
+                  className="flex min-w-0 flex-1 flex-col gap-2"
                 >
                   {column.map(({ photo, index }) => (
                 <motion.div
@@ -624,7 +679,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 >
                   {/* 小红书风格卡片 */}
                   <div
-                    className={`bg-white rounded-[26px] overflow-hidden transition-all duration-300 ${
+                    className={`bg-white rounded-[20px] overflow-hidden transition-all duration-300 ${
                       isHighlighted(photo)
                         ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_16px_rgba(255,183,3,0.48),0_4px_10px_rgba(93,64,55,0.20)] translate-y-[-1px]'
                         : 'border border-transparent shadow-[0_5px_15px_rgba(93,64,55,0.10)]'
@@ -653,7 +708,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                             alt="照片"
                             aspectRatio={resolvePhotoAspectRatio(photo)}
                             onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
-                            className="w-full rounded-t-[26px]"
+                            className="w-full rounded-t-[20px]"
                           />
 
                           {/* 浏览量气泡 - 左上角 */}
@@ -685,39 +740,34 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       )}
                     </div>
 
-                    {/* 信息区域 */}
-                    <div className="px-2.5 pb-3 pt-2">
-                      {/* 互动数据 */}
-                      <div className="flex items-center justify-start">
-                        {/* 左侧：拍摄日期 */}
-                        <div className="order-2 ml-auto flex items-center gap-1 text-right text-[#8D6E63]/50 py-0.5 pl-1">
-                          <span className="text-[10px]">
-                            {formatDateDisplayUTC8(photo.shot_date || photo.created_at, {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit'
-                            })}
-                          </span>
-                        </div>
-
-                        {/* 右侧：点赞 */}
+                    {/* ???? */}
+                    <div className="px-2.5 pb-2 pt-1.5">
+                      <div className="flex min-h-[18px] items-center justify-between gap-2">
                         <motion.button
                           whileTap={{ scale: 0.85 }}
                           onClick={(e) => handleLike(photo.id, e)}
-                          className="order-1 compact-button flex items-center gap-0.5 py-0.5 pr-1"
+                          className="compact-button inline-flex items-center gap-1 rounded-full py-0.5 pr-1 leading-none"
                         >
                           <motion.div
                             animate={photo.is_liked ? { scale: [1, 1.4, 1] } : {}}
-                            transition={{ duration: 0.4, ease: "easeOut" }}
+                            transition={{ duration: 0.4, ease: 'easeOut' }}
                           >
                             <Heart
-                              className={`w-3 h-3 transition-all duration-300 ${
+                              className={`h-[13px] w-[13px] transition-all duration-300 ${
                                 photo.is_liked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#8D6E63]/60'
                               }`}
                             />
                           </motion.div>
-                          <span className="text-[10px] text-[#8D6E63]">{photo.like_count}</span>
+                          <span className="text-[10px] font-medium leading-none text-[#8D6E63]/90">{photo.like_count}</span>
                         </motion.button>
+
+                        <div className="shrink-0 text-right text-[10px] leading-none text-[#8D6E63]/70">
+                          {formatDateDisplayUTC8(photo.shot_date || photo.created_at, {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -904,5 +954,3 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     </div>
   );
 }
-
-

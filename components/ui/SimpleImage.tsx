@@ -299,7 +299,7 @@ export default function SimpleImage({
           onLoad={(event) => {
             const loadTime = performance.now() - loadStartTimeRef.current;
             if (loadTime > 3000) {
-              console.warn(`?? ??????: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
+              console.warn(`图片加载耗时较长: ${(loadTime / 1000).toFixed(2)}s - ${src.substring(0, 100)}`);
             }
             clearLoadingAnimationDelayTimer();
             setIsLoading(false);
