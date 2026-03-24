@@ -100,9 +100,9 @@ export default function BackendRecoveryIndicator() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.2 }}
-            className="fixed bottom-[calc(68px+env(safe-area-inset-bottom))] left-1/2 z-[1000] -translate-x-1/2"
+            className="fixed bottom-[calc(68px+env(safe-area-inset-bottom))] left-1/2 z-[1000] w-max max-w-[calc(100vw-24px)] -translate-x-1/2"
           >
-            <div className="rounded-xl bg-[#A0C4FF] px-4 py-3 text-sm font-medium text-[#5D4037] shadow-lg">
+            <div className="whitespace-nowrap rounded-full bg-[#A0C4FF] px-3 py-2 text-[12px] font-medium leading-none text-[#355070] shadow-[0_10px_24px_rgba(160,196,255,0.42)]">
               {toast.message}
             </div>
           </motion.div>

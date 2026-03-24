@@ -28,6 +28,12 @@
     max-width: 100%;
     height: auto;
   }
+
+  .gallery-card-image,
+  .album-card-image {
+    max-width: none !important;
+    height: 100% !important;
+  }
 }
 
 /* 平板布局 (768px - 1024px) */

@@ -59,6 +59,7 @@ export function useGallery(
       dedupingInterval: CACHE_TIME.GALLERY,
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
+      keepPreviousData: false,
       fallbackData,
       revalidateOnMount: !fallbackData,
     }

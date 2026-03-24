@@ -145,7 +145,7 @@ export default function SimpleImage({
     <div
       className={`relative overflow-hidden ${className}`}
       onClick={onClick}
-      style={hasFixedAspectRatio ? { paddingTop: `${normalizedAspectRatio * 100}%` } : undefined}
+      style={hasFixedAspectRatio ? { aspectRatio: String(1 / normalizedAspectRatio) } : undefined}
     >
       {/* 加载占位符 - 优化版 */}
       <AnimatePresence>

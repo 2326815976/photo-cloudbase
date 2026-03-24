@@ -1,4 +1,4 @@
-import 'server-only';
+﻿import 'server-only';
 
 import { Buffer } from 'buffer';
 import { randomUUID } from 'crypto';
@@ -737,7 +737,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     total: toNumber(countResult.rows[0]?.total, 0),
     folder_id: folderFilter.normalizedFolderId,
     root_folder_name:
-      String(wallMetaRow?.root_folder_name ?? '').trim() || '照片集',
+      String(wallMetaRow?.root_folder_name ?? '').trim() || '根目录',
     folders: foldersResult.rows.map((row) => ({
       id: String(row.id),
       name: String(row.name ?? ''),

@@ -25,15 +25,24 @@ interface AdminSidebarProps {
   username: string;
 }
 
+const BRAND_TITLE = '\u62fe\u5149\u8c23\u7ba1\u7406';
+const BRAND_SUBTITLE = '\u540e\u53f0\u529f\u80fd\u5bfc\u822a';
+const NAV_GROUP_TITLE = '\u529f\u80fd\u5206\u533a';
+const OPEN_MENU_TEXT = '\u6253\u5f00\u83dc\u5355';
+const CLOSE_MENU_TEXT = '\u5173\u95ed\u83dc\u5355';
+const LOGOUT_TEXT = '\u9000\u51fa\u767b\u5f55';
+const LOGOUT_TITLE = '\u786e\u8ba4\u9000\u51fa\u7ba1\u7406\u540e\u53f0\uff1f';
+const LOGOUT_DESCRIPTION = '\u9000\u51fa\u540e\u5c06\u6e05\u7406\u5f53\u524d\u767b\u5f55\u4f1a\u8bdd\uff0c\u9700\u91cd\u65b0\u767b\u5f55\u624d\u80fd\u7ee7\u7eed\u7ba1\u7406\u5185\u5bb9\u3002';
+
 const navItems = [
-  { href: '/admin/stats', label: '数据统计', icon: LayoutDashboard },
-  { href: '/admin/poses', label: '摆姿管理', icon: Camera },
-  { href: '/admin/bookings', label: '预约管理', icon: Calendar },
-  { href: '/admin/schedule', label: '档期管理', icon: Calendar },
-  { href: '/admin/gallery', label: '照片墙管理', icon: Image },
-  { href: '/admin/albums', label: '专属空间管理', icon: FolderHeart },
-  { href: '/admin/about', label: '关于设置', icon: Info },
-  { href: '/admin/releases', label: '发布版本', icon: Package },
+  { href: '/admin/stats', label: '\u6570\u636e\u7edf\u8ba1', icon: LayoutDashboard },
+  { href: '/admin/poses', label: '\u6446\u59ff\u7ba1\u7406', icon: Camera },
+  { href: '/admin/bookings', label: '\u9884\u7ea6\u7ba1\u7406', icon: Calendar },
+  { href: '/admin/schedule', label: '\u6863\u671f\u7ba1\u7406', icon: Calendar },
+  { href: '/admin/gallery', label: '\u7167\u7247\u5899\u7ba1\u7406', icon: Image },
+  { href: '/admin/albums', label: '\u4e13\u5c5e\u7a7a\u95f4\u7ba1\u7406', icon: FolderHeart },
+  { href: '/admin/about', label: '\u5173\u4e8e\u8bbe\u7f6e', icon: Info },
+  { href: '/admin/releases', label: '\u53d1\u5e03\u7248\u672c', icon: Package },
 ];
 
 export default function AdminSidebar({ username }: AdminSidebarProps) {
@@ -66,8 +75,8 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
   }, [mobileMenuOpen]);
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && mobileMenuOpen) {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && mobileMenuOpen) {
         setMobileMenuOpen(false);
       }
     };
@@ -94,148 +103,191 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
 
   return (
     <>
-      {/* 移动端顶部栏 */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-[#FFFBF0] border-b border-[#5D4037]/10 flex items-center justify-between px-4 z-50">
-        <Link href="/admin/stats" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center shadow-md">
-            <span className="text-lg">✨</span>
-          </div>
-          <span className="text-lg font-bold text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            拾光谣管理
-          </span>
-        </Link>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="h-10 w-10 flex items-center justify-center text-[#5D4037] active:bg-[#5D4037]/5 rounded-lg transition-colors"
-          aria-label={mobileMenuOpen ? "关闭菜单" : "打开菜单"}
-        >
-          {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
-      </div>
-
-      {/* 桌面端侧边栏 */}
-      <aside className="hidden md:flex fixed left-0 top-0 h-full w-64 bg-[#FFFBF0] border-r border-[#5D4037]/10 flex-col">
-      {/* Logo / 标题 */}
-      <div className="p-6 border-b border-[#5D4037]/10">
-        <Link href="/admin/stats" className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center shadow-md">
-            <span className="text-xl">✨</span>
-          </div>
-          <span className="text-xl font-bold text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            拾光谣管理
-          </span>
-        </Link>
-      </div>
-
-      {/* 导航菜单 */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = pathname === item.href;
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-                isActive
-                  ? 'bg-[#FFC857]/20 text-[#5D4037] font-medium shadow-sm'
-                  : 'text-[#5D4037]/60 hover:bg-[#5D4037]/5'
-              }`}
-            >
-              <Icon className="h-5 w-5 flex-shrink-0" />
-              <span className="text-base">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* 用户信息和登出 */}
-      <div className="p-4 border-t border-[#5D4037]/10">
-        <div className="flex items-center gap-3 px-4 py-2 mb-2">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center flex-shrink-0">
-            <User className="h-4 w-4 text-white" />
-          </div>
-          <span className="text-sm font-medium truncate text-[#5D4037]" title={username}>
-            {username}
-          </span>
-        </div>
-
-        <button
-          onClick={handleRequestLogout}
-          className="w-full flex items-center gap-2 px-4 py-3 rounded-2xl text-[#5D4037]/60 hover:text-red-600 hover:bg-red-50 active:bg-red-100 transition-all active:scale-95"
-        >
-          <LogOut className="h-5 w-5 flex-shrink-0" />
-          <span className="text-sm">退出登录</span>
-        </button>
-      </div>
-    </aside>
-
-      {/* 移动端菜单 */}
-      <AnimatePresence>
-        {mobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="md:hidden fixed inset-0 top-14 bg-[#FFFBF0] z-40 overflow-y-auto"
+      <div className="md:hidden fixed left-0 right-0 top-0 z-50 border-b border-[#5D4037]/10 bg-[#FFFBF0]/92 px-4 py-3 shadow-[0_8px_24px_rgba(93,64,55,0.08)] backdrop-blur-xl supports-[backdrop-filter]:bg-[#FFFBF0]/80">
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/admin/stats" className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FFC857] to-[#FFB347] text-[18px] shadow-[0_8px_18px_rgba(255,200,87,0.28)]">
+              <span aria-hidden="true">?</span>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-[17px] font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+                {BRAND_TITLE}
+              </p>
+              <p className="mt-1 truncate text-[10px] font-semibold tracking-[0.16em] text-[#8D6E63]/72">
+                {BRAND_SUBTITLE}
+              </p>
+            </div>
+          </Link>
+          <button
+            onClick={() => setMobileMenuOpen((value) => !value)}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#5D4037]/10 bg-white/72 text-[#5D4037] shadow-[0_8px_18px_rgba(93,64,55,0.08)] transition-all active:scale-95"
+            aria-label={mobileMenuOpen ? CLOSE_MENU_TEXT : OPEN_MENU_TEXT}
           >
-          <nav className="p-4 space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
+      </div>
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${
-                    isActive
-                      ? 'bg-[#FFC857]/20 text-[#5D4037] font-medium shadow-sm'
-                      : 'text-[#5D4037]/60 hover:bg-[#5D4037]/5'
-                  }`}
-                >
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-                  <span className="text-base">{item.label}</span>
-                </Link>
-              );
-            })}
+      <aside className="hidden md:flex fixed left-0 top-0 z-30 h-full w-72 flex-col p-4">
+        <div className="flex h-full flex-col">
+          <div className="relative overflow-hidden rounded-[30px] border border-[#5D4037]/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.94)_0%,rgba(255,251,240,0.92)_100%)] px-5 py-5 shadow-[0_16px_36px_rgba(93,64,55,0.12)] backdrop-blur-sm">
+            <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#FFC857] via-[#FFB347] to-[#FFD67E]" />
+            <Link href="/admin/stats" className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-gradient-to-br from-[#FFC857] to-[#FFB347] text-[22px] shadow-[0_12px_22px_rgba(255,200,87,0.26)]">
+                <span aria-hidden="true">?</span>
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-[24px] font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+                  {BRAND_TITLE}
+                </p>
+                <p className="mt-1 text-[11px] font-semibold tracking-[0.16em] text-[#8D6E63]/70">
+                  {BRAND_SUBTITLE}
+                </p>
+              </div>
+            </Link>
+          </div>
+
+          <nav className="mt-4 flex-1 overflow-y-auto rounded-[30px] border border-[#5D4037]/10 bg-white/80 p-3 shadow-[0_14px_30px_rgba(93,64,55,0.10)] backdrop-blur-sm">
+            <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8D6E63]/70">
+              {NAV_GROUP_TITLE}
+            </div>
+            <div className="space-y-1.5">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-[22px] border px-4 py-3 transition-all ${
+                      isActive
+                        ? 'border-[#FFC857]/45 bg-[linear-gradient(135deg,rgba(255,200,87,0.26),rgba(255,245,220,0.98))] text-[#5D4037] shadow-[0_10px_18px_rgba(255,200,87,0.18)]'
+                        : 'border-transparent text-[#5D4037]/72 hover:border-[#5D4037]/10 hover:bg-[#5D4037]/5 hover:text-[#5D4037]'
+                    }`}
+                  >
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-2xl ${isActive ? 'bg-[#FFC857]/24 text-[#5D4037]' : 'bg-[#5D4037]/6 text-[#8D6E63]'}`}>
+                      <Icon className="h-[18px] w-[18px] flex-shrink-0" />
+                    </div>
+                    <span className="text-[15px] font-medium">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
           </nav>
 
-          <div className="p-4 border-t border-[#5D4037]/10">
-            <div className="flex items-center gap-3 px-4 py-2 mb-2">
-              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center flex-shrink-0">
-                <User className="h-4 w-4 text-white" />
+          <div className="mt-4 rounded-[28px] border border-[#5D4037]/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(255,251,240,0.92)_100%)] p-4 shadow-[0_14px_30px_rgba(93,64,55,0.10)]">
+            <div className="mb-3 flex items-center gap-3 rounded-[22px] bg-[#FFFBF0] px-4 py-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FFC857] to-[#FFB347] shadow-[0_10px_18px_rgba(255,200,87,0.22)]">
+                <User className="h-[18px] w-[18px] text-white" />
               </div>
-              <span className="text-sm font-medium truncate text-[#5D4037]" title={username}>
-                {username}
-              </span>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold tracking-[0.16em] text-[#8D6E63]/65">{'\u5f53\u524d\u7ba1\u7406\u5458'}</p>
+                <p className="truncate text-sm font-semibold text-[#5D4037]" title={username}>
+                  {username}
+                </p>
+              </div>
             </div>
 
             <button
               onClick={handleRequestLogout}
-              className="w-full flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[#5D4037]/60 hover:text-red-600 hover:bg-red-50 transition-all"
+              className="flex w-full items-center gap-3 rounded-[22px] px-4 py-3 text-[#5D4037]/72 transition-all hover:bg-[#FDECEC] hover:text-[#C65D4A] active:scale-[0.98]"
             >
-              <LogOut className="h-4 w-4 flex-shrink-0" />
-              <span className="text-sm">退出登录</span>
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#FDECEC] text-[#C65D4A]">
+                <LogOut className="h-[18px] w-[18px] flex-shrink-0" />
+              </div>
+              <span className="text-sm font-medium">{LOGOUT_TEXT}</span>
             </button>
           </div>
-          </motion.div>
+        </div>
+      </aside>
+
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="md:hidden fixed inset-0 top-0 z-40 bg-[#5D4037]/18 backdrop-blur-[2px]"
+              aria-label={CLOSE_MENU_TEXT}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -12, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="md:hidden fixed inset-x-3 bottom-3 top-[68px] z-50 overflow-hidden rounded-[28px] border border-[#5D4037]/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(255,251,240,0.96)_100%)] shadow-[0_22px_48px_rgba(93,64,55,0.16)]"
+            >
+              <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#FFC857] via-[#FFB347] to-[#FFD67E]" />
+              <nav className="flex h-full flex-col overflow-hidden p-3 pt-4">
+                <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8D6E63]/70">
+                  {NAV_GROUP_TITLE}
+                </div>
+                <div className="flex-1 space-y-1.5 overflow-y-auto pr-1">
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex items-center gap-3 rounded-[22px] border px-4 py-3 transition-all ${
+                          isActive
+                            ? 'border-[#FFC857]/45 bg-[linear-gradient(135deg,rgba(255,200,87,0.26),rgba(255,245,220,0.98))] text-[#5D4037] shadow-[0_10px_18px_rgba(255,200,87,0.18)]'
+                            : 'border-transparent text-[#5D4037]/72 hover:border-[#5D4037]/10 hover:bg-[#5D4037]/5 hover:text-[#5D4037]'
+                        }`}
+                      >
+                        <div className={`flex h-9 w-9 items-center justify-center rounded-2xl ${isActive ? 'bg-[#FFC857]/24 text-[#5D4037]' : 'bg-[#5D4037]/6 text-[#8D6E63]'}`}>
+                          <Icon className="h-[18px] w-[18px] flex-shrink-0" />
+                        </div>
+                        <span className="text-[15px] font-medium">{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 rounded-[24px] border border-[#5D4037]/10 bg-white/72 p-3 shadow-[0_12px_28px_rgba(93,64,55,0.08)]">
+                  <div className="mb-2 flex items-center gap-3 rounded-[20px] bg-[#FFFBF0] px-3 py-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FFC857] to-[#FFB347] shadow-[0_10px_18px_rgba(255,200,87,0.22)]">
+                      <User className="h-[18px] w-[18px] text-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold tracking-[0.16em] text-[#8D6E63]/65">{'\u5f53\u524d\u7ba1\u7406\u5458'}</p>
+                      <p className="truncate text-sm font-semibold text-[#5D4037]" title={username}>
+                        {username}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleRequestLogout}
+                    className="flex w-full items-center gap-3 rounded-[20px] px-3 py-3 text-[#5D4037]/72 transition-all hover:bg-[#FDECEC] hover:text-[#C65D4A]"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#FDECEC] text-[#C65D4A]">
+                      <LogOut className="h-[18px] w-[18px] flex-shrink-0" />
+                    </div>
+                    <span className="text-sm font-medium">{LOGOUT_TEXT}</span>
+                  </button>
+                </div>
+              </nav>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 
       <LogoutConfirmModal
         isOpen={showLogoutConfirm}
         isLoading={isLoggingOut}
-        title="确认退出管理后台？"
-        description="退出后将清理当前登录会话，需重新登录才能继续管理内容。"
+        title={LOGOUT_TITLE}
+        description={LOGOUT_DESCRIPTION}
         onClose={() => setShowLogoutConfirm(false)}
         onConfirm={handleConfirmLogout}
       />
     </>
   );
 }
-
-

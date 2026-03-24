@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Eye, Camera, RotateCcw } from 'lucide-react';
+import { Heart, Eye, Camera, RotateCcw, MapPin } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useGallery } from '@/lib/swr/hooks';
 import { getSessionId } from '@/lib/utils/session';
@@ -14,6 +14,7 @@ import {
   clearGalleryPageCacheStorage,
   consumeGalleryCacheDirtyFlag,
 } from '@/lib/gallery/cache-sync';
+import { getBackendRecoveryState, subscribeBackendRecovery } from '@/lib/backend-recovery';
 
 import SimpleImage from '@/components/ui/SimpleImage';
 import ImagePreview from '@/components/ImagePreview';
@@ -30,6 +31,7 @@ interface Photo {
   is_highlight?: boolean;
   sort_order?: number;
   shot_date?: string | null;
+  shot_location?: string | null;
   width: number;
   height: number;
   blurhash?: string;
@@ -50,13 +52,43 @@ interface GalleryFolder {
   name: string;
 }
 
+const ROOT_GALLERY_FOLDER_ID = '__ROOT__';
+
 const TAG_GUIDE_AUTO_DISMISS_MS = 15000;
+const GALLERY_SCROLL_LOAD_TRIGGER_PROGRESS = 0.8;
+const GALLERY_VIEWPORT_FILL_BUFFER_PX = 24;
+const TAG_WAVE_ROUNDS = 3;
+const TAG_WAVE_STEP_DELAY_MS = 380;
+const TAG_WAVE_ROUND_GAP_MS = 240;
+const TAG_WAVE_BUTTON_VARIANTS = {
+  idle: { y: 0, scale: 1 },
+  waveA: { y: [0, -4, 0], scale: [1, 1.02, 1] },
+  waveB: { y: [0, -4, 0], scale: [1, 1.02, 1] },
+};
+
+const GALLERY_LAYOUT_RATIO_MIN = 0.72;
+const GALLERY_LAYOUT_RATIO_MAX = 2.6;
+const GALLERY_RUNTIME_RATIO_MIN = 0.3;
+
+
 
 function clampPhotoAspectRatio(width: number, height: number, fallback = 1) {
   const safeWidth = Number(width || 0);
   const safeHeight = Number(height || 0);
+
+  if (safeWidth > 0 && safeHeight > 0) {
+    const ratio = safeHeight / safeWidth;
+    return Math.min(GALLERY_LAYOUT_RATIO_MAX, Math.max(GALLERY_RUNTIME_RATIO_MIN, ratio));
+  }
+
+  return Math.min(GALLERY_LAYOUT_RATIO_MAX, Math.max(GALLERY_LAYOUT_RATIO_MIN, fallback));
+}
+
+function resolveLoadedPhotoAspectRatio(width: number, height: number, fallback = 1) {
+  const safeWidth = Number(width || 0);
+  const safeHeight = Number(height || 0);
   const ratio = safeWidth > 0 && safeHeight > 0 ? safeHeight / safeWidth : fallback;
-  return Math.min(2.6, Math.max(0.72, ratio));
+  return Math.min(GALLERY_LAYOUT_RATIO_MAX, Math.max(GALLERY_RUNTIME_RATIO_MIN, ratio));
 }
 
 function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean, aspectRatio?: number) {
@@ -67,7 +99,75 @@ function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean, aspectRat
   const mediaHeight = isStoryOpen && hasStoryText
     ? 190
     : resolvedAspectRatio * 180;
-  return mediaHeight + 46;
+  return mediaHeight + 25;
+}
+
+function formatGalleryMetaDate(value: unknown) {
+  return formatDateDisplayUTC8(value, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
+function resolveGalleryShotLocation(value: unknown) {
+  const normalized = String(value ?? '').trim();
+  return normalized || '未知';
+}
+
+function normalizeGalleryFolder(folder: unknown): GalleryFolder | null {
+  if (!folder || typeof folder !== 'object') {
+    return null;
+  }
+
+  const candidate = folder as Partial<GalleryFolder>;
+  const id = String(candidate.id ?? '').trim();
+  const name = String(candidate.name ?? '').trim();
+
+  if (!id || !name) {
+    return null;
+  }
+
+  return { id, name };
+}
+
+function buildGalleryFolderList(
+  incomingFolders: unknown,
+  rootFolderName: string,
+  previousFolders: GalleryFolder[] = []
+): GalleryFolder[] {
+  const resolvedRootName = String(rootFolderName || '').trim() || '根目录';
+  const mergedFolders: GalleryFolder[] = [{ id: ROOT_GALLERY_FOLDER_ID, name: resolvedRootName }];
+  const seenIds = new Set<string>([ROOT_GALLERY_FOLDER_ID]);
+
+  const appendFolders = (source: unknown) => {
+    if (!Array.isArray(source)) {
+      return;
+    }
+
+    source.forEach((item) => {
+      const normalizedFolder = normalizeGalleryFolder(item);
+      if (!normalizedFolder) {
+        return;
+      }
+
+      if (normalizedFolder.id === ROOT_GALLERY_FOLDER_ID) {
+        return;
+      }
+
+      if (seenIds.has(normalizedFolder.id)) {
+        return;
+      }
+
+      seenIds.add(normalizedFolder.id);
+      mergedFolders.push(normalizedFolder);
+    });
+  };
+
+  appendFolders(incomingFolders);
+  appendFolders(previousFolders);
+
+  return mergedFolders;
 }
 
 const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
@@ -112,16 +212,24 @@ const clearGalleryMemoryCache = () => {
 
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const router = useRouter();
-  const [selectedFolderId, setSelectedFolderId] = useState<string>('__ROOT__');
-  const [folders, setFolders] = useState<GalleryFolder[]>([]);
-  const [rootFolderName, setRootFolderName] = useState<string>('照片集');
+  const [selectedFolderId, setSelectedFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
+  const [folders, setFolders] = useState<GalleryFolder[]>(() => buildGalleryFolderList([], '根目录'));
+  const [rootFolderName, setRootFolderName] = useState<string>('根目录');
+  const [backendState, setBackendState] = useState(getBackendRecoveryState);
   const [showTagGuide, setShowTagGuide] = useState(false);
+  const [showFolderSelector, setShowFolderSelector] = useState(false);
+  const [tempFolderId, setTempFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
+  const [isSwitchingTag, setIsSwitchingTag] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const tagGuideTimerRef = useRef<number | null>(null);
   const tagGuideShownOnceRef = useRef(false);
+  const tagWaveTimerRef = useRef<number | null>(null);
+  const tagWaveRunTokenRef = useRef(0);
+  const [tagWaveActiveIndex, setTagWaveActiveIndex] = useState(-1);
+  const [tagWaveTick, setTagWaveTick] = useState(0);
 
   const [galleryCacheToken] = useState<string>(() => {
     const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
@@ -134,9 +242,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     return `dirty-${Date.now()}`;
   });
 
+  useEffect(() => {
+    const unsubscribe = subscribeBackendRecovery(setBackendState);
+    return unsubscribe;
+  }, []);
+
   const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
   const memoryGallery =
-    initialPhotos.length > 0 || shouldForceRefreshFromDirty || selectedFolderId !== '__ROOT__'
+    initialPhotos.length > 0 || shouldForceRefreshFromDirty || selectedFolderId !== ROOT_GALLERY_FOLDER_ID
       ? null
       : readGalleryMemoryCache();
   const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
@@ -157,7 +270,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const { data, error, isLoading, mutate: refreshGallery } = useGallery(
     page,
     pageSize,
-    isInitialPage && selectedFolderId === '__ROOT__' && hydratedInitialPhotos.length > 0
+    isInitialPage && selectedFolderId === ROOT_GALLERY_FOLDER_ID && hydratedInitialPhotos.length > 0
       ? { photos: hydratedInitialPhotos, total: hydratedInitialTotal }
       : undefined,
     galleryCacheToken,
@@ -174,19 +287,35 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }, [allPhotos, total]);
 
   useEffect(() => {
+    const nextRootFolderName =
+      typeof data?.root_folder_name === 'string' && data.root_folder_name.trim()
+        ? data.root_folder_name.trim()
+        : rootFolderName;
+
+    if (nextRootFolderName !== rootFolderName) {
+      setRootFolderName(nextRootFolderName);
+    }
+
+    if (Array.isArray(data?.folders) || nextRootFolderName !== rootFolderName) {
+      setFolders((previousFolders) =>
+        buildGalleryFolderList(
+          Array.isArray(data?.folders) ? data.folders : previousFolders,
+          nextRootFolderName,
+          previousFolders
+        )
+      );
+    }
+  }, [data?.folders, data?.root_folder_name, rootFolderName]);
+
+  useEffect(() => {
     if (!data?.photos) return;
 
-    if (Array.isArray(data.folders)) {
-      setFolders(data.folders as GalleryFolder[]);
-    }
-    if (typeof data.root_folder_name === 'string' && data.root_folder_name.trim()) {
-      setRootFolderName(data.root_folder_name.trim());
-    }
-
     if (page === 1) {
+      isLoadingMoreRef.current = false;
       setAllPhotos(data.photos);
       setHasMore(data.photos.length >= pageSize && data.photos.length < data.total);
       setIsLoadingMore(false);
+      setIsSwitchingTag(false);
       return;
     }
 
@@ -194,26 +323,29 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       const existingIds = new Set(prev.map(p => p.id));
       const newPhotos = data.photos.filter((p: Photo) => !existingIds.has(p.id));
       const updatedPhotos = [...prev, ...newPhotos];
-      // 修复边界条件：当新加载的照片数量少于pageSize时，说明没有更多照片了
       setHasMore(data.photos.length >= pageSize && updatedPhotos.length < data.total);
       return updatedPhotos;
     });
     setIsLoadingMore(false);
-  }, [data, page, pageSize]);
+  }, [data?.photos, data?.total, page, pageSize]);
 
   useEffect(() => {
+    if (!error) {
+      return;
+    }
+
     isLoadingMoreRef.current = false;
-    setPage(1);
-    setAllPhotos([]);
-    setHasMore(true);
     setIsLoadingMore(false);
-    setStoryOpenMap({});
+    setIsSwitchingTag(false);
+  }, [error]);
+
+  useEffect(() => {
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
   }, [selectedFolderId]);
 
   // 缓存首页照片墙数据，用于下次进入秒开
   useEffect(() => {
-    if (selectedFolderId !== '__ROOT__') return;
+    if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
     if (page !== 1) return;
     if (!data?.photos || data.photos.length === 0) return;
 
@@ -233,7 +365,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   // 无初始数据时尝试读取本地缓存，避免反复进入加载动画
   useEffect(() => {
-    if (selectedFolderId !== '__ROOT__') return;
+    if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
     if (memoryGallery && memoryGallery.photos.length > 0) return;
     if (initialPhotos.length > 0) return;
     if (allPhotos.length > 0) return;
@@ -257,12 +389,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
   }, [initialPhotos.length, allPhotos.length, selectedFolderId]);
 
-  useEffect(() => {
-    isLoadingMoreRef.current = isLoadingMore;
-  }, [isLoadingMore]);
-
   const requestNextPage = useCallback(() => {
-    if (isLoadingMoreRef.current || !hasMore) {
+    if (isLoading || isLoadingMoreRef.current || !hasMore) {
       return false;
     }
 
@@ -270,7 +398,33 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setIsLoadingMore(true);
     setPage((prev) => prev + 1);
     return true;
-  }, [hasMore]);
+  }, [hasMore, isLoading]);
+
+  const evaluateScrollPagination = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || isLoading || isLoadingMoreRef.current || !hasMore) {
+      return false;
+    }
+
+    const scrollTop = Number(scrollContainer.scrollTop || 0);
+    const viewportHeight = Number(scrollContainer.clientHeight || 0);
+    const pageHeight = Number(scrollContainer.scrollHeight || 0);
+
+    if (!(viewportHeight > 0) || !(pageHeight > 0)) {
+      return false;
+    }
+
+    if (pageHeight <= viewportHeight + GALLERY_VIEWPORT_FILL_BUFFER_PX) {
+      return requestNextPage();
+    }
+
+    const scrollProgress = (scrollTop + viewportHeight) / pageHeight;
+    if (scrollProgress >= GALLERY_SCROLL_LOAD_TRIGGER_PROGRESS) {
+      return requestNextPage();
+    }
+
+    return false;
+  }, [hasMore, isLoading, requestNextPage]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -278,50 +432,42 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       return;
     }
 
-    let ticking = false;
+    let rafId = 0;
     const handleScroll = () => {
-      if (ticking) {
+      if (rafId) {
         return;
       }
 
-      ticking = true;
-      window.requestAnimationFrame(() => {
-        ticking = false;
-        if (isLoadingMoreRef.current || !hasMore) {
-          return;
-        }
-
-        const remaining = scrollContainer.scrollHeight - (scrollContainer.scrollTop + scrollContainer.clientHeight);
-        if (remaining <= 420) {
-          requestNextPage();
-        }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        evaluateScrollPagination();
       });
     };
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll();
 
-    return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [hasMore, requestNextPage, selectedFolderId]);
+    return () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      scrollContainer.removeEventListener('scroll', handleScroll);
+    };
+  }, [evaluateScrollPagination, selectedFolderId]);
 
   useEffect(() => {
     if (isLoading || isLoadingMore || !hasMore || photos.length === 0) {
       return;
     }
 
-    const rafId = window.requestAnimationFrame(() => {
-      const scrollContainer = scrollContainerRef.current;
-      if (!scrollContainer) {
-        return;
-      }
+    const timer = window.setTimeout(() => {
+      evaluateScrollPagination();
+    }, 120);
 
-      if (scrollContainer.scrollHeight <= scrollContainer.clientHeight + 180) {
-        requestNextPage();
-      }
-    });
+    return () => window.clearTimeout(timer);
+  }, [evaluateScrollPagination, hasMore, isLoading, isLoadingMore, photos.length, selectedFolderId]);
 
-    return () => window.cancelAnimationFrame(rafId);
-  }, [hasMore, isLoading, isLoadingMore, photos.length, requestNextPage, selectedFolderId]);
+
 
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
@@ -425,28 +571,143 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   };
 
 
-  const galleryFolders = useMemo<GalleryFolder[]>(() => {
-    return [{ id: '__ROOT__', name: rootFolderName }, ...folders];
-  }, [folders, rootFolderName]);
+  const tagFolders = useMemo<GalleryFolder[]>(() => {
+    return folders;
+  }, [folders]);
+
+  const selectorFolders = useMemo<GalleryFolder[]>(() => {
+    return folders;
+  }, [folders]);
+
+  const clearTagWaveTimer = useCallback(() => {
+    tagWaveRunTokenRef.current += 1;
+    if (tagWaveTimerRef.current) {
+      window.clearTimeout(tagWaveTimerRef.current);
+      tagWaveTimerRef.current = null;
+    }
+    setTagWaveActiveIndex(-1);
+    setTagWaveTick(0);
+  }, []);
+
+  const startTagWaveAnimation = useCallback(() => {
+    clearTagWaveTimer();
+    const folderCount = tagFolders.length;
+    if (folderCount <= 0) {
+      return;
+    }
+
+    const runToken = tagWaveRunTokenRef.current;
+    let round = 0;
+    let index = 0;
+    let tick = 0;
+
+    const schedule = (delayMs: number, task: () => void) => {
+      tagWaveTimerRef.current = window.setTimeout(() => {
+        if (runToken !== tagWaveRunTokenRef.current) {
+          return;
+        }
+        task();
+      }, delayMs);
+    };
+
+    const triggerNext = () => {
+      if (runToken !== tagWaveRunTokenRef.current) {
+        return;
+      }
+
+      if (round >= TAG_WAVE_ROUNDS) {
+        setTagWaveActiveIndex(-1);
+        setTagWaveTick(0);
+        tagWaveTimerRef.current = null;
+        return;
+      }
+
+      tick = tick === 1 ? 0 : 1;
+      const nextIndex = index;
+      index += 1;
+
+      let nextDelay = TAG_WAVE_STEP_DELAY_MS;
+      if (index >= folderCount) {
+        index = 0;
+        round += 1;
+        if (round < TAG_WAVE_ROUNDS) {
+          nextDelay += TAG_WAVE_ROUND_GAP_MS;
+        }
+      }
+
+      setTagWaveActiveIndex(nextIndex);
+      setTagWaveTick(tick);
+      schedule(nextDelay, triggerNext);
+    };
+
+    setTagWaveActiveIndex(-1);
+    schedule(120, triggerNext);
+  }, [clearTagWaveTimer, tagFolders.length]);
 
   const dismissTagGuide = useCallback(() => {
     if (tagGuideTimerRef.current) {
       window.clearTimeout(tagGuideTimerRef.current);
       tagGuideTimerRef.current = null;
     }
+    clearTagWaveTimer();
     setShowTagGuide(false);
-  }, []);
+  }, [clearTagWaveTimer]);
 
   const handleSwitchFolder = useCallback(
     (folderId: string) => {
       dismissTagGuide();
-      setSelectedFolderId((current) => {
-        const next = String(folderId || '__ROOT__').trim() || '__ROOT__';
-        return current === next ? current : next;
-      });
+      const nextFolderId = String(folderId || ROOT_GALLERY_FOLDER_ID).trim() || ROOT_GALLERY_FOLDER_ID;
+      if (nextFolderId === selectedFolderId) {
+        return;
+      }
+
+      isLoadingMoreRef.current = false;
+      setIsSwitchingTag(true);
+      setPage(1);
+      setAllPhotos([]);
+      setHasMore(true);
+      setIsLoadingMore(false);
+      setStoryOpenMap({});
+      setPhotoAspectRatioMap({});
+      setPreviewPhoto(null);
+      setFullscreenPhoto(null);
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+      setSelectedFolderId(nextFolderId);
     },
-    [dismissTagGuide]
+    [dismissTagGuide, selectedFolderId]
   );
+
+  const openFolderSelector = useCallback(() => {
+    dismissTagGuide();
+    setTempFolderId(selectedFolderId);
+
+    const targetButton = folderButtonRefs.current[selectedFolderId];
+    if (targetButton) {
+      targetButton.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+    }
+
+    setShowFolderSelector(true);
+  }, [dismissTagGuide, selectedFolderId]);
+
+  const closeFolderSelector = useCallback(() => {
+    setShowFolderSelector(false);
+    setTempFolderId(selectedFolderId);
+  }, [selectedFolderId]);
+
+  const handleResetFolderSelector = useCallback(() => {
+    setTempFolderId(ROOT_GALLERY_FOLDER_ID);
+  }, []);
+
+  const handleApplyFolderSelector = useCallback(() => {
+    setShowFolderSelector(false);
+    if (tempFolderId !== selectedFolderId) {
+      handleSwitchFolder(tempFolderId);
+    }
+  }, [handleSwitchFolder, selectedFolderId, tempFolderId]);
 
   const setFolderButtonRef = useCallback(
     (folderId: string) => (node: HTMLButtonElement | null) => {
@@ -466,20 +727,20 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       inline: 'center',
       block: 'nearest',
     });
-  }, [selectedFolderId, galleryFolders.length]);
+  }, [selectedFolderId, tagFolders.length]);
 
   useEffect(() => {
     dismissTagGuide();
 
-    if (tagGuideShownOnceRef.current || isLoading || isLoadingMore || galleryFolders.length <= 1) {
+    if (tagGuideShownOnceRef.current || isLoading || isLoadingMore || tagFolders.length <= 1) {
       return;
     }
 
     tagGuideShownOnceRef.current = true;
     setShowTagGuide(true);
+    startTagWaveAnimation();
     tagGuideTimerRef.current = window.setTimeout(() => {
-      setShowTagGuide(false);
-      tagGuideTimerRef.current = null;
+      dismissTagGuide();
     }, TAG_GUIDE_AUTO_DISMISS_MS);
 
     return () => {
@@ -487,11 +748,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         window.clearTimeout(tagGuideTimerRef.current);
         tagGuideTimerRef.current = null;
       }
+      clearTagWaveTimer();
     };
-  }, [dismissTagGuide, galleryFolders.length, isLoading, isLoadingMore]);
+  }, [clearTagWaveTimer, dismissTagGuide, tagFolders.length, isLoading, isLoadingMore, startTagWaveAnimation]);
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
-    const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 1);
+    const nextRatio = resolveLoadedPhotoAspectRatio(dimensions.width, dimensions.height, 1);
     setPhotoAspectRatioMap((prev) => {
       const currentRatio = prev[photoId];
       if (typeof currentRatio === 'number' && Math.abs(currentRatio - nextRatio) < 0.01) {
@@ -509,7 +771,16 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     [photoAspectRatioMap]
   );
 
-  const showPageLoading = isLoading && allPhotos.length === 0;
+  
+
+  const loadingTitle = backendState.backendReconnecting || isSwitchingTag ? '时光中...' : '加载中...';
+  const loadingDescription = backendState.backendReconnecting
+    ? '重连服务器中，请等待'
+    : isSwitchingTag
+      ? '正在切换照片标签'
+      : '正在加载照片墙';
+
+  const showPageLoading = (isLoading && allPhotos.length === 0) || isSwitchingTag;
 
   const galleryMasonryItems = useMemo(
     () => photos.map((photo, index) => ({ photo, index })),
@@ -538,39 +809,41 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   if (showPageLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#FFFBF0] px-6">
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="flex flex-col items-center gap-6"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="flex flex-col items-center gap-5"
         >
-          <div className="relative">
+          <div className="relative h-24 w-24">
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+              className="absolute inset-0 rounded-full border-[5px] border-[#FFC857]/30 border-t-[#FFC857]"
             />
             <motion.div
               animate={{ rotate: -360 }}
               transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+              className="absolute inset-[12px] rounded-full border-[5px] border-[#5D4037]/20 border-b-[#5D4037]"
             />
             <div className="absolute inset-0 flex items-center justify-center">
-              <Camera className="w-8 h-8 text-[#FFC857]" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#FFFBF0] shadow-[0_4px_14px_rgba(93,64,55,0.08)]">
+                <Camera className="h-7 w-7 text-[#FFC857]" />
+              </div>
             </div>
           </div>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
+            transition={{ delay: 0.2 }}
             className="text-center"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
+            <p className="mb-1.5 text-[20px] font-extrabold text-[#5D4037]">
+              {loadingTitle}
             </p>
-            <p className="text-sm text-[#5D4037]/60">
-              正在加载照片墙
+            <p className="text-[13px] text-[#5D4037]/60">
+              {loadingDescription}
             </p>
           </motion.div>
         </motion.div>
@@ -586,14 +859,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 pt-3 pb-3">
+        <div className="px-4 pt-[11px] pb-[10px]">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>照片墙</h1>
-              <p className="mt-1 text-[11px] font-bold tracking-[0.08em] text-[#8D6E63]/70">拾光流转，记录此刻的不期而遇</p>
+              <h1 className="truncate text-xl font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+                照片墙
+              </h1>
             </div>
-            <div className="inline-flex max-w-[160px] flex-shrink-0 items-center justify-center rounded-full bg-[#FFC857]/28 px-3 py-1 text-[10px] font-bold text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.42)]">
-              📸 贩卖人间路过的温柔 📸
+            <div className="inline-flex shrink-0 items-center rounded-full bg-[#FFC857]/24 px-[10px] py-[5px] text-[10px] font-bold leading-none text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]">
+              ✨ 贩卖人间路过的温柔 ✨
             </div>
           </div>
         </div>
@@ -601,10 +875,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
       {/* 滚动区域 */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-20 gallery-scroll-container">
-        <div className="sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0]/96 backdrop-blur-md">
-          <div className="px-3 py-2">
-            <div className="flex min-h-[46px] items-start gap-2">
-              <div className={`relative min-w-0 flex-1 bg-[#FFFBF0] ${showTagGuide ? 'pt-[38px]' : ''}`}>
+        <div className="sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0]">
+          <div className="px-[3px] py-0">
+            <div className={`flex min-h-[46px] gap-1 ${showTagGuide ? 'items-start' : 'items-center'}`}>
+              <div className={`relative min-w-0 flex-1 border-x border-[#FFFBF0] bg-[#FFFBF0] ${showTagGuide ? 'pt-[36px]' : ''}`}>
                 <AnimatePresence>
                   {showTagGuide && (
                     <motion.button
@@ -614,52 +888,66 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       exit={{ opacity: 0, y: -6, scale: 0.98 }}
                       transition={{ duration: 0.18 }}
                       onClick={dismissTagGuide}
-                      className="absolute left-0 top-0 z-[3] inline-flex h-[30px] max-w-[220px] items-center rounded-[12px] bg-[#5D4037] px-3 text-left shadow-[0_8px_20px_rgba(93,64,55,0.28)]"
+                      className="compact-button absolute left-0 top-0 z-[3] inline-flex h-[26px] max-w-[190px] items-center rounded-[7px] bg-[#5D4037] px-[9px] text-left shadow-[0_5px_12px_rgba(93,64,55,0.28)]"
                     >
-                      <span className="whitespace-nowrap text-[11px] font-semibold text-[#FFFAF0]">
+                      <span className="whitespace-nowrap text-[10px] font-semibold leading-none text-[#FFFAF0]">
                         左右滑动 / 点击标签可切换
                       </span>
-                      <span className="absolute left-4 top-[24px] h-[10px] w-[10px] rotate-45 bg-[#5D4037]" />
+                      <span className="absolute bottom-[-4px] left-[11px] h-[8px] w-[8px] rotate-45 bg-[#5D4037]" />
                     </motion.button>
                   )}
                 </AnimatePresence>
                 <div className="scrollbar-hidden overflow-x-auto whitespace-nowrap" onScroll={showTagGuide ? dismissTagGuide : undefined}>
-                  <div className="inline-flex items-center gap-2 px-[3px] py-[1px] pb-[2px]">
-                    {galleryFolders.map((folder) => (
-                      <button
-                        key={folder.id}
-                        type="button"
-                        ref={setFolderButtonRef(String(folder.id))}
-                        onClick={() => handleSwitchFolder(String(folder.id))}
-                        className={`inline-flex h-[38px] shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 text-[13px] font-bold leading-none transition-all duration-200 active:scale-[0.98] ${
-                          selectedFolderId === String(folder.id)
-                            ? 'border border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[3px_3px_0_rgba(93,64,55,0.15)]'
-                            : 'border border-dashed border-[#5D4037]/15 bg-white/60 text-[#8D6E63]/90 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
-                        }`}
-                        aria-pressed={selectedFolderId === String(folder.id)}
-                      >
-                        {folder.name}
-                      </button>
-                    ))}
+                  <div className="inline-flex items-center gap-2 px-0 py-0">
+                    {tagFolders.map((folder, index) => {
+                      const isWaveActive = showTagGuide && tagWaveActiveIndex === index;
+                      return (
+                        <motion.button
+                          key={folder.id}
+                          type="button"
+                          ref={setFolderButtonRef(String(folder.id))}
+                          onClick={() => handleSwitchFolder(String(folder.id))}
+                          initial={false}
+                          animate={isWaveActive ? (tagWaveTick === 1 ? 'waveA' : 'waveB') : 'idle'}
+                          variants={TAG_WAVE_BUTTON_VARIANTS}
+                          className={`tag-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border-2 px-2 py-0.5 text-xs font-bold leading-none transition-all duration-200 active:scale-[0.98] md:px-3 md:py-1.5 ${
+                            selectedFolderId === String(folder.id)
+                              ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0_rgba(93,64,55,0.15)]'
+                              : 'border-[#5D4037]/15 bg-white/60 text-[#5D4037]/60 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
+                          }`}
+                          aria-pressed={selectedFolderId === String(folder.id)}
+                        >
+                          {folder.name}
+                        </motion.button>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSwitchFolder('__ROOT__')}
-                className="inline-flex h-[38px] shrink-0 items-center justify-center rounded-full border border-[#5D4037] bg-[#5D4037] px-4 text-[13px] font-bold leading-none text-white transition-all duration-200 hover:bg-[#6A4B41] active:scale-[0.98]"
-              >
-                全部
-              </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={openFolderSelector}
+                  aria-haspopup="dialog"
+                  aria-expanded={showFolderSelector}
+                  className="tag-button inline-flex shrink-0 items-center justify-center rounded-full border-2 border-[#5D4037] bg-[#5D4037] px-2 py-0.5 text-xs font-bold leading-none text-white transition-all duration-200 hover:bg-[#6A4B41] active:scale-[0.98] active:opacity-92 md:px-3 md:py-1.5"
+                >
+                  全部
+                </button>
             </div>
           </div>
         </div>
 
+
         <div className="px-3 pt-3">
         {photos.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-[#5D4037]/60">暂无照片</p>
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22 }}
+            className="py-14 text-center"
+          >
+            <p className="text-[13px] text-[#5D4037]/50">暂无照片</p>
+          </motion.div>
         ) : (
           <>
             {/* 双列瀑布流布局 */}
@@ -679,7 +967,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 >
                   {/* 小红书风格卡片 */}
                   <div
-                    className={`bg-white rounded-[20px] overflow-hidden transition-all duration-300 ${
+                    className={`bg-white rounded-[12px] overflow-hidden transition-all duration-300 ${
                       isHighlighted(photo)
                         ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_16px_rgba(255,183,3,0.48),0_4px_10px_rgba(93,64,55,0.20)] translate-y-[-1px]'
                         : 'border border-transparent shadow-[0_5px_15px_rgba(93,64,55,0.10)]'
@@ -708,13 +996,37 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                             alt="照片"
                             aspectRatio={resolvePhotoAspectRatio(photo)}
                             onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
-                            className="w-full rounded-t-[20px]"
+                            className="gallery-card-image w-full"
                           />
 
-                          {/* 浏览量气泡 - 左上角 */}
-                          <div className="absolute top-[6px] left-[6px] flex items-center gap-[4px] px-[6px] py-[3px] rounded-full bg-black/40">
-                            <Eye className="w-3 h-3 text-white" />
-                            <span className="text-[10px] text-white font-bold">{photo.view_count}</span>
+                          {/* 顶部统计胶囊 */}
+                          <div className="absolute left-[6px] top-[6px] z-[3] inline-flex items-center gap-[5px] rounded-full bg-[linear-gradient(135deg,rgba(56,47,43,0.66),rgba(28,23,21,0.46))] px-[7px] py-[3px] shadow-[0_5px_12px_rgba(0,0,0,0.14)] backdrop-blur-[8px]">
+                            <span className="inline-flex items-center gap-[2px]">
+                              <Eye className="h-[9px] w-[9px] text-white/88" />
+                              <span className="text-[9px] font-semibold leading-none text-white/95">{photo.view_count}</span>
+                            </span>
+                            <span className="h-[9px] w-px bg-white/18" />
+                            <motion.button
+                              whileTap={{ scale: 0.94 }}
+                              onClick={(e) => handleLike(photo.id, e)}
+                              className="compact-button inline-flex min-h-0 appearance-none items-center gap-[2px] border-0 bg-transparent p-0 text-white/95 shadow-none outline-none transition-all duration-200 active:opacity-90"
+                              aria-label="????"
+                              title="????"
+                            >
+                              <motion.div
+                                animate={photo.is_liked ? { scale: [1, 1.16, 1] } : {}}
+                                transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                              >
+                                <Heart
+                                  className={`h-[9px] w-[9px] transition-all duration-300 ${
+                                    photo.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : 'text-white/80'
+                                  }`}
+                                />
+                              </motion.div>
+                              <span className="text-[9px] font-semibold leading-none text-white/95">
+                                {photo.like_count}
+                              </span>
+                            </motion.button>
                           </div>
 
                         </div>
@@ -723,16 +1035,16 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       {hasStory(photo) && (
                         <button
                           onClick={(e) => toggleStoryCard(photo.id, e)}
-                          className={`absolute top-[5px] right-[5px] w-[26px] h-[26px] rounded-full backdrop-blur-sm border flex items-center justify-center transition-all ${
+                          className={`absolute right-[5px] top-[5px] flex h-[25px] w-[25px] items-center justify-center rounded-full border backdrop-blur-sm transition-all active:scale-95 ${
                             isHighlighted(photo)
                               ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border-[1.5px] border-[#5D4037]/45 text-[#5D4037] shadow-[0_0_0_1px_rgba(255,229,156,0.9),0_5px_12px_rgba(255,183,3,0.55)] animate-pulse'
                               : 'bg-black/38 border border-white/45 text-white'
                           }`}
-                          aria-label="查看关于此刻"
-                          title="关于此刻"
+                          aria-label="查看此刻"
+                          title="查看此刻"
                         >
                           <RotateCcw
-                            className={`w-[14px] h-[14px] transition-transform duration-200 ${
+                            className={`h-[13px] w-[13px] transition-transform duration-200 ${
                               storyOpenMap[photo.id] ? 'rotate-180' : ''
                             } ${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
                           />
@@ -740,34 +1052,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       )}
                     </div>
 
-                    {/* ???? */}
-                    <div className="px-2.5 pb-2 pt-1.5">
-                      <div className="flex min-h-[18px] items-center justify-between gap-2">
-                        <motion.button
-                          whileTap={{ scale: 0.85 }}
-                          onClick={(e) => handleLike(photo.id, e)}
-                          className="compact-button inline-flex items-center gap-1 rounded-full py-0.5 pr-1 leading-none"
-                        >
-                          <motion.div
-                            animate={photo.is_liked ? { scale: [1, 1.4, 1] } : {}}
-                            transition={{ duration: 0.4, ease: 'easeOut' }}
-                          >
-                            <Heart
-                              className={`h-[13px] w-[13px] transition-all duration-300 ${
-                                photo.is_liked ? 'fill-[#FFC857] text-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.4)]' : 'text-[#8D6E63]/60'
-                              }`}
-                            />
-                          </motion.div>
-                          <span className="text-[10px] font-medium leading-none text-[#8D6E63]/90">{photo.like_count}</span>
-                        </motion.button>
-
-                        <div className="shrink-0 text-right text-[10px] leading-none text-[#8D6E63]/70">
-                          {formatDateDisplayUTC8(photo.shot_date || photo.created_at, {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit'
-                          })}
+                    {/* 底部信息白框：对标微信小程序 */}
+                    <div className="px-[6px] pt-[5px] pb-[5px] leading-none">
+                      <div className="flex h-[10px] w-full items-center justify-between gap-[6px] overflow-hidden">
+                        <div className="min-w-0 flex flex-1 items-center gap-[2px] overflow-hidden">
+                          <MapPin className="h-[9px] w-[9px] shrink-0 text-[#FFC857]" strokeWidth={2.2} />
+                          <span className="truncate whitespace-nowrap text-[9px] leading-none text-[#8D6E63]/84">
+                            {resolveGalleryShotLocation(photo.shot_location)}
+                          </span>
                         </div>
+                        <span className="ml-[6px] shrink-0 whitespace-nowrap text-[9px] leading-none text-[#8D6E63]/68">
+                          {formatGalleryMetaDate(photo.shot_date || photo.created_at) || '--'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -782,21 +1078,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex justify-center items-center gap-3 mt-6 mb-4"
+                className="mt-6 flex items-center justify-center gap-3"
               >
-                <div className="relative w-10 h-10">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                    className="absolute inset-0 rounded-full border-[2.5px] border-[#FFC857]/30 border-t-[#FFC857]"
-                  />
-                  <motion.div
-                    animate={{ rotate: -360 }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                    className="absolute inset-[6px] rounded-full border-[2.5px] border-[#5D4037]/20 border-b-[#5D4037]"
-                  />
-                </div>
-                <p className="text-sm text-[#5D4037]/60 font-bold">拾光中...</p>
+                <div className="h-5 w-5 animate-spin rounded-full border-[3px] border-[#FFC857]/40 border-t-[#FFC857]" />
+                <p className="text-[13px] font-bold text-[#5D4037]/60">拾光中...</p>
               </motion.div>
             )}
 
@@ -805,15 +1090,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="text-center mt-6 mb-4"
+                className="mt-6 text-center"
               >
-                <p className="text-sm text-[#5D4037]/40">✨ 已经到底啦 ✨</p>
+                <p className="text-[13px] text-[#5D4037]/40">✨ 已经到底啦 ✨</p>
               </motion.div>
             )}
           </>
         )}
       </div>
-    </div>
+      </div>
 
       <AnimatePresence>
         {previewPhoto && (
@@ -857,20 +1142,32 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                 {/* 信息区域 */}
                 <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
-                  <div className="flex items-center justify-center gap-6 text-[#5D4037] mb-3">
-                    <div className="flex items-center gap-2">
-                      <Eye className="w-4 h-4" />
-                      <span className="text-sm font-medium">{previewPhoto.view_count} 次浏览</span>
+                  <div className="mb-3 flex items-center justify-center gap-3 text-[#5D4037]">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-[#5D4037]/6 px-3 py-2 text-[#5D4037]/82">
+                      <Eye className="h-4 w-4" />
+                      <span className="text-sm font-medium">{previewPhoto.view_count} {'\u6b21\u6d4f\u89c8'}</span>
                     </div>
-                    <button
+                    <motion.button
+                      whileTap={{ scale: 0.97 }}
+                      whileHover={{ y: -1 }}
                       onClick={(e) => handleLike(previewPhoto.id, e)}
-                      className="flex items-center gap-2 hover:scale-105 active:scale-95 transition-transform"
+                      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 shadow-[0_8px_20px_rgba(93,64,55,0.10)] transition-all ${
+                        previewPhoto.is_liked
+                          ? 'border-[#FFD76E] bg-[linear-gradient(135deg,#FFE39A,#FFC857)] text-[#5D4037]'
+                          : 'border-[#FFC857]/55 bg-[linear-gradient(135deg,#FFF8E4,#FFFDF7)] text-[#5D4037] hover:border-[#FFC857] hover:bg-[linear-gradient(135deg,#FFF1C5,#FFF8E4)]'
+                      }`}
+                      aria-label={previewPhoto.is_liked ? '\u5df2\u70b9\u8d5e' : '\u70b9\u4e2a\u8d5e'}
+                      title={previewPhoto.is_liked ? '\u5df2\u70b9\u8d5e' : '\u70b9\u4e2a\u8d5e'}
                     >
-                      <Heart className={`w-4 h-4 ${previewPhoto.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : ''}`} />
-                      <span className="text-sm font-medium">{previewPhoto.like_count} 次点赞</span>
-                    </button>
+                      <Heart className={`h-4 w-4 ${previewPhoto.is_liked ? 'fill-[#5D4037] text-[#5D4037]' : 'text-[#C97A51]'}`} />
+                      <span className="text-sm font-semibold">{previewPhoto.is_liked ? '\u5df2\u70b9\u8d5e' : '\u70b9\u4e2a\u8d5e'}</span>
+                      <span className={`rounded-full px-2 py-[2px] text-[11px] font-bold leading-none ${
+                        previewPhoto.is_liked ? 'bg-white/40 text-[#5D4037]' : 'bg-[#FFC857]/18 text-[#8D6E63]'
+                      }`}>
+                        {previewPhoto.like_count}
+                      </span>
+                    </motion.button>
                   </div>
-
                   {/* 关闭按钮 */}
                   <button
                     onClick={() => setPreviewPhoto(null)}
@@ -886,6 +1183,88 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       </AnimatePresence>
 
       {/* 全屏高清预览（支持缩放/拖拽/滑动/长按下载） */}
+      <AnimatePresence>
+        {showFolderSelector && (
+          <>
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              onClick={closeFolderSelector}
+              aria-label="关闭全部筛选"
+              className="fixed inset-0 z-40 bg-[#5D4037]/18 backdrop-blur-[2px]"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -12, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-x-3 top-[118px] z-50 mx-auto max-w-[420px]"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="overflow-hidden rounded-[20px] border border-[#5D4037]/8 bg-[#FFFDF7] shadow-[0_18px_44px_rgba(93,64,55,0.18)]"
+              >
+                <div className="flex items-center justify-between border-b border-[#5D4037]/6 px-4 py-3">
+                  <div>
+                    <h3 className="text-[15px] font-bold text-[#5D4037]">全部筛选</h3>
+                    <p className="mt-1 text-[11px] text-[#8D6E63]/72">选择你想看的标签分类</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeFolderSelector}
+                    aria-label="关闭全部筛选"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-[#5D4037]/8 text-[20px] leading-none text-[#5D4037] transition-colors hover:bg-[#5D4037]/12"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="max-h-[50vh] overflow-y-auto px-4 py-4">
+                  <p className="mb-3 text-[12px] font-semibold text-[#8D6E63]/80">标签</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectorFolders.map((folder) => {
+                      const isActive = tempFolderId === String(folder.id);
+                      return (
+                        <button
+                          key={`selector-${folder.id}`}
+                          type="button"
+                          onClick={() => setTempFolderId(String(folder.id))}
+                          className={`inline-flex min-h-[32px] items-center justify-center rounded-full px-3 text-[12px] font-semibold leading-none transition-all duration-200 active:scale-[0.98] ${
+                            isActive
+                              ? 'border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.12)]'
+                              : 'border-[1.5px] border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:border-[#5D4037]/28 hover:text-[#5D4037]'
+                          }`}
+                        >
+                          {folder.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex gap-2 border-t border-[#5D4037]/6 bg-white/55 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={handleResetFolderSelector}
+                    className="flex-1 rounded-full bg-[#5D4037]/8 px-4 py-[10px] text-[12px] font-semibold text-[#5D4037] transition-colors hover:bg-[#5D4037]/12"
+                  >
+                    重置
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApplyFolderSelector}
+                    className="flex-1 rounded-full bg-[#5D4037] px-4 py-[10px] text-[12px] font-semibold text-white transition-colors hover:bg-[#6A4B41]"
+                  >
+                    确定
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <ImagePreview
         images={allPhotos.map((photo) => photo.preview_url)}
         downloadUrls={allPhotos.map((photo) => photo.original_url || photo.preview_url)}

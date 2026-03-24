@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart, RotateCcw } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
@@ -36,15 +36,24 @@ interface Photo {
   thumbnail_url: string;  // 速览图 URL (300px, ~100KB)
   preview_url: string;    // 高质量预览 URL (1200px, ~500KB)
   original_url: string;   // 原图 URL (完整质量)
+  thumbnail_url_resolved?: string;
+  preview_url_resolved?: string;
+  original_url_resolved?: string;
+  card_url_resolved?: string;
+  fullscreen_url_resolved?: string;
   story_text?: string | null;
   has_story?: boolean;
   is_highlight?: boolean;
+  story_open?: boolean;
+  story_highlight?: boolean;
   width: number;
   height: number;
   is_public: boolean;
   blurhash?: string;
   rating?: number;
   comments?: Comment[];
+  __ratio?: number;
+  __media_padding_top?: string;
 }
 
 interface AlbumData {
@@ -65,6 +74,16 @@ interface AlbumData {
 }
 
 const ALBUM_PAGE_SIZE = 20;
+const ALBUM_SELECT_ALL_MAX_PAGES = 200;
+const ALBUM_FOLDER_GUIDE_AUTO_DISMISS_MS = 15000;
+const ALBUM_FOLDER_WAVE_ROUNDS = 3;
+const ALBUM_FOLDER_WAVE_STEP_DELAY_MS = 380;
+const ALBUM_FOLDER_WAVE_ROUND_GAP_MS = 240;
+const ALBUM_FOLDER_BUTTON_VARIANTS = {
+  idle: { y: 0, scale: 1 },
+  waveA: { y: [0, -4, 0], scale: [1, 1.02, 1] },
+  waveB: { y: [0, -4, 0], scale: [1, 1.02, 1] },
+};
 
 function clampPhotoAspectRatio(width: number, height: number, fallback = 4 / 3) {
   const safeWidth = Number(width || 0);
@@ -73,12 +92,95 @@ function clampPhotoAspectRatio(width: number, height: number, fallback = 4 / 3) 
   return Math.min(2.8, Math.max(0.72, ratio));
 }
 
-function estimateAlbumCardHeight(photo: Photo, isStoryOpen: boolean) {
+function resolveAlbumPhotoRatio(photo: Photo, ratioMap?: Record<string, number>) {
+  const id = photo?.id ? String(photo.id) : '';
+  const runtimeRatio = id && ratioMap ? Number(ratioMap[id] || 0) : 0;
+  if (runtimeRatio > 0) {
+    return clampPhotoAspectRatio(1, runtimeRatio, 4 / 3);
+  }
+
+  const photoRatio = Number(photo?.__ratio || 0);
+  if (photoRatio > 0) {
+    return clampPhotoAspectRatio(1, photoRatio, 4 / 3);
+  }
+
+  return clampPhotoAspectRatio(photo.width, photo.height, 4 / 3);
+}
+
+function resolveAlbumPhotoListRatios(list: Photo[], ratioMap?: Record<string, number>) {
+  const source = Array.isArray(list) ? list : [];
+  let changed = false;
+
+  const next = source.map((photo) => {
+    const nextRatio = resolveAlbumPhotoRatio(photo, ratioMap);
+    const nextPaddingTop = `${nextRatio * 100}%`;
+    if (
+      Math.abs(Number(photo?.__ratio || 0) - nextRatio) < 0.001 &&
+      String(photo?.__media_padding_top || '') === nextPaddingTop
+    ) {
+      return photo;
+    }
+
+    changed = true;
+    return {
+      ...photo,
+      __ratio: nextRatio,
+      __media_padding_top: nextPaddingTop,
+    };
+  });
+
+  return changed ? next : source;
+}
+
+function normalizeAlbumPhoto(photo: Photo): Photo {
+  const thumbnailUrl = String(photo?.thumbnail_url || '').trim();
+  const previewUrl = String(photo?.preview_url || '').trim();
+  const originalUrl = String(photo?.original_url || '').trim();
+  const storyText = String(photo?.story_text || '').trim();
+  const hasStory = Boolean(storyText);
+  const isHighlight = Boolean(photo?.is_highlight);
+  const ratio = resolveAlbumPhotoRatio(photo);
+
+  return {
+    ...photo,
+    thumbnail_url_resolved: thumbnailUrl,
+    preview_url_resolved: previewUrl,
+    original_url_resolved: originalUrl,
+    card_url_resolved: thumbnailUrl || previewUrl || originalUrl,
+    fullscreen_url_resolved: originalUrl || previewUrl || thumbnailUrl,
+    story_text: storyText,
+    has_story: hasStory,
+    story_open: false,
+    story_highlight: hasStory || isHighlight,
+    __ratio: ratio,
+    __media_padding_top: `${ratio * 100}%`,
+  };
+}
+
+function estimateAlbumCardHeight(photo: Photo, isStoryOpen: boolean, ratioMap?: Record<string, number>) {
   const hasStoryText = Boolean(String(photo.story_text || '').trim());
   const mediaHeight = isStoryOpen && hasStoryText
     ? 220
-    : clampPhotoAspectRatio(photo.width, photo.height, 4 / 3) * 180;
-  return mediaHeight + 64;
+    : resolveAlbumPhotoRatio(photo, ratioMap) * 180;
+  return mediaHeight + 38;
+}
+
+function buildAlbumExpiryNotice(expiresAt?: string | null) {
+  if (!expiresAt) {
+    return '✨ 当前空间内照片默认保留 7 天，请及时下载保存。';
+  }
+
+  const expiryDate = parseDateTimeUTC8(expiresAt);
+  if (!expiryDate) {
+    return '✨ 当前空间内照片默认保留 7 天，请及时下载保存。';
+  }
+
+  const daysLeft = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  if (daysLeft > 0) {
+    return `✨ 当前空间还可查看 ${daysLeft} 天，请及时下载保存。`;
+  }
+
+  return '✨ 当前空间有效期已结束，照片已不可查看。';
 }
 
 export default function AlbumDetailPage() {
@@ -107,6 +209,8 @@ export default function AlbumDetailPage() {
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
+  const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
+  const [showFolderGuide, setShowFolderGuide] = useState(false);
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
@@ -114,10 +218,17 @@ export default function AlbumDetailPage() {
   const [previewPhotoPool, setPreviewPhotoPool] = useState<Photo[] | null>(null);
   const photosRef = useRef<Photo[]>([]);
   const photoScrollRef = useRef<HTMLDivElement | null>(null);
+  const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const loadingMoreRef = useRef(false);
   const photoLoadTokenRef = useRef(0);
   const previewPhotoLoadTokenRef = useRef(0);
+  const folderGuideTimerRef = useRef<number | null>(null);
+  const folderGuideShownOnceRef = useRef(false);
+  const folderWaveTimerRef = useRef<number | null>(null);
+  const folderWaveRunTokenRef = useRef(0);
   const selectedFolderRef = useRef(selectedFolder);
+  const [folderWaveActiveIndex, setFolderWaveActiveIndex] = useState(-1);
+  const [folderWaveTick, setFolderWaveTick] = useState(0);
 
   const markGalleryDirty = () => {
     markGalleryCacheDirty();
@@ -127,6 +238,91 @@ export default function AlbumDetailPage() {
       { revalidate: false }
     );
   };
+
+  const folderTabs = useMemo<Folder[]>(() => {
+    return [{ id: 'all', name: '原图' }, ...(albumData?.folders ?? [])];
+  }, [albumData]);
+
+  const clearFolderWaveTimer = useCallback(() => {
+    folderWaveRunTokenRef.current += 1;
+    if (folderWaveTimerRef.current) {
+      window.clearTimeout(folderWaveTimerRef.current);
+      folderWaveTimerRef.current = null;
+    }
+    setFolderWaveActiveIndex(-1);
+    setFolderWaveTick(0);
+  }, []);
+
+  const startFolderWaveAnimation = useCallback(() => {
+    clearFolderWaveTimer();
+    const folderCount = folderTabs.length;
+    if (folderCount <= 0) {
+      return;
+    }
+
+    const runToken = folderWaveRunTokenRef.current;
+    let round = 0;
+    let index = 0;
+    let tick = 0;
+
+    const schedule = (delayMs: number, task: () => void) => {
+      folderWaveTimerRef.current = window.setTimeout(() => {
+        if (runToken !== folderWaveRunTokenRef.current) {
+          return;
+        }
+        task();
+      }, delayMs);
+    };
+
+    const triggerNext = () => {
+      if (runToken !== folderWaveRunTokenRef.current) {
+        return;
+      }
+
+      if (round >= ALBUM_FOLDER_WAVE_ROUNDS) {
+        setFolderWaveActiveIndex(-1);
+        setFolderWaveTick(0);
+        folderWaveTimerRef.current = null;
+        return;
+      }
+
+      tick = tick === 1 ? 0 : 1;
+      const nextIndex = index;
+      index += 1;
+
+      let nextDelay = ALBUM_FOLDER_WAVE_STEP_DELAY_MS;
+      if (index >= folderCount) {
+        index = 0;
+        round += 1;
+        if (round < ALBUM_FOLDER_WAVE_ROUNDS) {
+          nextDelay += ALBUM_FOLDER_WAVE_ROUND_GAP_MS;
+        }
+      }
+
+      setFolderWaveActiveIndex(nextIndex);
+      setFolderWaveTick(tick);
+      schedule(nextDelay, triggerNext);
+    };
+
+    setFolderWaveActiveIndex(-1);
+    schedule(120, triggerNext);
+  }, [clearFolderWaveTimer, folderTabs.length]);
+
+  const dismissFolderGuide = useCallback(() => {
+    if (folderGuideTimerRef.current) {
+      window.clearTimeout(folderGuideTimerRef.current);
+      folderGuideTimerRef.current = null;
+    }
+    clearFolderWaveTimer();
+    setShowFolderGuide(false);
+  }, [clearFolderWaveTimer]);
+
+  const setFolderButtonRef = useCallback(
+    (folderId: string) => (node: HTMLButtonElement | null) => {
+      folderButtonRefs.current[folderId] = node;
+    },
+    []
+  );
 
   const incrementPhotoViewCount = async (photoId: string) => {
     const id = String(photoId || '').trim();
@@ -187,14 +383,16 @@ export default function AlbumDetailPage() {
       if (loadToken !== previewPhotoLoadTokenRef.current) return;
 
       const payload = (data && typeof data === 'object') ? (data as Partial<AlbumData>) : null;
-      const nextPhotos = Array.isArray(payload?.photos) ? (payload.photos as Photo[]) : [];
+      const nextPhotos = Array.isArray(payload?.photos)
+        ? resolveAlbumPhotoListRatios((payload.photos as Photo[]).map(normalizeAlbumPhoto), photoAspectRatioMap)
+        : [];
       if (nextPhotos.length > 0) {
         setPreviewPhotoPool(nextPhotos);
       }
     } catch {
       // ignore preview prefetch errors
     }
-  }, [normalizedAccessKey, previewPhotoPool]);
+  }, [normalizedAccessKey, photoAspectRatioMap, previewPhotoPool]);
 
   useEffect(() => {
     setIsWechat(isWechatBrowser());
@@ -316,7 +514,9 @@ export default function AlbumDetailPage() {
       }
 
       const payload = (data && typeof data === 'object') ? (data as any) : {};
-      const pageRows = Array.isArray(payload.photos) ? (payload.photos as Photo[]) : [];
+      const pageRows = Array.isArray(payload.photos)
+        ? resolveAlbumPhotoListRatios((payload.photos as Photo[]).map(normalizeAlbumPhoto), photoAspectRatioMap)
+        : [];
       const previousRows = reset ? [] : photosRef.current;
       const previousIds = new Set(previousRows.map((photo) => String(photo.id)));
       const incrementalRows = pageRows.filter((photo) => !previousIds.has(String(photo.id)));
@@ -350,6 +550,68 @@ export default function AlbumDetailPage() {
     }
   };
 
+  const loadAllPhotosForFolder = useCallback(async (folderId: string) => {
+    if (!normalizedAccessKey) {
+      return [];
+    }
+
+    const dbClient = createClient();
+    if (!dbClient) {
+      throw new Error('服务初始化失败，请刷新页面后重试');
+    }
+
+    const normalizedFolderId = String(folderId || 'all');
+    const mergedRows: Photo[] = [];
+    const loadedIds = new Set<string>();
+    let currentPage = 1;
+    let shouldContinue = true;
+
+    while (shouldContinue && currentPage <= ALBUM_SELECT_ALL_MAX_PAGES) {
+      const { data, error } = await dbClient.rpc('get_album_photo_page', {
+        input_key: normalizedAccessKey,
+        folder_id: resolveFolderRpcArg(normalizedFolderId),
+        page_no: currentPage,
+        page_size: ALBUM_PAGE_SIZE,
+      });
+
+      if (error) {
+        throw new Error(error.message || '加载失败，请稍后重试');
+      }
+
+      const payload = (data && typeof data === 'object') ? (data as any) : {};
+      const pageRows = Array.isArray(payload.photos)
+        ? resolveAlbumPhotoListRatios((payload.photos as Photo[]).map(normalizeAlbumPhoto), photoAspectRatioMap)
+        : [];
+
+      for (const photo of pageRows) {
+        const photoId = String(photo.id);
+        if (loadedIds.has(photoId)) {
+          continue;
+        }
+        loadedIds.add(photoId);
+        mergedRows.push(photo);
+      }
+
+      const payloadTotal = Number(payload.total);
+      const normalizedTotal = Number.isFinite(payloadTotal) && payloadTotal >= 0
+        ? Math.round(payloadTotal)
+        : mergedRows.length;
+      const hasKnownTotal = normalizedTotal > 0;
+      const hasMoreFromPayload = typeof payload.has_more === 'boolean' ? payload.has_more : null;
+      shouldContinue = hasMoreFromPayload === null
+        ? (hasKnownTotal ? mergedRows.length < normalizedTotal : pageRows.length >= ALBUM_PAGE_SIZE)
+        : hasMoreFromPayload;
+
+      if (pageRows.length === 0) {
+        break;
+      }
+
+      currentPage += 1;
+    }
+
+    return mergedRows;
+  }, [normalizedAccessKey, photoAspectRatioMap]);
+
   const loadAlbumData = async () => {
     setLoading(true);
     setLoadingMore(false);
@@ -361,6 +623,7 @@ export default function AlbumDetailPage() {
     setSelectedPhotos(new Set());
     setLoadedImages(new Set());
     setFailedImages(new Set());
+    setPhotoAspectRatioMap({});
     setStoryOpenMap({});
     setFullscreenPhoto(null);
     setConfirmPhotoId(null);
@@ -370,6 +633,8 @@ export default function AlbumDetailPage() {
     selectedFolderRef.current = 'all';
     photoLoadTokenRef.current += 1;
     previewPhotoLoadTokenRef.current += 1;
+    dismissFolderGuide();
+    folderGuideShownOnceRef.current = false;
 
     if (!normalizedAccessKey) {
       setLoading(false);
@@ -428,6 +693,7 @@ export default function AlbumDetailPage() {
   };
 
   const handleSelectFolder = async (folderId: string) => {
+    dismissFolderGuide();
     const normalized = String(folderId || 'all');
     if (normalized === selectedFolder) return;
 
@@ -452,6 +718,19 @@ export default function AlbumDetailPage() {
     if (selectedFolder === 'all') return photos;
     return photos.filter(photo => String(photo.folder_id || '') === selectedFolder);
   }, [photos, selectedFolder]);
+
+  const resolvedFilteredPhotos = useMemo(
+    () => resolveAlbumPhotoListRatios(filteredPhotos, photoAspectRatioMap),
+    [filteredPhotos, photoAspectRatioMap]
+  );
+
+  const hasLoadedAllVisiblePhotos = !hasMore && (
+    totalPhotos === 0 ? filteredPhotos.length > 0 : filteredPhotos.length >= totalPhotos
+  );
+
+  const isSelectAll = filteredPhotos.length > 0
+    && selectedPhotos.size === filteredPhotos.length
+    && hasLoadedAllVisiblePhotos;
 
   const previewPhotos = useMemo(() => {
     const sourcePhotos = previewPhotoPool && previewPhotoPool.length > 0
@@ -495,6 +774,20 @@ export default function AlbumDetailPage() {
   const hasStory = (photo: Photo): boolean => Boolean(String(photo.story_text || '').trim());
   const isHighlighted = (photo: Photo): boolean => hasStory(photo) || Boolean(photo.is_highlight);
 
+  const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
+    const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 4 / 3);
+    setPhotoAspectRatioMap((prev) => {
+      const currentRatio = Number(prev[photoId] || 0);
+      if (currentRatio > 0 && Math.abs(currentRatio - nextRatio) < 0.01) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [photoId]: nextRatio,
+      };
+    });
+  }, []);
+
   const toggleStoryCard = (photoId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     setStoryOpenMap((prev) => ({
@@ -504,14 +797,14 @@ export default function AlbumDetailPage() {
   };
 
   const albumMasonryItems = useMemo(
-    () => filteredPhotos.map((photo, index) => ({ photo, index })),
-    [filteredPhotos]
+    () => resolvedFilteredPhotos.map((photo, index) => ({ photo, index })),
+    [resolvedFilteredPhotos]
   );
 
   const { columns: albumColumns } = useStableMasonryColumns({
     items: albumMasonryItems,
     getItemId: ({ photo }) => photo.id,
-    estimateItemHeight: ({ photo }) => estimateAlbumCardHeight(photo, Boolean(storyOpenMap[photo.id])),
+    estimateItemHeight: ({ photo }) => estimateAlbumCardHeight(photo, Boolean(storyOpenMap[photo.id]), photoAspectRatioMap),
     resetKey: `${normalizedAccessKey}_${selectedFolder}`,
   });
 
@@ -526,6 +819,51 @@ export default function AlbumDetailPage() {
   useEffect(() => {
     selectedFolderRef.current = selectedFolder;
   }, [selectedFolder]);
+
+  useEffect(() => {
+    const targetButton = folderButtonRefs.current[selectedFolder];
+    if (!targetButton) {
+      return;
+    }
+
+    targetButton.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    });
+  }, [selectedFolder, folderTabs.length]);
+
+  useEffect(() => {
+    dismissFolderGuide();
+
+    if (folderGuideShownOnceRef.current || loading || loadingMore || folderTabs.length <= 1) {
+      return;
+    }
+
+    folderGuideShownOnceRef.current = true;
+    setShowFolderGuide(true);
+    startFolderWaveAnimation();
+    folderGuideTimerRef.current = window.setTimeout(() => {
+      dismissFolderGuide();
+    }, ALBUM_FOLDER_GUIDE_AUTO_DISMISS_MS);
+
+    return () => {
+      if (folderGuideTimerRef.current) {
+        window.clearTimeout(folderGuideTimerRef.current);
+        folderGuideTimerRef.current = null;
+      }
+      clearFolderWaveTimer();
+    };
+  }, [clearFolderWaveTimer, dismissFolderGuide, folderTabs.length, loading, loadingMore, startFolderWaveAnimation]);
+
+  useEffect(() => {
+    if (Object.keys(photoAspectRatioMap).length === 0) {
+      return;
+    }
+
+    setPhotos((prev) => resolveAlbumPhotoListRatios(prev, photoAspectRatioMap));
+    setPreviewPhotoPool((prev) => (prev ? resolveAlbumPhotoListRatios(prev, photoAspectRatioMap) : prev));
+  }, [photoAspectRatioMap]);
 
   useEffect(() => {
     setStoryOpenMap({});
@@ -604,11 +942,39 @@ export default function AlbumDetailPage() {
     });
   };
 
-  const toggleSelectAll = () => {
-    if (selectedPhotos.size === filteredPhotos.length) {
+  const toggleSelectAll = async () => {
+    if (loading || loadingMore || filteredPhotos.length === 0) {
+      return;
+    }
+
+    if (isSelectAll) {
       setSelectedPhotos(new Set());
-    } else {
-      setSelectedPhotos(new Set(filteredPhotos.map(p => p.id)));
+      return;
+    }
+
+    const targetFolderId = selectedFolderRef.current;
+
+    try {
+      setLoadingMore(true);
+      const fullRows = await loadAllPhotosForFolder(targetFolderId);
+      if (selectedFolderRef.current !== targetFolderId) {
+        return;
+      }
+
+      setPhotos(fullRows);
+      photosRef.current = fullRows;
+      setTotalPhotos(fullRows.length);
+      setPageNo(fullRows.length > 0 ? Math.ceil(fullRows.length / ALBUM_PAGE_SIZE) : 0);
+      setHasMore(false);
+      setSelectedPhotos(new Set(fullRows.map((photo) => photo.id)));
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : '全选失败，请稍后重试';
+      setToast({ message, type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -769,7 +1135,7 @@ export default function AlbumDetailPage() {
             className="text-center"
           >
             <p className="text-lg font-medium text-[#5D4037] mb-2">
-              时光中...
+              加载中...
             </p>
             <p className="text-sm text-[#5D4037]/60">
               正在为你打开相册
@@ -784,10 +1150,9 @@ export default function AlbumDetailPage() {
     return null;
   }
 
-  const folders = [
-    { id: 'all', name: '原图' },
-    ...albumData.folders
-  ];
+  const albumNoticeMessage = buildAlbumExpiryNotice(albumData.album.expires_at);
+  const hasVisiblePhotos = filteredPhotos.length > 0;
+  const batchDownloadLabel = selectedPhotos.size > 0 ? '下载' : '全部下载';
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -838,40 +1203,8 @@ export default function AlbumDetailPage() {
               transition={shouldReduceMotion ? { duration: 0 } : { duration: 20, repeat: Infinity, ease: "linear" }}
               className="text-[10px] text-[#5D4037]/60 whitespace-nowrap"
             >
-              {(() => {
-                const expiresAt = albumData.album.expires_at;
-                if (!expiresAt) {
-                  // 如果没有过期时间，显示默认的7天提示
-                  return (
-                    <>
-                      <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
-                      <span className="inline-block ml-8">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
-                    </>
-                  );
-                }
-
-                const expiryDate = parseDateTimeUTC8(expiresAt);
-                if (!expiryDate) {
-                  return (
-                    <>
-                      <span className="inline-block">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
-                      <span className="inline-block ml-8">✨ 这里的照片只有 7 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......</span>
-                    </>
-                  );
-                }
-                const daysLeft = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-
-                const message = daysLeft > 0
-                  ? `✨ 这里的照片只有 ${daysLeft} 天的魔法时效，不被【定格】的瞬间会像泡沫一样悄悄飞走哦......`
-                  : `✨ 这里的照片魔法时效已过期，未被【定格】的照片已经消失......`;
-
-                return (
-                  <>
-                    <span className="inline-block">{message}</span>
-                    <span className="inline-block ml-8">{message}</span>
-                  </>
-                );
-              })()}
+              <span className="inline-block">{albumNoticeMessage}</span>
+              <span className="inline-block ml-8">{albumNoticeMessage}</span>
             </motion.div>
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -884,88 +1217,109 @@ export default function AlbumDetailPage() {
         )}
       </AnimatePresence>
 
-      {/* 折叠式工具栏 */}
-      <div className="flex-none h-12 sticky top-0 bg-[#FFFBF0] z-10 px-3 flex items-center gap-2 border-b border-[#5D4037]/5">
-        {/* 左侧：文件夹胶囊 */}
-        <div className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-hidden">
-          {folders.map((folder) => (
-            <motion.button
-              key={folder.id}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => { void handleSelectFolder(folder.id); }}
-              className={`
-                flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all
-                ${selectedFolder === folder.id
-                  ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
-                  : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
-                }
-              `}
-            >
-              {folder.name}
-            </motion.button>
-          ))}
-        </div>
+      {/* 顶部工具栏 */}
+      <div className="sticky top-0 z-10 flex-none border-b border-[#5D4037]/5 bg-[#FFFBF0]/96 backdrop-blur-md">
+        <div className="px-[3px] py-0">
+          <div className={`flex min-h-[46px] gap-[6px] ${showFolderGuide ? 'items-start' : 'items-center'}`}>
+            <div className={`relative min-w-0 flex-1 border-x border-[#FFFBF0] bg-[#FFFBF0] ${showFolderGuide ? 'pt-[36px]' : ''}`}>
+              <AnimatePresence>
+                {showFolderGuide && (
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                    transition={{ duration: 0.18 }}
+                    onClick={dismissFolderGuide}
+                    className="compact-button absolute left-0 top-0 z-[3] inline-flex h-[26px] max-w-[190px] items-center rounded-[7px] bg-[#5D4037] px-[9px] text-left shadow-[0_5px_12px_rgba(93,64,55,0.28)]"
+                  >
+                    <span className="whitespace-nowrap text-[10px] font-semibold leading-none text-[#FFFAF0]">
+                      左右滑动 / 点击标签可切换
+                    </span>
+                    <span className="absolute bottom-[-4px] left-[11px] h-[8px] w-[8px] rotate-45 bg-[#5D4037]" />
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
-        {/* 右侧：功能图标按钮 */}
-        <div className="flex-none flex items-center gap-1.5">
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleSelectAll}
-            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-              selectedPhotos.size === filteredPhotos.length
-                ? 'bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
-                : 'bg-white/60 text-[#5D4037]/60 border-2 border-dashed border-[#5D4037]/15'
-            }`}
-          >
-            {selectedPhotos.size === filteredPhotos.length ? (
-              <>
-                <CheckSquare className="w-4 h-4" />
-                <span>全选</span>
-              </>
-            ) : (
-              <>
-                <Square className="w-4 h-4" />
-                <span>全选</span>
-              </>
+              <div className="scrollbar-hidden overflow-x-auto whitespace-nowrap" onScroll={showFolderGuide ? dismissFolderGuide : undefined}>
+                <div className="inline-flex items-center gap-2 px-0 py-0">
+                  {folderTabs.map((folder, index) => {
+                    const isWaveActive = showFolderGuide && folderWaveActiveIndex === index;
+                    return (
+                      <motion.button
+                        key={folder.id}
+                        type="button"
+                        ref={setFolderButtonRef(String(folder.id))}
+                        whileTap={{ scale: 0.98 }}
+                        initial={false}
+                        animate={isWaveActive ? (folderWaveTick === 1 ? 'waveA' : 'waveB') : 'idle'}
+                        variants={ALBUM_FOLDER_BUTTON_VARIANTS}
+                        onClick={() => { void handleSelectFolder(folder.id); }}
+                        className={`tag-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border-2 px-2 py-0.5 text-xs font-bold leading-none transition-all duration-200 active:scale-[0.98] md:px-3 md:py-1.5 ${
+                          selectedFolder === folder.id
+                            ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0_rgba(93,64,55,0.15)]'
+                            : 'border-[#5D4037]/15 bg-white/60 text-[#5D4037]/60 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
+                        }`}
+                        aria-pressed={selectedFolder === folder.id}
+                      >
+                        {folder.name}
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {hasVisiblePhotos && (
+              <div className="flex shrink-0 items-center gap-[5px]">
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => { void toggleSelectAll(); }}
+                  aria-pressed={isSelectAll}
+                  className={`inline-flex min-h-[30px] items-center justify-center gap-[6px] rounded-full px-3 text-[11px] font-bold leading-none transition-all duration-200 ${loading || loadingMore ? 'pointer-events-none opacity-60' : ''} ${
+                    isSelectAll
+                      ? 'border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)]'
+                      : 'border-[1.5px] border-dashed border-[#5D4037]/15 bg-white/60 text-[#5D4037]/70 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
+                  }`}
+                >
+                  {isSelectAll ? <CheckSquare className="h-[13px] w-[13px]" /> : <Square className="h-[13px] w-[13px]" />}
+                  <span>全选</span>
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleBatchDownload}
+                  className={`relative inline-flex h-[30px] items-center justify-center gap-[6px] rounded-full border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] px-3 text-[11px] font-bold leading-none text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'min-w-[62px]' : 'min-w-[76px]'}`}
+                >
+                  <Download className="h-[13px] w-[13px]" />
+                  <span>{batchDownloadLabel}</span>
+                  {selectedPhotos.size > 0 && (
+                    <span className="absolute -right-[5px] -top-[6px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5D4037] px-1 text-[10px] font-bold leading-none text-white shadow-[0_4px_10px_rgba(93,64,55,0.22)]">
+                      {selectedPhotos.size > 99 ? '99+' : selectedPhotos.size}
+                    </span>
+                  )}
+                </motion.button>
+
+                {selectedPhotos.size > 0 && (
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0, scale: 0.86 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    whileTap={{ scale: 0.96 }}
+                    onClick={handleBatchDelete}
+                    className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-full border border-red-400/25 bg-red-500/10 text-red-600 shadow-[0_3px_10px_rgba(239,68,68,0.12)] transition-all duration-200 ${loadingMore ? 'pointer-events-none opacity-60' : ''}`}
+                  >
+                    <Trash2 className="h-[14px] w-[14px]" />
+                  </motion.button>
+                )}
+              </div>
             )}
-          </motion.button>
-
-          {/* 下载按钮 - 常驻显示 */}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={handleBatchDownload}
-            className={`flex-shrink-0 flex items-center gap-1.5 rounded-full text-xs font-bold transition-all ${
-              selectedPhotos.size > 0
-                ? 'compact-button w-9 h-9 bg-[#FFC857] shadow-sm justify-center relative'
-                : 'px-3 py-1.5 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0px_rgba(93,64,55,0.15)] border-2 border-[#5D4037]/20'
-            }`}
-          >
-            <Download className="w-4 h-4" />
-            {selectedPhotos.size > 0 ? (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#5D4037] text-white text-[11px] rounded-full flex items-center justify-center font-bold">
-                {selectedPhotos.size}
-              </span>
-            ) : (
-              <span>全部下载</span>
-            )}
-          </motion.button>
-
-          {/* 删除按钮 - 仅在选中时显示 */}
-          {selectedPhotos.size > 0 && (
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={handleBatchDelete}
-              className="compact-button w-9 h-9 rounded-full bg-red-500/10 shadow-sm flex items-center justify-center"
-            >
-              <Trash2 className="w-6 h-6 text-red-600" />
-            </motion.button>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* 照片瀑布流 - 可滚动 */}
       <div
         ref={photoScrollRef}
         onScroll={handlePhotoScroll}
@@ -987,15 +1341,14 @@ export default function AlbumDetailPage() {
             >
               {/* 瀑布流卡片 */}
               <div
-                className={`bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden transition-all duration-300 border ${
+                className={`overflow-hidden rounded-[18px] bg-white transition-all duration-300 ${
                   isHighlighted(photo)
-                    ? 'border-[3px] border-[#FFB703] bg-gradient-to-b from-[#FFFDF7] to-white ring-2 ring-[#FFD978] ring-offset-1 ring-offset-[#FFFBF0] shadow-[inset_0_0_0_1px_rgba(255,244,210,0.92),0_0_0_3px_rgba(255,183,3,0.42),0_18px_40px_rgba(255,183,3,0.46),0_8px_20px_rgba(93,64,55,0.2)]'
-                    : 'border-transparent'
+                    ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_18px_rgba(255,183,3,0.42),0_5px_14px_rgba(93,64,55,0.18)]'
+                    : 'border border-transparent shadow-[0_5px_16px_rgba(93,64,55,0.14)]'
                 }`}
               >
-                {/* 图片区域 */}
                 <div
-                  className="relative cursor-pointer"
+                  className="relative cursor-pointer overflow-hidden"
                   onClick={() => {
                     if (storyOpenMap[photo.id] && hasStory(photo)) {
                       return;
@@ -1005,12 +1358,12 @@ export default function AlbumDetailPage() {
                   }}
                 >
                   {storyOpenMap[photo.id] && hasStory(photo) ? (
-                    <div className="min-h-[220px] p-3 bg-gradient-to-br from-[#FFF8E8] via-[#FFF1D6] to-[#FDE6B7] border-b border-[#5D4037]/10">
-                      <div className="rounded-xl border border-[#C9B085]/35 bg-[linear-gradient(180deg,rgba(255,252,245,0.98)_0%,rgba(255,246,231,0.98)_100%)] px-3.5 py-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_10px_22px_rgba(93,64,55,0.12)]">
-                        <span className="mb-2 inline-flex h-6 items-center rounded-full border border-[#5D4037]/20 bg-[#FFC857]/25 px-2.5 text-[11px] font-semibold text-[#5D4037]/85">
+                    <div className="min-h-[190px] p-2 bg-[linear-gradient(160deg,#FFFDF7_0%,#FFF5DC_52%,#FCEBC5_100%)]">
+                      <div className="relative min-h-[168px] rounded-[12px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[10px] py-[10px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
+                        <span className="mb-[6px] inline-flex h-[17px] items-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
                           关于此刻
                         </span>
-                        <p className="text-[13px] leading-6 text-[#5D4037]/92 font-medium whitespace-pre-wrap break-words tracking-[0.01em]">
+                        <p className="whitespace-pre-wrap break-words text-[12.5px] font-semibold leading-[1.78] tracking-[0.02em] text-[#5D4037]/93">
                           {String(photo.story_text || '').trim()}
                         </p>
                       </div>
@@ -1018,138 +1371,100 @@ export default function AlbumDetailPage() {
                   ) : (
                     <>
                       <div
-                        className="relative w-full overflow-hidden"
-                        style={{ paddingTop: `${clampPhotoAspectRatio(photo.width, photo.height, 4 / 3) * 100}%` }}
+                        className="relative w-full overflow-hidden bg-[linear-gradient(135deg,#f8f2e6,#efe5d2)]"
+                        style={{ paddingTop: photo.__media_padding_top || `${resolveAlbumPhotoRatio(photo, photoAspectRatioMap) * 100}%` }}
                       >
                         <img
-                          src={photo.thumbnail_url}
-                          alt={`照片 ${photo.id}`}
+                          src={photo.card_url_resolved || photo.thumbnail_url_resolved || photo.thumbnail_url}
+                          alt="照片"
                           loading="lazy"
                           decoding="async"
-                          className="absolute inset-0 w-full h-full object-cover"
-                          onLoad={() => setLoadedImages(prev => new Set([...prev, photo.id]))}
-                          onError={() => setFailedImages(prev => new Set([...prev, photo.id]))}
+                          className="album-card-image absolute inset-0 h-full w-full object-cover"
+                          style={{ width: '100%', height: '100%', maxWidth: 'none', objectFit: 'cover' }}
+                          onLoad={(event) => {
+                            const target = event.currentTarget;
+                            setLoadedImages((prev) => new Set([...prev, photo.id]));
+                            setFailedImages((prev) => {
+                              if (!prev.has(photo.id)) {
+                                return prev;
+                              }
+                              const next = new Set(prev);
+                              next.delete(photo.id);
+                              return next;
+                            });
+                            handlePhotoRatioReady(photo.id, {
+                              width: target.naturalWidth,
+                              height: target.naturalHeight,
+                            });
+                          }}
+                          onError={() => setFailedImages((prev) => new Set([...prev, photo.id]))}
                         />
                       </div>
 
-                      {/* 拾光中加载动画 */}
                       {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
                         <div
                           className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                          style={{
-                            background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)'
-                          }}
+                          style={{ background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)' }}
                         >
-                          {/* 主动画 - 拍立得相机 */}
                           <motion.div
-                            animate={{
-                              rotate: [-2, 2, -2],
-                              scale: [1, 1.05, 1]
-                            }}
-                            transition={{
-                              duration: 2,
-                              repeat: Infinity,
-                              ease: 'easeInOut'
-                            }}
+                            animate={{ rotate: [-2, 2, -2], scale: [1, 1.05, 1] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                             className="relative"
                           >
                             <motion.div
                               className="text-4xl"
-                              animate={{
-                                filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)']
-                              }}
-                              transition={{
-                                duration: 1.5,
-                                repeat: Infinity,
-                                ease: 'easeInOut'
-                              }}
+                              animate={{ filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)'] }}
+                              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
                             >
                               📷
                             </motion.div>
-
-                            {/* 闪光效果 */}
                             <motion.div
                               className="absolute -top-1 -right-1 text-xl"
-                              animate={{
-                                opacity: [0, 1, 0],
-                                scale: [0.5, 1.2, 0.5]
-                              }}
-                              transition={{
-                                duration: 2,
-                                repeat: Infinity,
-                                ease: 'easeOut'
-                              }}
+                              animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 0.5] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
                             >
                               ✨
                             </motion.div>
                           </motion.div>
-
-                          {/* 加载文字 */}
                           <motion.p
-                            className="text-xs text-[#5D4037]/60 font-medium"
-                            animate={{
-                              opacity: [0.6, 1, 0.6]
-                            }}
-                            transition={{
-                              duration: 1.5,
-                              repeat: Infinity,
-                              ease: 'easeInOut'
-                            }}
+                            className="text-xs font-medium text-[#5D4037]/60"
+                            animate={{ opacity: [0.6, 1, 0.6] }}
+                            transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
                             style={{ fontFamily: "'ZQKNNY', cursive" }}
                           >
                             拾光中...
                           </motion.p>
-
-                          {/* 装饰性元素 - 飘动的光点 */}
                           <motion.div
-                            className="absolute top-1/4 left-1/4 text-sm opacity-30"
-                            animate={{
-                              y: [-10, 10, -10],
-                              x: [-5, 5, -5],
-                              rotate: [0, 360]
-                            }}
-                            transition={{
-                              duration: 4,
-                              repeat: Infinity,
-                              ease: 'easeInOut'
-                            }}
+                            className="absolute left-1/4 top-1/4 text-sm opacity-30"
+                            animate={{ y: [-10, 10, -10], x: [-5, 5, -5], rotate: [0, 360] }}
+                            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
                           >
                             ✨
                           </motion.div>
                           <motion.div
                             className="absolute bottom-1/4 right-1/4 text-sm opacity-30"
-                            animate={{
-                              y: [10, -10, 10],
-                              x: [5, -5, 5],
-                              rotate: [360, 0]
-                            }}
-                            transition={{
-                              duration: 3.5,
-                              repeat: Infinity,
-                              ease: 'easeInOut',
-                              delay: 0.5
-                            }}
+                            animate={{ y: [10, -10, 10], x: [5, -5, 5], rotate: [360, 0] }}
+                            transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
                           >
                             💫
                           </motion.div>
                         </div>
                       )}
 
-                      {/* 加载失败提示 */}
                       {failedImages.has(photo.id) && (
-                        <div className="absolute inset-0 bg-[#FFFBF0] flex items-center justify-center">
-                          <div className="flex flex-col items-center gap-2 text-center px-4">
-                            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                              <X className="w-6 h-6 text-red-500" />
+                        <div className="absolute inset-0 flex items-center justify-center bg-[#FFFBF0]">
+                          <div className="flex flex-col items-center gap-2 px-4 text-center">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                              <X className="h-6 w-6 text-red-500" />
                             </div>
                             <p className="text-xs text-[#5D4037]/60">加载失败</p>
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setFailedImages(prev => {
-                                  const newSet = new Set(prev);
-                                  newSet.delete(photo.id);
-                                  return newSet;
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setFailedImages((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(photo.id);
+                                  return next;
                                 });
                               }}
                               className="text-xs text-[#FFC857] underline"
@@ -1165,53 +1480,57 @@ export default function AlbumDetailPage() {
                   {hasStory(photo) && (
                     <button
                       onClick={(event) => toggleStoryCard(photo.id, event)}
-                      className={`absolute top-2 right-12 w-8 h-8 rounded-full backdrop-blur-sm border flex items-center justify-center transition-all ${
+                      className={`absolute z-[3] flex h-[30px] w-[30px] items-center justify-center rounded-full border transition-all ${
+                        storyOpenMap[photo.id] ? 'bottom-[6px] right-[6px]' : 'left-[6px] top-[6px]'
+                      } ${
                         isHighlighted(photo)
-                          ? 'bg-[#FFC857] border-[#5D4037]/45 text-[#5D4037] ring-2 ring-[#FFE3A0]/95 shadow-[0_10px_22px_rgba(255,183,3,0.62)] hover:scale-105 animate-pulse'
-                          : 'bg-black/35 border-white/35 text-white hover:bg-black/50'
+                          ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border-[1.5px] border-[#5D4037]/45 text-[#5D4037] shadow-[0_0_0_1px_rgba(255,229,156,0.9),0_5px_12px_rgba(255,183,3,0.55)] animate-pulse'
+                          : 'bg-black/35 border-white/50 text-white'
                       }`}
                       aria-label="查看关于此刻"
                       title="关于此刻"
                     >
-                      <RotateCcw
-                        className={`w-4 h-4 transition-transform duration-300 ${
+                      <span
+                        className={`text-[16px] font-bold leading-none transition-transform duration-200 ${
                           storyOpenMap[photo.id] ? 'rotate-180' : ''
-                        } ${isHighlighted(photo) ? 'drop-shadow-[0_1px_0_rgba(255,255,255,0.45)]' : ''}`}
-                      />
+                        } ${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
+                      >
+                        ↗
+                      </span>
                     </button>
                   )}
 
-                  {/* 选择框 */}
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
+                    onClick={(event) => {
+                      event.stopPropagation();
                       togglePhotoSelection(photo.id);
                     }}
-                    className="compact-button absolute top-2 right-2 w-9 h-9 rounded-xl bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md border-2 border-white/50 transition-all"
+                    className="absolute right-[7px] top-[7px] z-[4] flex h-[28px] w-[28px] items-center justify-center rounded-full border border-[#5D4037]/15 bg-white/92 shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px] transition-all"
                   >
-                    {selectedPhotos.has(photo.id) ? (
-                      <CheckSquare className="w-6 h-6 text-[#FFC857]" />
-                    ) : (
-                      <Square className="w-6 h-6 text-[#5D4037]/40" />
-                    )}
+                    <span
+                      className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border text-[11px] font-black leading-none ${
+                        selectedPhotos.has(photo.id)
+                          ? 'border-[#FFC857] bg-[#FFC857] text-[#5D4037]'
+                          : 'border-[#5D4037]/42 bg-transparent text-transparent'
+                      }`}
+                    >
+                      ✓
+                    </span>
                   </motion.button>
                 </div>
 
-                {/* 操作栏 */}
-                <div className="p-2 flex items-center justify-center">
+                <div className="flex items-center justify-center px-[6px] pt-[3px] pb-[5px]">
                   <motion.button
-                    whileTap={{ scale: 0.9 }}
+                    whileTap={{ scale: 0.92 }}
                     onClick={() => photo.is_public ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
-                    className={`
-                      compact-button flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all
-                      ${photo.is_public
-                        ? 'bg-[#FFC857] text-[#5D4037]'
-                        : 'bg-[#5D4037]/10 text-[#5D4037]/60'
-                      }
-                    `}
+                    className={`inline-flex items-center gap-[5px] rounded-full border px-[10px] py-[4px] text-[11px] font-bold leading-none transition-all ${
+                      photo.is_public
+                        ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037]'
+                        : 'border-[#5D4037]/12 bg-[#5D4037]/10 text-[#5D4037]/65'
+                    }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Sparkles className="h-[12px] w-[12px]" />
                     <span>{photo.is_public ? '已定格' : '定格'}</span>
                   </motion.button>
                 </div>
@@ -1243,7 +1562,7 @@ export default function AlbumDetailPage() {
         {loadingMore && (
           <div className="flex justify-center items-center gap-2 mt-6 mb-2">
             <div className="w-5 h-5 border-2 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-xs text-[#5D4037]/60">拾光中...</p>
+            <p className="text-xs text-[#5D4037]/60">加载中...</p>
           </div>
         )}
         {!hasMore && filteredPhotos.length > 0 && (
