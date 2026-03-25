@@ -220,6 +220,7 @@ export default function AlbumDetailPage() {
   const photoScrollRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const loadingMoreRef = useRef(false);
+  const albumLoadTokenRef = useRef(0);
   const photoLoadTokenRef = useRef(0);
   const previewPhotoLoadTokenRef = useRef(0);
   const folderGuideTimerRef = useRef<number | null>(null);
@@ -400,7 +401,13 @@ export default function AlbumDetailPage() {
 
   // 加载相册数据
   useEffect(() => {
-    loadAlbumData();
+    void loadAlbumData();
+
+    return () => {
+      albumLoadTokenRef.current += 1;
+      photoLoadTokenRef.current += 1;
+      previewPhotoLoadTokenRef.current += 1;
+    };
   }, [normalizedAccessKey]);
 
   // Toast提示
@@ -613,6 +620,9 @@ export default function AlbumDetailPage() {
   }, [normalizedAccessKey, photoAspectRatioMap]);
 
   const loadAlbumData = async () => {
+    const loadToken = albumLoadTokenRef.current + 1;
+    albumLoadTokenRef.current = loadToken;
+
     setLoading(true);
     setLoadingMore(false);
     setHasMore(true);
@@ -655,6 +665,10 @@ export default function AlbumDetailPage() {
       include_photos: false,
     });
 
+    if (loadToken !== albumLoadTokenRef.current) {
+      return;
+    }
+
     if (error) {
       console.error('相册数据加载失败:', error);
       const errorMsg = error?.message || error?.details || JSON.stringify(error) || '未知错误';
@@ -677,6 +691,10 @@ export default function AlbumDetailPage() {
     const hasSeenWelcome = typeof window !== 'undefined' && localStorage.getItem(welcomeStorageKey);
     const shouldShow = payload.album.enable_welcome_letter !== false && !hasSeenWelcome;
     setShowWelcomeLetter(shouldShow);
+
+    if (loadToken !== albumLoadTokenRef.current) {
+      return;
+    }
 
     await loadAlbumPhotoPage('all', 1, { reset: true, silent: false });
   };

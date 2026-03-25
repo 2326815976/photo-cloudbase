@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import ToggleSwitch from '@/components/ui/ToggleSwitch';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
@@ -81,6 +81,7 @@ export default function AlbumsPage() {
   const [albumCreateDonationQrFile, setAlbumCreateDonationQrFile] = useState<File | null>(null);
   const [albumCreateDonationQrPreview, setAlbumCreateDonationQrPreview] = useState<string | null>(null);
   const [albumCreateForm, setAlbumCreateForm] = useState(createInitialAlbumCreateForm);
+  const albumsLoadTokenRef = useRef(0);
   useBeforeUnloadGuard(uploadingQrCode || uploadingCover || albumCreating);
   const todayDate = getTodayUTC8();
   const selectedExpiryDate = newExpiryDate || todayDate;
@@ -89,7 +90,11 @@ export default function AlbumsPage() {
   const albumCreateCustomExpiryDays = Math.max(getDaysDifference(todayDate, albumCreateSelectedExpiryDate), 0);
 
   useEffect(() => {
-    loadAlbums();
+    void loadAlbums();
+
+    return () => {
+      albumsLoadTokenRef.current += 1;
+    };
   }, []);
   useEffect(() => {
     const validIds = new Set(albums.map((album) => String(album.id)));
@@ -101,6 +106,9 @@ export default function AlbumsPage() {
   }, [albums]);
 
   const loadAlbums = async () => {
+    const loadToken = albumsLoadTokenRef.current + 1;
+    albumsLoadTokenRef.current = loadToken;
+
     setLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -114,6 +122,10 @@ export default function AlbumsPage() {
       .from('albums')
       .select('id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, enable_welcome_letter, donation_qr_code_url, expires_at, created_at')
       .order('created_at', { ascending: false });
+
+    if (loadToken !== albumsLoadTokenRef.current) {
+      return;
+    }
 
     if (!error && data) {
       // 过滤掉照片墙系统相册

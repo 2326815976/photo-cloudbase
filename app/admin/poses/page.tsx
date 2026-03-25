@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -208,14 +208,24 @@ export default function PosesPage() {
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [showBatchDeleteTagsConfirm, setShowBatchDeleteTagsConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const posesLoadTokenRef = useRef(0);
+  const tagsLoadTokenRef = useRef(0);
 
   useEffect(() => {
-    loadPoses();
-    loadTags();
+    void loadPoses();
+    void loadTags();
+
+    return () => {
+      posesLoadTokenRef.current += 1;
+      tagsLoadTokenRef.current += 1;
+    };
   }, [selectedTags, currentPage]);
 
   // 摆姿管理函数
   const loadPoses = async () => {
+    const loadToken = posesLoadTokenRef.current + 1;
+    posesLoadTokenRef.current = loadToken;
+
     setPosesLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -237,11 +247,17 @@ export default function PosesPage() {
 
     const { data, error, count } = await query;
 
+    if (loadToken !== posesLoadTokenRef.current) {
+      return;
+    }
+
     if (!error && data) {
       setPoses(data);
       setTotalCount(count || 0);
     }
-    setPosesLoading(false);
+    if (loadToken === posesLoadTokenRef.current) {
+      setPosesLoading(false);
+    }
   };
 
   const cleanupUploadedFiles = async (keys: string[]) => {
@@ -769,6 +785,9 @@ export default function PosesPage() {
 
   // 标签管理函数
   const loadTags = async () => {
+    const loadToken = tagsLoadTokenRef.current + 1;
+    tagsLoadTokenRef.current = loadToken;
+
     setTagsLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -783,10 +802,16 @@ export default function PosesPage() {
       .select('*')
       .order('usage_count', { ascending: false });
 
+    if (loadToken !== tagsLoadTokenRef.current) {
+      return;
+    }
+
     if (!error && data) {
       setTags(data);
     }
-    setTagsLoading(false);
+    if (loadToken === tagsLoadTokenRef.current) {
+      setTagsLoading(false);
+    }
   };
 
   const handleAddTag = async () => {

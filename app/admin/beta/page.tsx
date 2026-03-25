@@ -286,6 +286,7 @@ function createVersionRows(versionRowsInput: VersionApiRow[], routeRows: RouteRo
 
 export default function AdminBetaPage() {
   const toastTimerRef = useRef<number | null>(null);
+  const bootstrapLoadTokenRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('routes');
@@ -361,22 +362,39 @@ export default function AdminBetaPage() {
   );
 
   const bootstrap = useCallback(async () => {
+    const loadToken = bootstrapLoadTokenRef.current + 1;
+    bootstrapLoadTokenRef.current = loadToken;
+
     setLoading(true);
     try {
       const [routeResult, versionResult] = await Promise.all([
         apiRequest<ListResponse<RouteApiRow>>('/api/admin/beta/routes?limit=500'),
         apiRequest<ListResponse<VersionApiRow>>('/api/admin/beta/versions?limit=500'),
       ]);
+
+      if (loadToken !== bootstrapLoadTokenRef.current) {
+        return;
+      }
+
       applyRows(routeResult.data || [], versionResult.data || []);
     } catch (error) {
+      if (loadToken !== bootstrapLoadTokenRef.current) {
+        return;
+      }
       showToast('error', toErrorMessage(error, '加载内测数据失败'));
     } finally {
-      setLoading(false);
+      if (loadToken === bootstrapLoadTokenRef.current) {
+        setLoading(false);
+      }
     }
   }, [applyRows, showToast]);
 
   useEffect(() => {
     void bootstrap();
+
+    return () => {
+      bootstrapLoadTokenRef.current += 1;
+    };
   }, [bootstrap]);
 
   const onOpenCreateRoute = () => {

@@ -353,8 +353,31 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const router = useRouter();
   const pathname = usePathname();
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
-  const [folders, setFolders] = useState<GalleryFolder[]>(() => buildGalleryFolderList([], '根目录'));
-  const [rootFolderName, setRootFolderName] = useState<string>('根目录');
+
+  const [galleryCacheToken] = useState<string>(() => {
+    const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
+    if (!shouldForceRefresh) {
+      return 'default';
+    }
+
+    clearGalleryMemoryCache();
+    clearGalleryPageCacheStorage();
+    return `dirty-${Date.now()}`;
+  });
+
+  const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
+  const memoryGallery =
+    initialPhotos.length > 0 || shouldForceRefreshFromDirty
+      ? null
+      : readGalleryMemoryCache();
+  const hydratedInitialRootFolderName = memoryGallery?.rootFolderName ?? '根目录';
+  const hydratedInitialFolders = memoryGallery?.folders ?? buildGalleryFolderList([], hydratedInitialRootFolderName);
+  const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
+  const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
+  const hydratedInitialPage = memoryGallery ? 1 : initialPage;
+
+  const [folders, setFolders] = useState<GalleryFolder[]>(hydratedInitialFolders);
+  const [rootFolderName, setRootFolderName] = useState<string>(hydratedInitialRootFolderName);
   const [backendState, setBackendState] = useState(getBackendRecoveryState);
   const [showTagGuide, setShowTagGuide] = useState(false);
   const [showFolderSelector, setShowFolderSelector] = useState(false);
@@ -380,17 +403,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [tagWaveActiveIndex, setTagWaveActiveIndex] = useState(-1);
   const [tagWaveTick, setTagWaveTick] = useState(0);
 
-  const [galleryCacheToken] = useState<string>(() => {
-    const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
-    if (!shouldForceRefresh) {
-      return 'default';
-    }
-
-    clearGalleryMemoryCache();
-    clearGalleryPageCacheStorage();
-    return `dirty-${Date.now()}`;
-  });
-
   useEffect(() => {
     const unsubscribe = subscribeBackendRecovery(setBackendState);
     return unsubscribe;
@@ -409,15 +421,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     window.addEventListener('resize', updateViewportWidth);
     return () => window.removeEventListener('resize', updateViewportWidth);
   }, []);
-
-  const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
-  const memoryGallery =
-    initialPhotos.length > 0 || shouldForceRefreshFromDirty
-      ? null
-      : readGalleryMemoryCache();
-  const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
-  const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
-  const hydratedInitialPage = memoryGallery ? 1 : initialPage;
 
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<Photo | null>(null);

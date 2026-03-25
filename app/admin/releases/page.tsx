@@ -111,6 +111,7 @@ export default function AdminReleasesPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const releaseModeTimerRef = useRef<number | null>(null);
+  const releasesLoadTokenRef = useRef(0);
 
   useBeforeUnloadGuard(releaseCreating);
 
@@ -169,6 +170,9 @@ export default function AdminReleasesPage() {
   };
 
   const loadReleases = async () => {
+    const loadToken = releasesLoadTokenRef.current + 1;
+    releasesLoadTokenRef.current = loadToken;
+
     setReleasesLoading(true);
     const dbClient = createClient();
 
@@ -182,6 +186,10 @@ export default function AdminReleasesPage() {
       .from('app_releases')
       .select('*')
       .order('created_at', { ascending: false });
+
+    if (loadToken !== releasesLoadTokenRef.current) {
+      return;
+    }
 
     if (error) {
       setReleasesLoading(false);
@@ -211,11 +219,17 @@ export default function AdminReleasesPage() {
       .filter((item) => Number.isInteger(item.id) && item.id > 0);
 
     setReleases(list);
-    setReleasesLoading(false);
+    if (loadToken === releasesLoadTokenRef.current) {
+      setReleasesLoading(false);
+    }
   };
 
   useEffect(() => {
     void loadReleases();
+
+    return () => {
+      releasesLoadTokenRef.current += 1;
+    };
   }, []);
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { MapPin, X, Trash2, CheckCircle, XCircle, AlertCircle, Camera, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -181,14 +181,26 @@ export default function BookingsPage() {
   const [showCityMapPicker, setShowCityMapPicker] = useState(false);
   const [cityLocation, setCityLocation] = useState({ latitude: 0, longitude: 0 });
   const [deletingCity, setDeletingCity] = useState<AllowedCity | null>(null);
+  const bookingsLoadTokenRef = useRef(0);
+  const bookingTypesLoadTokenRef = useRef(0);
+  const citiesLoadTokenRef = useRef(0);
 
   useEffect(() => {
-    loadBookingTypes();
-    loadCities();
+    void loadBookingTypes();
+    void loadCities();
+
+    return () => {
+      bookingTypesLoadTokenRef.current += 1;
+      citiesLoadTokenRef.current += 1;
+    };
   }, []);
 
   useEffect(() => {
-    loadBookings();
+    void loadBookings();
+
+    return () => {
+      bookingsLoadTokenRef.current += 1;
+    };
   }, [filter]);
 
   useEffect(() => {
@@ -197,6 +209,9 @@ export default function BookingsPage() {
 
   // 预约管理函数
   const loadBookings = async () => {
+    const loadToken = bookingsLoadTokenRef.current + 1;
+    bookingsLoadTokenRef.current = loadToken;
+
     setBookingsLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -218,6 +233,10 @@ export default function BookingsPage() {
 
     const { data, error } = await query;
 
+    if (loadToken !== bookingsLoadTokenRef.current) {
+      return;
+    }
+
     if (error) {
       console.error('预约查询失败:', error);
       setShowToast({ message: `查询失败: ${error?.message || '未知错误'}`, type: 'error' });
@@ -231,6 +250,10 @@ export default function BookingsPage() {
         .select('id, name, email')
         .in('id', userIds);
 
+      if (loadToken !== bookingsLoadTokenRef.current) {
+        return;
+      }
+
       const typeIds = [...new Set(data.map((b: any) => b.type_id).filter(Boolean))];
       let bookingTypeMap = new Map<number, { name: string }>();
 
@@ -239,6 +262,10 @@ export default function BookingsPage() {
           .from('booking_types')
           .select('id, name')
           .in('id', typeIds);
+
+        if (loadToken !== bookingsLoadTokenRef.current) {
+          return;
+        }
 
         bookingTypeMap = new Map(
           (bookingTypes || []).map((item: any) => [item.id, { name: item.name }])
@@ -256,7 +283,9 @@ export default function BookingsPage() {
     } else if (!error && data) {
       setBookings(data as any);
     }
-    setBookingsLoading(false);
+    if (loadToken === bookingsLoadTokenRef.current) {
+      setBookingsLoading(false);
+    }
   };
 
   const handleCancel = async (id: string) => {
@@ -656,6 +685,9 @@ export default function BookingsPage() {
 
   // 约拍类型管理函数
   const loadBookingTypes = async () => {
+    const loadToken = bookingTypesLoadTokenRef.current + 1;
+    bookingTypesLoadTokenRef.current = loadToken;
+
     setTypesLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -668,10 +700,17 @@ export default function BookingsPage() {
       .from('booking_types')
       .select('*')
       .order('id');
+
+    if (loadToken !== bookingTypesLoadTokenRef.current) {
+      return;
+    }
+
     if (!error && data) {
       setBookingTypes(data);
     }
-    setTypesLoading(false);
+    if (loadToken === bookingTypesLoadTokenRef.current) {
+      setTypesLoading(false);
+    }
   };
 
   const handleAddType = () => {
@@ -848,6 +887,9 @@ export default function BookingsPage() {
 
   // 城市管理函数
   const loadCities = async () => {
+    const loadToken = citiesLoadTokenRef.current + 1;
+    citiesLoadTokenRef.current = loadToken;
+
     setCitiesLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -860,10 +902,17 @@ export default function BookingsPage() {
       .from('allowed_cities')
       .select('*')
       .order('id');
+
+    if (loadToken !== citiesLoadTokenRef.current) {
+      return;
+    }
+
     if (!error && data) {
       setCities(data);
     }
-    setCitiesLoading(false);
+    if (loadToken === citiesLoadTokenRef.current) {
+      setCitiesLoading(false);
+    }
   };
 
   const handleAddCity = () => {

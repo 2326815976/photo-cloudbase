@@ -32,9 +32,15 @@ export default function AdminAboutPage() {
   const [form, setForm] = useState<AboutFormData>(DEFAULT_FORM);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const qrInputRef = useRef<HTMLInputElement | null>(null);
+  const aboutLoadTokenRef = useRef(0);
   useBeforeUnloadGuard(uploadingQr);
+
   useEffect(() => {
     void loadAboutSettings();
+
+    return () => {
+      aboutLoadTokenRef.current += 1;
+    };
   }, []);
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
@@ -63,10 +69,15 @@ export default function AdminAboutPage() {
     }
   };
   const loadAboutSettings = async () => {
+    const loadToken = aboutLoadTokenRef.current + 1;
+    aboutLoadTokenRef.current = loadToken;
+
     setLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
-      setLoading(false);
+      if (loadToken === aboutLoadTokenRef.current) {
+        setLoading(false);
+      }
       showToast('error', '服务初始化失败，请刷新后重试');
       return;
     }
@@ -77,6 +88,11 @@ export default function AdminAboutPage() {
       .order('id', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (loadToken !== aboutLoadTokenRef.current) {
+      return;
+    }
+
     if (error) {
       setLoading(false);
       showToast('error', `加载失败：${error.message || '未知错误'}`);

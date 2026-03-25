@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar, Eye, EyeOff, Download, MapPin, Heart } from 'lucide-react';
@@ -214,6 +214,7 @@ export default function AlbumDetailPage() {
   const [editingShotDatePhoto, setEditingShotDatePhoto] = useState<Photo | null>(null);
   const [editingShotDateValue, setEditingShotDateValue] = useState(getTodayUTC8());
   const [editingShotLocationValue, setEditingShotLocationValue] = useState('');
+  const albumLoadTokenRef = useRef(0);
 
   const invalidatePublicGalleryCache = () => {
     if (!isSystemWallAlbum) {
@@ -223,7 +224,11 @@ export default function AlbumDetailPage() {
   };
 
   useEffect(() => {
-    loadAlbumData();
+    void loadAlbumData();
+
+    return () => {
+      albumLoadTokenRef.current += 1;
+    };
   }, [albumId, currentPage]);
 
   useEffect(() => {
@@ -247,6 +252,9 @@ export default function AlbumDetailPage() {
   }, [folders, selectedFolder]);
 
   const loadAlbumData = async () => {
+    const loadToken = albumLoadTokenRef.current + 1;
+    albumLoadTokenRef.current = loadToken;
+
     setLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -273,6 +281,10 @@ export default function AlbumDetailPage() {
     let photosRes = isSystemWallAlbum
       ? await photosQuery
       : await photosQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+
+    if (loadToken !== albumLoadTokenRef.current) {
+      return;
+    }
 
     if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'sort_order')) {
       let fallbackQuery = dbClient
@@ -302,6 +314,10 @@ export default function AlbumDetailPage() {
           .eq('album_id', albumId)
           .order('created_at', { ascending: false });
       }
+    }
+
+    if (loadToken !== albumLoadTokenRef.current) {
+      return;
     }
 
     if (albumRes.data) setAlbum(albumRes.data);

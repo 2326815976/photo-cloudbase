@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, AlertCircle, CheckCircle, X } from 'lucide-react';
@@ -43,12 +43,20 @@ export default function SchedulePage() {
   const [deletingBlackout, setDeletingBlackout] = useState<Blackout | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const blackoutsLoadTokenRef = useRef(0);
 
   useEffect(() => {
-    loadBlackouts();
+    void loadBlackouts();
+
+    return () => {
+      blackoutsLoadTokenRef.current += 1;
+    };
   }, []);
 
   const loadBlackouts = async () => {
+    const loadToken = blackoutsLoadTokenRef.current + 1;
+    blackoutsLoadTokenRef.current = loadToken;
+
     setLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
@@ -63,10 +71,16 @@ export default function SchedulePage() {
       .select('*')
       .order('date', { ascending: true });
 
+    if (loadToken !== blackoutsLoadTokenRef.current) {
+      return;
+    }
+
     if (!error && data) {
       setBlackouts(data);
     }
-    setLoading(false);
+    if (loadToken === blackoutsLoadTokenRef.current) {
+      setLoading(false);
+    }
   };
 
   const handleAdd = async () => {
