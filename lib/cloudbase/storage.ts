@@ -340,7 +340,7 @@ export async function deleteCloudBaseFiles(fileIds: string[]): Promise<void> {
   ]);
 
   const failed: Array<{ fileID: string; code: string }> = [];
-  const chunkSize = 500;
+  const chunkSize = 50;
 
   for (let i = 0; i < normalizedIds.length; i += chunkSize) {
     const chunk = normalizedIds.slice(i, i + chunkSize);

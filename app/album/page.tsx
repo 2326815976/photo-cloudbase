@@ -9,6 +9,7 @@ import { getClipboardText } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
 import { formatDateDisplayUTC8, toTimestampUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
+import PageTopHeader from '@/components/PageTopHeader';
 
 interface BoundAlbum {
   id: string;
@@ -66,6 +67,18 @@ export default function AlbumLoginPage() {
     }, 3000);
     return () => clearTimeout(timer);
   }, [listNotice]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof document === 'undefined') {
+        return;
+      }
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) {
+        activeElement.blur();
+      }
+    };
+  }, []);
 
   const loadUserData = async () => {
     setPageLoading(true);
@@ -315,27 +328,18 @@ export default function AlbumLoginPage() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <div className="flex h-full w-full flex-col overflow-x-hidden bg-[#FFFBF0]">
       {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="px-4 pt-[11px] pb-[10px]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>{String.fromCodePoint(0x4e13,0x5c5e,0x8fd4,0x56fe,0x7a7a,0x95f4)}</h1>
-            </div>
-            <div className="inline-flex shrink-0 items-center rounded-full bg-[#FFC857]/24 px-[10px] py-[5px] text-[10px] font-bold leading-none text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]">
-              {String.fromCodePoint(0x1f92b) + ' ' + String.fromCodePoint(0x5618,0xff0c,0x8fd9,0x91cc,0x85cf,0x7740,0x4f60,0x7684,0x72ec,0x5bb6,0x8bb0,0x5fc6) + ' ' + String.fromCodePoint(0x1f92b)}
-            </div>
-          </div>
-        </div>
-      </motion.div>
+      <div className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
+        <PageTopHeader
+          title={String.fromCodePoint(0x4e13, 0x5c5e, 0x8fd4, 0x56fe, 0x7a7a, 0x95f4)}
+          badge={String.fromCodePoint(0x1f92b) + ' ' + String.fromCodePoint(0x5618, 0xff0c, 0x8fd9, 0x91cc, 0x85cf, 0x7740, 0x4f60, 0x7684, 0x72ec, 0x5bb6, 0x8bb0, 0x5fc6) + ' ' + String.fromCodePoint(0x1f92b)}
+        />
+      </div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+      <div className="flex-1 overflow-x-hidden overflow-y-auto pb-20">
+        <div className="px-6 pt-6">
         {listNotice && (
           <div
             className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
@@ -368,7 +372,7 @@ export default function AlbumLoginPage() {
                     onClick={() => handleAlbumClick(album.access_key)}
                     className="bg-white rounded-2xl shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 overflow-hidden cursor-pointer transition-shadow duration-300"
                   >
-                    <div className="flex gap-4 p-4">
+                    <div className="flex min-w-0 gap-4 p-4">
                       {/* 封面图 */}
                       <div className="flex-none w-24 rounded-2xl overflow-hidden bg-gray-100">
                         {album.cover_url ? (
@@ -387,12 +391,12 @@ export default function AlbumLoginPage() {
                       </div>
 
                       {/* 信息区 */}
-                      <div className="flex-1 flex flex-col justify-center">
-                        <h3 className="text-base font-bold text-[#5D4037] mb-1">
+                      <div className="min-w-0 flex-1 flex flex-col justify-center">
+                        <h3 className="mb-1 truncate text-base font-bold text-[#5D4037]">
                           {album.title || '未命名空间'}
                         </h3>
-                        <div className="flex items-center gap-3 text-xs text-[#5D4037]/50 mb-1">
-                          <span className="flex items-center gap-1">
+                        <div className="mb-1 flex min-w-0 items-center gap-3 text-xs text-[#5D4037]/50">
+                          <span className="flex min-w-0 items-center gap-1 truncate">
                             <Calendar className="w-3 h-3" />
                             {formatDate(album.created_at)}
                           </span>
@@ -446,7 +450,7 @@ export default function AlbumLoginPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="max-w-md mx-auto"
+            className="mx-auto w-full max-w-md"
           >
             {/* 图标 */}
             <motion.div
@@ -474,13 +478,13 @@ export default function AlbumLoginPage() {
                       value={accessKey}
                       onChange={(e) => setAccessKey(normalizeAccessKey(e.target.value))}
                       disabled={isLoading}
-                      className={`w-full h-[50px] ${!isWechat ? 'pr-12' : ''} px-[15px] text-center text-[15px] font-bold tracking-[0.08em] bg-[#FFFCF4] border-[1.5px] border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none transition-all disabled:opacity-50`}
+                      className={`w-full h-[50px] ${!isWechat ? 'pr-[50px]' : ''} px-[15px] text-center text-[16px] font-bold tracking-[0.08em] bg-[#FFFCF4] border-[1.5px] border-[#5D4037]/20 rounded-2xl focus:border-[#FFC857] focus:outline-none transition-all disabled:opacity-50`}
                       style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif" }}
                     />
                     {!isWechat && (
                       <motion.button
                         type="button"
-                        whileTap={{ scale: 0.9 }}
+                        whileTap={{ scale: 0.94 }}
                         onClick={async () => {
                           try {
                             const text = await getClipboardText();
@@ -495,10 +499,11 @@ export default function AlbumLoginPage() {
                           }
                         }}
                         disabled={isLoading}
-                        className="absolute right-[9px] top-1/2 -translate-y-1/2 w-[31px] h-[31px] rounded-full bg-[#FFE8B0] border border-[#5D4037]/14 shadow-[0_3px_6px_rgba(93,64,55,0.12)] hover:bg-[#FFD989] flex items-center justify-center transition-colors disabled:opacity-50 z-10"
+                        className="compact-button absolute right-[8px] top-1/2 z-10 flex h-[34px] w-[34px] -translate-y-1/2 items-center justify-center rounded-full border border-[#5D4037]/14 bg-[#FFE8B0] shadow-[0_3px_6px_rgba(93,64,55,0.12)] transition-colors hover:bg-[#FFD989] disabled:opacity-50"
                         title="粘贴"
+                        aria-label="粘贴密钥"
                       >
-                        <Clipboard className="w-4 h-4 text-[#5D4037] opacity-90" />
+                        <Clipboard className="h-[15px] w-[15px] text-[#5D4037] opacity-90" strokeWidth={2.2} />
                       </motion.button>
                     )}
                   </div>
@@ -506,7 +511,7 @@ export default function AlbumLoginPage() {
                     <motion.p
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="text-sm text-red-500 mt-2 text-center whitespace-nowrap overflow-x-auto"
+                      className="mt-2 text-center text-sm text-red-500 break-words"
                     >
                       {error}
                     </motion.p>
@@ -563,6 +568,7 @@ export default function AlbumLoginPage() {
             )}
           </motion.div>
         )}
+        </div>
       </div>
 
       {/* 解除绑定确认弹窗（对齐定格弹窗风格） */}
@@ -622,5 +628,7 @@ export default function AlbumLoginPage() {
     </div>
   );
 }
+
+
 
 

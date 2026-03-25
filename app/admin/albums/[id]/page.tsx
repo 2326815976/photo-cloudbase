@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar, Eye, Download } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar, Eye, EyeOff, Download, MapPin, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateAlbumImageVersions, generateGalleryImageVersions } from '@/lib/utils/image-versions';
 import { generateBlurHash } from '@/lib/utils/blurhash';
@@ -32,9 +32,11 @@ interface Photo {
   preview_url?: string | null;    // 新字段
   original_url?: string | null;   // 新字段
   folder_id: string | null;
+  is_public?: boolean | null;
   story_text?: string | null;
   has_story?: boolean;
   is_highlight?: boolean;
+  like_count?: number | null;
   sort_order?: number | null;
   shot_date?: string | null;
   shot_location?: string | null;
@@ -91,6 +93,51 @@ const normalizeShotLocation = (value: unknown): string | null => {
 const resolvePhotoDisplayDate = (photo: Photo): string | null =>
   normalizeShotDate(photo.shot_date) || normalizeShotDate(photo.created_at);
 
+const normalizeDbBoolean = (value: unknown, fallback = true): boolean => {
+  if (value === undefined || value === null || value === '') {
+    return Boolean(fallback);
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+    return false;
+  }
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue !== 0;
+  }
+  return Boolean(fallback);
+};
+
+const normalizePhotoSortOrder = (value: unknown): number => {
+  const sortValue = Number(value);
+  return Number.isFinite(sortValue) && sortValue > 0 ? Math.round(sortValue) : DEFAULT_PHOTO_SORT_ORDER;
+};
+
+const sortAdminAlbumPhotos = (rows: Photo[], isSystemWallAlbum: boolean): Photo[] =>
+  [...rows].sort((a, b) => {
+    const normalizedA = normalizePhotoSortOrder(a.sort_order);
+    const normalizedB = normalizePhotoSortOrder(b.sort_order);
+    if (normalizedA !== normalizedB) return normalizedA - normalizedB;
+
+    if (isSystemWallAlbum) {
+      const displayDateA = resolvePhotoDisplayDate(a) || '';
+      const displayDateB = resolvePhotoDisplayDate(b) || '';
+      if (displayDateA !== displayDateB) {
+        return displayDateB.localeCompare(displayDateA, 'zh-CN');
+      }
+    }
+
+    const timeA = new Date(String(a.created_at || '')).getTime();
+    const timeB = new Date(String(b.created_at || '')).getTime();
+    return (Number.isFinite(timeB) ? timeB : 0) - (Number.isFinite(timeA) ? timeA : 0);
+  });
+
 const formatPhotoDateText = (value: string | null): string => {
   if (!value) {
     return '----/--/--';
@@ -117,6 +164,7 @@ export default function AlbumDetailPage() {
   const router = useRouter();
   const params = useParams();
   const albumId = params.id as string;
+  const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [folders, setFolders] = useState<AlbumFolder[]>([]);
@@ -155,6 +203,9 @@ export default function AlbumDetailPage() {
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [showEditRootModal, setShowEditRootModal] = useState(false);
   const [newRootFolderName, setNewRootFolderName] = useState('');
+  const [showEditFolderModal, setShowEditFolderModal] = useState(false);
+  const [editingFolder, setEditingFolder] = useState<AlbumFolder | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState('');
   const [showStoryModal, setShowStoryModal] = useState(false);
   const [editingStoryPhoto, setEditingStoryPhoto] = useState<Photo | null>(null);
   const [editingStoryText, setEditingStoryText] = useState('');
@@ -165,7 +216,7 @@ export default function AlbumDetailPage() {
   const [editingShotLocationValue, setEditingShotLocationValue] = useState('');
 
   const invalidatePublicGalleryCache = () => {
-    if (String(albumId) !== SYSTEM_WALL_ALBUM_ID) {
+    if (!isSystemWallAlbum) {
       return;
     }
     markGalleryCacheDirty();
@@ -198,7 +249,6 @@ export default function AlbumDetailPage() {
   const loadAlbumData = async () => {
     setLoading(true);
     const dbClient = createClient();
-    const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
     if (!dbClient) {
       setLoading(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
@@ -208,7 +258,7 @@ export default function AlbumDetailPage() {
 
     const [albumRes, foldersRes] = await Promise.all([
       dbClient.from('albums').select('*').eq('id', albumId).single(),
-      dbClient.from('album_folders').select('*').eq('album_id', albumId).order('created_at', { ascending: false }),
+      dbClient.from('album_folders').select('*').eq('album_id', albumId).order('created_at', { ascending: true }),
     ]);
 
     let photosQuery = dbClient
@@ -220,7 +270,9 @@ export default function AlbumDetailPage() {
       ? photosQuery.order('shot_date', { ascending: false }).order('created_at', { ascending: false })
       : photosQuery.order('created_at', { ascending: false });
 
-    let photosRes = await photosQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+    let photosRes = isSystemWallAlbum
+      ? await photosQuery
+      : await photosQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
 
     if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'sort_order')) {
       let fallbackQuery = dbClient
@@ -230,7 +282,9 @@ export default function AlbumDetailPage() {
       fallbackQuery = isSystemWallAlbum
         ? fallbackQuery.order('shot_date', { ascending: false }).order('created_at', { ascending: false })
         : fallbackQuery.order('created_at', { ascending: false });
-      photosRes = await fallbackQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+      photosRes = isSystemWallAlbum
+        ? await fallbackQuery
+        : await fallbackQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
     }
 
     if (isSystemWallAlbum && photosRes.error && isColumnMissingError(photosRes.error.message || '', 'shot_date')) {
@@ -239,16 +293,14 @@ export default function AlbumDetailPage() {
         .select('*', { count: 'exact' })
         .eq('album_id', albumId)
         .order('sort_order', { ascending: true })
-        .order('created_at', { ascending: false })
-        .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+        .order('created_at', { ascending: false });
 
       if (photosRes.error && isColumnMissingError(photosRes.error.message || '', 'sort_order')) {
         photosRes = await dbClient
           .from('album_photos')
           .select('*', { count: 'exact' })
           .eq('album_id', albumId)
-          .order('created_at', { ascending: false })
-          .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+          .order('created_at', { ascending: false });
       }
     }
 
@@ -264,14 +316,16 @@ export default function AlbumDetailPage() {
         story_text: normalizeStoryText(row.story_text),
         has_story: Boolean(normalizeStoryText(row.story_text)),
         is_highlight: Boolean(row.is_highlight),
+        is_public: normalizeDbBoolean(row.is_public, true),
+        like_count: Number.isFinite(Number(row.like_count)) ? Math.max(0, Math.round(Number(row.like_count))) : 0,
         shot_date: normalizeShotDate(row.shot_date),
         shot_location: normalizeShotLocation(row.shot_location),
         view_count: Number.isFinite(Number(row.view_count)) ? Math.max(0, Math.round(Number(row.view_count))) : 0,
         download_count: Number.isFinite(Number(row.download_count)) ? Math.max(0, Math.round(Number(row.download_count))) : 0,
-        sort_order: Number.isFinite(Number(row.sort_order)) ? Math.round(Number(row.sort_order)) : DEFAULT_PHOTO_SORT_ORDER,
+        sort_order: normalizePhotoSortOrder(row.sort_order),
       }));
-      setPhotos(normalized);
-      setTotalCount(photosRes.count || 0);
+      setPhotos(sortAdminAlbumPhotos(normalized, isSystemWallAlbum));
+      setTotalCount(photosRes.count || normalized.length);
     }
 
     setLoading(false);
@@ -406,6 +460,76 @@ export default function AlbumDetailPage() {
     setTimeout(() => setShowToast(null), 3000);
   };
 
+  const handleOpenEditFolderModal = (folder: AlbumFolder) => {
+    if (actionLoading) {
+      return;
+    }
+    setEditingFolder(folder);
+    setEditingFolderName(String(folder.name || '').trim());
+    setShowEditFolderModal(true);
+  };
+
+  const handleUpdateFolderName = async () => {
+    if (actionLoading || !editingFolder) {
+      return;
+    }
+
+    const targetName = editingFolderName.trim();
+    if (!targetName) {
+      setShowToast({ message: '请输入文件夹名称', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (targetName.length > 50) {
+      setShowToast({ message: '文件夹名称最多 50 个字符', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { data: updatedFolder, error } = await dbClient
+      .from('album_folders')
+      .update({ name: targetName })
+      .eq('id', editingFolder.id)
+      .eq('album_id', albumId)
+      .select('id, name, created_at')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!updatedFolder) {
+      setShowToast({ message: '文件夹不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setFolders((prev) => prev.map((folder) => (
+      String(folder.id) === String(updatedFolder.id)
+        ? { ...folder, name: String(updatedFolder.name || '').trim() }
+        : folder
+    )));
+    setEditingFolder(null);
+    setEditingFolderName('');
+    setShowEditFolderModal(false);
+    invalidatePublicGalleryCache();
+    setShowToast({ message: '文件夹名称已更新', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
   const handleDeleteFolder = async (folderId: string) => {
     const folder = folders.find(f => f.id === folderId);
     if (folder) {
@@ -771,7 +895,6 @@ export default function AlbumDetailPage() {
     }
   ): Promise<{ ok: true } | { ok: false; message: string }> => {
     try {
-      const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
       const versions = isSystemWallAlbum
         ? await generateGalleryImageVersions(file)
         : await generateAlbumImageVersions(file);
@@ -990,14 +1113,17 @@ export default function AlbumDetailPage() {
     }
 
     setPhotos((prev) =>
-      prev.map((photo) =>
-        String(photo.id) === String(data.id)
-          ? {
-              ...photo,
-              shot_date: normalizeShotDate(data.shot_date),
-              shot_location: normalizeShotLocation(data.shot_location),
-            }
-          : photo
+      sortAdminAlbumPhotos(
+        prev.map((photo) =>
+          String(photo.id) === String(data.id)
+            ? {
+                ...photo,
+                shot_date: normalizeShotDate(data.shot_date),
+                shot_location: normalizeShotLocation(data.shot_location),
+              }
+            : photo
+        ),
+        isSystemWallAlbum
       )
     );
     closeShotDateModal();
@@ -1006,6 +1132,56 @@ export default function AlbumDetailPage() {
     setTimeout(() => setShowToast(null), 3000);
   };
 
+  const togglePhotoVisibility = async (photoId: string) => {
+    if (actionLoading || isSelectionMode || !isSystemWallAlbum) {
+      return;
+    }
+
+    const target = photos.find((item) => String(item.id) === String(photoId));
+    if (!target) {
+      setShowToast({ message: '照片不存在或已删除', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const nextPublic = !normalizeDbBoolean(target.is_public, true);
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { error } = await dbClient
+      .from('album_photos')
+      .update({ is_public: nextPublic ? 1 : 0 })
+      .eq('id', photoId)
+      .eq('album_id', albumId)
+      .select('id, is_public')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      setShowToast({ message: `${nextPublic ? '恢复公开' : '隐藏'}失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setPhotos((prev) => sortAdminAlbumPhotos(
+      prev.map((item) => (
+        String(item.id) === String(photoId)
+          ? { ...item, is_public: nextPublic }
+          : item
+      )),
+      isSystemWallAlbum
+    ));
+    invalidatePublicGalleryCache();
+    setShowToast({ message: nextPublic ? '照片已恢复公开' : '照片已隐藏', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
   const movePhotoOrder = async (photoId: string, direction: 'up' | 'down') => {
     const list = [...filteredPhotos];
     const currentIndex = list.findIndex((item) => String(item.id) === String(photoId));
@@ -1061,14 +1237,17 @@ export default function AlbumDetailPage() {
       }
 
       setPhotos((prev) =>
-        prev.map((item) => {
-          const nextSort = desiredMap.get(String(item.id));
-          if (!Number.isFinite(nextSort as number)) return item;
-          return {
-            ...item,
-            sort_order: nextSort as number,
-          };
-        })
+        sortAdminAlbumPhotos(
+          prev.map((item) => {
+            const nextSort = desiredMap.get(String(item.id));
+            if (!Number.isFinite(nextSort as number)) return item;
+            return {
+              ...item,
+              sort_order: nextSort as number,
+            };
+          }),
+          isSystemWallAlbum
+        )
       );
       invalidatePublicGalleryCache();
       setShowToast({ message: direction === 'up' ? '已上移一位' : '已下移一位', type: 'success' });
@@ -1376,6 +1555,20 @@ export default function AlbumDetailPage() {
     }
   };
 
+  const handleSelectFolder = (folderId: string | null) => {
+    setSelectedFolder(folderId);
+    setCurrentPage(1);
+    setIsSelectionMode(false);
+    setSelectedPhotoIds([]);
+  };
+
+  const toggleSelectAllPhotos = () => {
+    if (filteredPhotos.length > 0 && selectedPhotoIds.length === filteredPhotos.length) {
+      setSelectedPhotoIds([]);
+      return;
+    }
+    setSelectedPhotoIds(filteredPhotos.map((photo) => photo.id));
+  };
   const togglePhotoSelection = (id: string) => {
     setSelectedPhotoIds(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -1650,32 +1843,54 @@ export default function AlbumDetailPage() {
     }
   };
 
-  const filteredPhotos = (
+  const filteredPhotos = sortAdminAlbumPhotos(
     selectedFolder
       ? photos.filter((p) => p.folder_id === selectedFolder)
-      : photos.filter((p) => !p.folder_id)
-  ).sort((a, b) => {
-    const isSystemWallAlbum = String(albumId) === SYSTEM_WALL_ALBUM_ID;
-    const sortA = Number(a.sort_order);
-    const sortB = Number(b.sort_order);
-    const normalizedA = Number.isFinite(sortA) && sortA > 0 ? Math.round(sortA) : DEFAULT_PHOTO_SORT_ORDER;
-    const normalizedB = Number.isFinite(sortB) && sortB > 0 ? Math.round(sortB) : DEFAULT_PHOTO_SORT_ORDER;
-    if (normalizedA !== normalizedB) return normalizedA - normalizedB;
-
-    if (isSystemWallAlbum) {
-      const displayDateA = resolvePhotoDisplayDate(a) || '';
-      const displayDateB = resolvePhotoDisplayDate(b) || '';
-      if (displayDateA !== displayDateB) {
-        return displayDateB.localeCompare(displayDateA, 'zh-CN');
-      }
-    }
-
-    const timeA = new Date(String(a.created_at || '')).getTime();
-    const timeB = new Date(String(b.created_at || '')).getTime();
-    return (Number.isFinite(timeB) ? timeB : 0) - (Number.isFinite(timeA) ? timeA : 0);
-  });
+      : photos.filter((p) => !p.folder_id),
+    isSystemWallAlbum
+  );
   const rootFolderName = String(album?.root_folder_name ?? '').trim() || '根目录';
-
+  const folderPhotoCountMap = new Map<string, number>();
+  let rootPhotoCount = 0;
+  photos.forEach((photo) => {
+    const folderId = String(photo.folder_id ?? '').trim();
+    if (!folderId) {
+      rootPhotoCount += 1;
+      return;
+    }
+    folderPhotoCountMap.set(folderId, Number(folderPhotoCountMap.get(folderId) || 0) + 1);
+  });
+  const foldersWithCounts = folders.map((folder) => ({
+    ...folder,
+    photoCount: Number(folderPhotoCountMap.get(String(folder.id)) || 0),
+  }));
+  const selectedFolderEntity = selectedFolder
+    ? folders.find((folder) => String(folder.id) === String(selectedFolder)) || null
+    : null;
+  const selectedFolderName = selectedFolderEntity ? String(selectedFolderEntity.name || '').trim() : rootFolderName;
+  const systemWallRows = filteredPhotos.map((photo) => {
+    const hasStory = Boolean(normalizeStoryText(photo.story_text));
+    const isHighlighted = hasStory || Boolean(photo.is_highlight);
+    const isPublic = normalizeDbBoolean(photo.is_public, true);
+    const viewCount = Number(photo.view_count || 0);
+    const likeCount = Number(photo.like_count || 0);
+    return {
+      ...photo,
+      dateText: formatPhotoDateText(resolvePhotoDisplayDate(photo)),
+      shotLocationText: normalizeShotLocation(photo.shot_location) || '未知',
+      viewCount: Number.isFinite(viewCount) ? Math.max(0, Math.round(viewCount)) : 0,
+      likeCount: Number.isFinite(likeCount) ? Math.max(0, Math.round(likeCount)) : 0,
+      isPublic,
+      isHighlighted,
+      visibilityText: isPublic ? '公开' : '已隐藏',
+      visibilityClass: isPublic ? 'photo-card__visibility--public' : 'photo-card__visibility--hidden',
+      selected: selectedPhotoIds.includes(photo.id),
+      hasStory,
+      story_highlight: Boolean(photo.is_highlight),
+      imageUrl: photoUrls[photo.id] || photo.thumbnail_url || photo.preview_url || photo.original_url || photo.url || '',
+    };
+  });
+  const showAllSelected = filteredPhotos.length > 0 && selectedPhotoIds.length === filteredPhotos.length;
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -1686,7 +1901,333 @@ export default function AlbumDetailPage() {
   }
 
   return (
-    <div className="space-y-6 pt-6">
+    <div className="admin-mobile-page album-detail-admin-page space-y-6 pt-6">
+      {isSystemWallAlbum ? (
+        <div className="system-wall-shell">
+          <div className="system-wall-shell__head">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="system-wall-shell__back"
+              aria-label="返回上一页"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="system-wall-shell__summary">
+              <h1 className="system-wall-shell__title">照片墙管理</h1>
+              <p className="system-wall-shell__subtitle">
+                {album?.title || '照片墙'}
+                {album?.access_key ? ` · 密钥：${album.access_key}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="album-detail-page system-wall-manager">
+            <div className="main-content">
+              <div className="header-section">
+                {!isSelectionMode ? (
+                  <div className="toolbar-actions toolbar-actions--normal">
+                    <button type="button" className="toolbar-btn toolbar-btn--soft" onClick={() => setShowNewFolderModal(true)}>
+                      <FolderPlus className="toolbar-btn__icon" />
+                      <span className="toolbar-btn__text">新建文件夹</span>
+                    </button>
+                    <button type="button" className="toolbar-btn toolbar-btn--ghost" onClick={() => setIsSelectionMode(true)}>
+                      <Trash2 className="toolbar-btn__icon" />
+                      <span className="toolbar-btn__text">批量删除</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="toolbar-btn toolbar-btn--primary"
+                      onClick={() => {
+                        setShowUploadModal(true);
+                        setUploadMode('batch');
+                        setSingleImage(null);
+                        setSingleStoryText('');
+                        setSingleHighlight(false);
+                        setSingleShotDate(getTodayUTC8());
+                        setSingleShotLocation('');
+                        setBatchShotDate(getTodayUTC8());
+                        setBatchShotLocation('');
+                        setBatchImages([]);
+                        setUploadProgress({ current: 0, total: 0 });
+                      }}
+                    >
+                      <Upload className="toolbar-btn__icon" />
+                      <span className="toolbar-btn__text">上传照片</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="toolbar-actions toolbar-actions--selection">
+                    <button type="button" className="toolbar-btn toolbar-btn--ghost toolbar-btn--select-toggle" onClick={toggleSelectAllPhotos}>
+                      {showAllSelected ? '取消全选' : `全选(${selectedPhotoIds.length}/${filteredPhotos.length})`}
+                    </button>
+                    <button
+                      type="button"
+                      className={`toolbar-btn toolbar-btn--primary ${selectedPhotoIds.length === 0 ? 'toolbar-btn--disabled' : ''}`}
+                      onClick={() => openMoveModal(selectedPhotoIds)}
+                      disabled={selectedPhotoIds.length === 0}
+                    >
+                      <ArrowRightLeft className="toolbar-btn__icon" />
+                      <span className="toolbar-btn__text">迁移({selectedPhotoIds.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`toolbar-btn toolbar-btn--danger ${selectedPhotoIds.length === 0 ? 'toolbar-btn--disabled' : ''}`}
+                      onClick={handleBatchDelete}
+                      disabled={selectedPhotoIds.length === 0}
+                    >
+                      <Trash2 className="toolbar-btn__icon" />
+                      <span className="toolbar-btn__text">删除({selectedPhotoIds.length})</span>
+                    </button>
+                    <button type="button" className="toolbar-btn toolbar-btn--ghost" onClick={clearPhotoSelection}>
+                      取消
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="folder-tabs">
+                <div className="folder-tab-wrap">
+                  <button
+                    type="button"
+                    className={`folder-tab ${selectedFolder === null ? 'folder-tab--active' : ''}`}
+                    onClick={() => handleSelectFolder(null)}
+                  >
+                    <span className="folder-tab__text">{rootFolderName} ({rootPhotoCount})</span>
+                  </button>
+                </div>
+                {foldersWithCounts.map((folder) => (
+                  <div key={folder.id} className="folder-tab-wrap">
+                    <button
+                      type="button"
+                      className={`folder-tab ${selectedFolder === folder.id ? 'folder-tab--active' : ''}`}
+                      onClick={() => handleSelectFolder(folder.id)}
+                    >
+                      <Folder className="folder-tab__icon" />
+                      <span className="folder-tab__text">{folder.name} ({folder.photoCount})</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {!isSelectionMode && (
+                <div className="folder-current-actions">
+                  {selectedFolder === null ? (
+                    <button
+                      type="button"
+                      className="folder-current-action-btn folder-current-action-btn--edit folder-current-action-btn--single"
+                      onClick={handleOpenEditRootModal}
+                    >
+                      编辑根目录
+                    </button>
+                  ) : selectedFolderEntity ? (
+                    <>
+                      <button
+                        type="button"
+                        className="folder-current-action-btn folder-current-action-btn--edit"
+                        onClick={() => handleOpenEditFolderModal(selectedFolderEntity)}
+                      >
+                        编辑文件夹
+                      </button>
+                      <button
+                        type="button"
+                        className="folder-current-action-btn folder-current-action-btn--danger"
+                        onClick={() => handleDeleteFolder(selectedFolderEntity.id)}
+                      >
+                        删除文件夹
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              )}
+
+              {systemWallRows.length === 0 ? (
+                <div className="empty-state">
+                  <span className="empty-icon">🖼️</span>
+                  <span className="empty-text">暂无照片</span>
+                </div>
+              ) : (
+                <div className="photos-grid">
+                  <AnimatePresence>
+                    {systemWallRows.map((photo, index) => (
+                      <motion.div
+                        key={photo.id}
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        className={`photo-card ${isSelectionMode && photo.selected ? 'photo-card--selected' : ''} ${photo.isHighlighted ? 'photo-card--story-highlight' : ''}`}
+                        onClick={() => {
+                          if (isSelectionMode) {
+                            togglePhotoSelection(photo.id);
+                            return;
+                          }
+                          setPreviewPhoto(photo);
+                        }}
+                      >
+                        <div className="photo-card__image-wrap">
+                          {photo.imageUrl ? (
+                            <img className="photo-card__image" src={photo.imageUrl} alt="" />
+                          ) : (
+                            <div className="photo-card__image-loading">
+                              <div className="photo-card__image-spinner" />
+                            </div>
+                          )}
+
+                          {isSelectionMode ? (
+                            <div className={`photo-card__check ${photo.selected ? 'photo-card__check--active' : ''}`}>
+                              {photo.selected ? '✓' : ''}
+                            </div>
+                          ) : (
+                            <div className="photo-card__actions">
+                              <button
+                                type="button"
+                                className={`photo-card__action photo-card__action--visibility ${photo.isPublic ? 'photo-card__action--visible' : 'photo-card__action--hidden'}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  togglePhotoVisibility(photo.id);
+                                }}
+                                title={photo.isPublic ? '隐藏照片' : '恢复公开'}
+                              >
+                                {photo.isPublic ? (
+                                  <EyeOff className="photo-card__action-icon" />
+                                ) : (
+                                  <Eye className="photo-card__action-icon" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className={`photo-card__action photo-card__action--story ${photo.hasStory ? 'photo-card__action--story-active' : ''}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openStoryModal(photo);
+                                }}
+                                title={photo.hasStory ? '编辑关于此刻' : '添加关于此刻'}
+                              >
+                                {photo.hasStory ? (
+                                  <RotateCcw className="photo-card__action-icon photo-card__action-icon--light" />
+                                ) : (
+                                  <Sparkles className="photo-card__action-icon photo-card__action-icon--light" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="photo-card__action photo-card__action--date"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openShotDateModal(photo);
+                                }}
+                                title="编辑拍摄信息"
+                              >
+                                <Calendar className="photo-card__action-icon" />
+                              </button>
+                              <button
+                                type="button"
+                                className="photo-card__action photo-card__action--move"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openMoveModal([photo.id]);
+                                }}
+                                title="迁移照片"
+                              >
+                                <ArrowRightLeft className="photo-card__action-icon" />
+                              </button>
+                              <button
+                                type="button"
+                                className="photo-card__action photo-card__action--danger"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDeletePhoto(photo.id);
+                                }}
+                                title="删除照片"
+                              >
+                                <Trash2 className="photo-card__action-icon" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="photo-card__meta">
+                          <div className="photo-card__shot-time">
+                            <Calendar className="photo-card__shot-time-icon" />
+                            <span className="photo-card__shot-time-text">{photo.dateText}</span>
+                          </div>
+                          <div className="photo-card__shot-location">
+                            <MapPin className="photo-card__shot-location-icon" />
+                            <span className="photo-card__shot-location-text">{photo.shotLocationText}</span>
+                          </div>
+                          <div className="photo-card__meta-bottom">
+                            <span className="photo-card__stat">
+                              <Heart className="h-3 w-3" />
+                              <span>{photo.likeCount}</span>
+                            </span>
+                            <span className="photo-card__stat">
+                              <Eye className="h-3 w-3" />
+                              <span>{photo.viewCount}</span>
+                            </span>
+                            <span className={`photo-card__visibility ${photo.visibilityClass}`}>
+                              {photo.visibilityText}
+                            </span>
+                            {photo.hasStory ? (
+                              <span className="photo-card__story-badge">故事</span>
+                            ) : photo.story_highlight ? (
+                              <span className="photo-card__story-badge photo-card__story-badge--highlight">高亮</span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {!isSelectionMode && (
+                          <div className="photo-card__sort-actions">
+                            <button
+                              type="button"
+                              className={`photo-card__sort-btn ${index === 0 || actionLoading ? 'photo-card__sort-btn--disabled' : ''}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                pinPhotoToTop(photo.id);
+                              }}
+                              disabled={index === 0 || actionLoading}
+                            >
+                              置顶
+                            </button>
+                            <button
+                              type="button"
+                              className={`photo-card__sort-btn ${index === 0 || actionLoading ? 'photo-card__sort-btn--disabled' : ''}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                movePhotoOrder(photo.id, 'up');
+                              }}
+                              disabled={index === 0 || actionLoading}
+                              aria-label="上移"
+                            >
+                              <ChevronUp className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              className={`photo-card__sort-btn ${index === systemWallRows.length - 1 || actionLoading ? 'photo-card__sort-btn--disabled' : ''}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                movePhotoOrder(photo.id, 'down');
+                              }}
+                              disabled={index === systemWallRows.length - 1 || actionLoading}
+                              aria-label="下移"
+                            >
+                              <ChevronDown className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              <div className="pagination">
+                <span className="pagination__info">已全部加载，共 {totalCount || systemWallRows.length} 张</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button
@@ -2052,6 +2593,8 @@ export default function AlbumDetailPage() {
         </div>
       )}
 
+        </>
+      )}
       {showNewFolderModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewFolderModal(false)}>
           <div className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
@@ -2127,6 +2670,65 @@ export default function AlbumDetailPage() {
         </div>
       )}
 
+      {showEditFolderModal && (
+        <div
+          className="gallery-manager-modal-mask"
+          onClick={() => {
+            if (actionLoading) {
+              return;
+            }
+            setShowEditFolderModal(false);
+            setEditingFolder(null);
+            setEditingFolderName('');
+          }}
+        >
+          <div className="gallery-manager-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="gallery-manager-modal__header">
+              <h3 className="gallery-manager-modal__title">修改文件夹名称</h3>
+            </div>
+            <div className="gallery-manager-modal__body">
+              <input
+                type="text"
+                value={editingFolderName}
+                onChange={(event) => setEditingFolderName(event.target.value)}
+                placeholder="输入文件夹名称"
+                maxLength={50}
+                className="gallery-manager-modal__input"
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleUpdateFolderName();
+                  }
+                }}
+              />
+              <p className="gallery-manager-modal__hint">建议 2-12 个字，最多 50 个字符</p>
+            </div>
+            <div className="gallery-manager-modal__footer">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditFolderModal(false);
+                  setEditingFolder(null);
+                  setEditingFolderName('');
+                }}
+                disabled={actionLoading}
+                className="gallery-manager-modal__btn gallery-manager-modal__btn--ghost"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateFolderName}
+                disabled={actionLoading}
+                className="gallery-manager-modal__btn gallery-manager-modal__btn--primary"
+              >
+                {actionLoading ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 删除文件夹确认对话框 */}
       <AnimatePresence>
         {deletingFolder && (

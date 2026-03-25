@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
-import { Calendar, MapPin, Phone, User, X, Check, Calendar as CalendarIcon, Plus, Trash2, CheckCircle, XCircle, AlertCircle, Camera, MessageSquare } from 'lucide-react';
+import { MapPin, X, Trash2, CheckCircle, XCircle, AlertCircle, Camera, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 
@@ -83,6 +83,69 @@ function isForeignKeyConstraintError(error: any): boolean {
   return errorCode === '1451' || errorMessage.includes('foreign key constraint fails');
 }
 
+const BOOKING_PAGE_SIZE = 10;
+
+const BOOKING_PANEL_TABS = [
+  { key: 'bookings', label: '预约列表' },
+  { key: 'types', label: '约拍类型' },
+  { key: 'cities', label: '城市管理' },
+] as const;
+
+const BOOKING_FILTER_OPTIONS = [
+  { key: 'all', label: '全部' },
+  { key: 'pending', label: '待确认' },
+  { key: 'confirmed', label: '已确认' },
+  { key: 'in_progress', label: '进行中' },
+  { key: 'finished', label: '已完成' },
+  { key: 'cancelled', label: '已取消' },
+] as const;
+
+function normalizeBookingKeyword(input: string): string {
+  return String(input ?? '').trim().toLowerCase();
+}
+
+function isBookingDeletable(status: string): boolean {
+  return status === 'finished' || status === 'cancelled';
+}
+
+function buildBookingSearchText(booking: Booking): string {
+  return [
+    booking.id,
+    booking.profiles?.name,
+    booking.profiles?.email,
+    booking.phone,
+    booking.wechat,
+    booking.booking_types?.name,
+    booking.city_name,
+    booking.location,
+    booking.booking_date,
+    booking.notes,
+  ]
+    .map((item) => String(item ?? '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function formatBookingMetaTime(value: string): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return '创建时间未知';
+  }
+
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return `创建于 ${normalized}`;
+  }
+
+  return `创建于 ${date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+}
+
 export default function BookingsPage() {
   const [activeTab, setActiveTab] = useState<'bookings' | 'types' | 'cities'>('bookings');
 
@@ -90,6 +153,8 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'in_progress' | 'finished' | 'cancelled'>('all');
+  const [bookingKeyword, setBookingKeyword] = useState('');
+  const [bookingCurrentPage, setBookingCurrentPage] = useState(1);
 
   const [submitting, setSubmitting] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
@@ -126,6 +191,10 @@ export default function BookingsPage() {
     loadBookings();
   }, [filter]);
 
+  useEffect(() => {
+    setBookingCurrentPage(1);
+  }, [filter, bookingKeyword]);
+
   // 预约管理函数
   const loadBookings = async () => {
     setBookingsLoading(true);
@@ -140,7 +209,7 @@ export default function BookingsPage() {
     // 优化查询：只选择需要的字段
     let query = dbClient
       .from('bookings')
-      .select('id, user_id, type_id, booking_date, location, city_name, phone, wechat, notes, status, created_at, updated_at')
+      .select('id, user_id, type_id, booking_date, location, latitude, longitude, city_name, phone, wechat, notes, status, created_at, updated_at')
       .order('booking_date', { ascending: false });
 
     if (filter !== 'all') {
@@ -349,35 +418,18 @@ export default function BookingsPage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border border-amber-200/50';
-      case 'confirmed':
-        return 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border border-emerald-200/50';
-      case 'in_progress':
-        return 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200/50';
-      case 'finished':
-        return 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border border-purple-200/50';
-      case 'cancelled':
-        return 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-600 border border-gray-200/50';
-      default:
-        return 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-600 border border-gray-200/50';
-    }
-  };
-
   const getStatusText = (status: string) => {
     switch (status) {
       case 'pending':
-        return '⏳ 待确认';
+        return '待确认';
       case 'confirmed':
-        return '✓ 已确认';
+        return '已确认';
       case 'in_progress':
-        return '📸 进行中';
+        return '进行中';
       case 'finished':
-        return '✨ 已完成';
+        return '已完成';
       case 'cancelled':
-        return '✕ 已取消';
+        return '已取消';
       default:
         return status;
     }
@@ -492,15 +544,115 @@ export default function BookingsPage() {
     );
   };
 
+  const getStatusChipClass = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'booking-status-chip--pending';
+      case 'confirmed':
+        return 'booking-status-chip--confirmed';
+      case 'in_progress':
+        return 'booking-status-chip--in_progress';
+      case 'finished':
+        return 'booking-status-chip--finished';
+      case 'cancelled':
+        return 'booking-status-chip--cancelled';
+      default:
+        return 'booking-status-chip--cancelled';
+    }
+  };
+
+  const openBookingLocation = (booking: Booking) => {
+    const latitude = Number(booking.latitude);
+    const longitude = Number(booking.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setShowToast({ message: '当前预约没有可用坐标', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const markerUrl = `https://uri.amap.com/marker?position=${longitude},${latitude}&name=${encodeURIComponent(
+      booking.location || booking.city_name || '预约位置'
+    )}`;
+
+    window.open(markerUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const selectAllBookings = () => {
-    const deletableBookings = bookings.filter(b => b.status === 'finished' || b.status === 'cancelled');
-    setSelectedBookingIds(deletableBookings.map(b => b.id));
+    if (bookingPageDeletableIds.length === 0) {
+      return;
+    }
+
+    const pageDeletableIdSet = new Set(bookingPageDeletableIds);
+    setSelectedBookingIds((prev) => {
+      const hasAllCurrentPage = bookingPageDeletableIds.every((id) => prev.includes(id));
+      if (hasAllCurrentPage) {
+        return prev.filter((id) => !pageDeletableIdSet.has(id));
+      }
+      return Array.from(new Set([...prev, ...bookingPageDeletableIds]));
+    });
   };
 
   const clearBookingSelection = () => {
     setSelectedBookingIds([]);
     setIsBookingSelectionMode(false);
   };
+
+  const openDeleteSingleBooking = (bookingId: string) => {
+    setSelectedBookingIds([bookingId]);
+    setShowBatchDeleteBookingsConfirm(true);
+  };
+
+  const filteredBookings = useMemo(() => {
+    const keyword = normalizeBookingKeyword(bookingKeyword);
+    if (!keyword) {
+      return bookings;
+    }
+
+    return bookings.filter((booking) => buildBookingSearchText(booking).includes(keyword));
+  }, [bookings, bookingKeyword]);
+
+  const bookingDeletableIds = useMemo(
+    () => filteredBookings.filter((booking) => isBookingDeletable(booking.status)).map((booking) => booking.id),
+    [filteredBookings]
+  );
+
+  const bookingTotalPages = Math.max(1, Math.ceil(filteredBookings.length / BOOKING_PAGE_SIZE));
+
+  useEffect(() => {
+    if (bookingCurrentPage > bookingTotalPages) {
+      setBookingCurrentPage(bookingTotalPages);
+    }
+  }, [bookingCurrentPage, bookingTotalPages]);
+
+  useEffect(() => {
+    const deletableIdSet = new Set(bookingDeletableIds);
+    setSelectedBookingIds((prev) => {
+      const next = prev.filter((id) => deletableIdSet.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+
+    if (isBookingSelectionMode && bookingDeletableIds.length === 0) {
+      setIsBookingSelectionMode(false);
+    }
+  }, [bookingDeletableIds, isBookingSelectionMode]);
+
+  const bookingRows = useMemo(() => {
+    const startIndex = Math.max(0, (bookingCurrentPage - 1) * BOOKING_PAGE_SIZE);
+    return filteredBookings.slice(startIndex, startIndex + BOOKING_PAGE_SIZE);
+  }, [filteredBookings, bookingCurrentPage]);
+
+  const bookingPageDeletableIds = useMemo(
+    () => bookingRows.filter((booking) => isBookingDeletable(booking.status)).map((booking) => booking.id),
+    [bookingRows]
+  );
+
+  const bookingAllSelected =
+    bookingPageDeletableIds.length > 0 &&
+    bookingPageDeletableIds.every((id) => selectedBookingIds.includes(id));
+
+  const bookingSelectedCount = selectedBookingIds.length;
+  const bookingDeletableCount = bookingDeletableIds.length;
 
   // 约拍类型管理函数
   const loadBookingTypes = async () => {
@@ -924,124 +1076,84 @@ export default function BookingsPage() {
   };
 
   return (
-    <div className="space-y-6 pt-6">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+    <div className="admin-mobile-page booking-admin-page space-y-5 pt-6">
+      <div className="module-intro booking-page-intro">
+        <h1 className="module-title" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           预约管理 📅
         </h1>
-        <p className="text-sm text-[#5D4037]/60">管理用户预约申请</p>
+        <p className="module-desc">管理用户预约申请</p>
       </div>
 
-      {/* Tab切换 */}
-      <div className="flex gap-2 border-b border-[#5D4037]/10 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('bookings')}
-          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
-            activeTab === 'bookings'
-              ? 'text-[#5D4037]'
-              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
-          }`}
-        >
-          预约列表
-          {activeTab === 'bookings' && (
-            <motion.div
-              layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('types')}
-          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
-            activeTab === 'types'
-              ? 'text-[#5D4037]'
-              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
-          }`}
-        >
-          约拍类型
-          {activeTab === 'types' && (
-            <motion.div
-              layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('cities')}
-          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
-            activeTab === 'cities'
-              ? 'text-[#5D4037]'
-              : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
-          }`}
-        >
-          城市管理
-          {activeTab === 'cities' && (
-            <motion.div
-              layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
-            />
-          )}
-        </button>
+      <div className="booking-tabs">
+        {BOOKING_PANEL_TABS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setActiveTab(item.key)}
+            className={`booking-tab-item ${activeTab === item.key ? 'booking-tab-item--active' : ''}`}
+          >
+            <span className="booking-tab-item__text">{item.label}</span>
+            {activeTab === item.key && (
+              <motion.div layoutId="booking-admin-tab" className="booking-tab-item__line" />
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* 预约列表内容 */}
       {activeTab === 'bookings' && (
-        <div className="space-y-6">
-          {/* 筛选器和批量操作 */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {[
-                { key: 'all', label: '全部' },
-                { key: 'pending', label: '待确认' },
-                { key: 'confirmed', label: '已确认' },
-                { key: 'in_progress', label: '进行中' },
-                { key: 'finished', label: '已完成' },
-                { key: 'cancelled', label: '已取消' },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => setFilter(item.key as any)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                    filter === item.key
-                      ? 'bg-[#FFC857] text-[#5D4037] shadow-md'
-                      : 'bg-white text-[#5D4037]/60 border border-[#5D4037]/10 hover:bg-[#5D4037]/5'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+        <div className="booking-panel">
+          <div className="booking-toolbar">
+            <div className="booking-filter-scroll">
+              <div className="booking-filter-list">
+                {BOOKING_FILTER_OPTIONS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setFilter(item.key)}
+                    className={`booking-filter-chip ${filter === item.key ? 'booking-filter-chip--active' : ''}`}
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* 批量删除按钮 */}
-            {(filter === 'finished' || filter === 'cancelled') && !isBookingSelectionMode && (
-              <button
-                onClick={() => setIsBookingSelectionMode(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
-              >
-                批量删除
-              </button>
+            {!isBookingSelectionMode && (
+              <div className="booking-toolbar-actions">
+                <button
+                  type="button"
+                  className="booking-pill-btn booking-pill-btn--ghost"
+                  onClick={() => setIsBookingSelectionMode(true)}
+                  disabled={actionLoading || bookingDeletableCount <= 0}
+                >
+                  批量删除
+                </button>
+              </div>
             )}
 
             {isBookingSelectionMode && (
-              <div className="flex gap-2">
+              <div className="booking-toolbar-actions booking-toolbar-actions--selection booking-toolbar-actions--selection-row">
                 <button
+                  type="button"
+                  className="booking-pill-btn booking-pill-btn--ghost booking-pill-btn--compact"
                   onClick={selectAllBookings}
-                  className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
+                  disabled={actionLoading || bookingPageDeletableIds.length === 0}
                 >
-                  全选 ({selectedBookingIds.length}/{bookings.filter(b => b.status === 'finished' || b.status === 'cancelled').length})
+                  {bookingAllSelected ? '取消全选' : '全选'} ({bookingSelectedCount}/{bookingPageDeletableIds.length})
                 </button>
                 <button
+                  type="button"
+                  className="booking-pill-btn booking-pill-btn--danger booking-pill-btn--compact"
                   onClick={handleBatchDeleteBookings}
-                  disabled={selectedBookingIds.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50 whitespace-nowrap"
+                  disabled={actionLoading || bookingSelectedCount === 0}
                 >
-                  <Trash2 className="w-4 h-4" />
-                  删除 ({selectedBookingIds.length})
+                  删除选中 ({bookingSelectedCount})
                 </button>
                 <button
+                  type="button"
+                  className="booking-pill-btn booking-pill-btn--ghost booking-pill-btn--compact"
                   onClick={clearBookingSelection}
-                  className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors whitespace-nowrap"
+                  disabled={actionLoading}
                 >
                   取消
                 </button>
@@ -1049,219 +1161,304 @@ export default function BookingsPage() {
             )}
           </div>
 
-          {/* 预约列表 */}
+          <div className="booking-search-row">
+            <div className="booking-search-box">
+              <Search className="booking-search-box__icon" />
+              <input
+                type="text"
+                value={bookingKeyword}
+                onChange={(event) => setBookingKeyword(event.target.value)}
+                className="booking-search-box__input"
+                placeholder="关键词检索：ID/用户/手机号/微信/类型/城市/地点/日期"
+              />
+              {bookingKeyword && (
+                <button
+                  type="button"
+                  className="booking-search-box__clear"
+                  onClick={() => setBookingKeyword('')}
+                  aria-label="清空搜索"
+                >
+                  <X className="booking-search-box__clear-icon" />
+                </button>
+              )}
+            </div>
+            {bookingKeyword && !bookingsLoading && (
+              <p className="booking-search-row__meta">匹配 {filteredBookings.length} 条</p>
+            )}
+          </div>
+
           {bookingsLoading ? (
-            <div className="text-center py-12">
-              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="py-10 text-center">
+              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#FFC857] border-t-transparent"></div>
               <p className="text-sm text-[#5D4037]/60">加载中...</p>
             </div>
-          ) : bookings.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <Calendar className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-              <p className="text-[#5D4037]/60">暂无预约数据</p>
+          ) : filteredBookings.length === 0 ? (
+            <div className="booking-empty-card text-center">
+              <span className="booking-empty-card__icon">📅</span>
+              <p className="text-sm text-[#5D4037]/60">暂无预约数据</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              <AnimatePresence>
-                {bookings.map((booking) => {
-                  const isDeletable = booking.status === 'finished' || booking.status === 'cancelled';
-                  const isSelected = selectedBookingIds.includes(booking.id);
+            <>
+              <div className="booking-cards">
+                <AnimatePresence initial={false}>
+                  {bookingRows.map((booking) => {
+                    const isDeletable = isBookingDeletable(booking.status);
+                    const isSelected = selectedBookingIds.includes(booking.id);
+                    const canConfirm = booking.status === 'pending';
+                    const canStart = booking.status === 'confirmed';
+                    const canFinish = booking.status === 'in_progress';
+                    const canCancel = ['pending', 'confirmed', 'in_progress'].includes(booking.status);
+                    const latitude = Number(booking.latitude);
+                    const longitude = Number(booking.longitude);
+                    const hasCoordinate = Number.isFinite(latitude) && Number.isFinite(longitude);
+                    const locationDisplay = booking.location || booking.city_name || '未设置地点';
+                    const phoneDisplay = booking.phone || '未填写手机号';
+                    const wechatDisplay = booking.wechat || '未填写微信号';
+                    const userDisplay = booking.profiles?.name || '未知用户';
+                    const userEmail = booking.profiles?.email || '';
 
-                  return (
-                  <motion.div
-                    key={booking.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className={`bg-white rounded-2xl p-6 shadow-sm border transition-all ${
-                      isBookingSelectionMode && isDeletable
-                        ? isSelected
-                          ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md cursor-pointer'
-                          : 'border-[#5D4037]/10 hover:border-[#FFC857]/50 cursor-pointer'
-                        : 'border-[#5D4037]/10 hover:shadow-md'
-                    }`}
-                    onClick={() => isBookingSelectionMode && isDeletable && toggleBookingSelection(booking.id)}
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        {isBookingSelectionMode && isDeletable && (
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                            isSelected
-                              ? 'bg-[#FFC857] border-[#FFC857]'
-                              : 'bg-white border-[#5D4037]/30'
-                          }`}>
-                            {isSelected && (
-                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
+                    return (
+                      <motion.div
+                        key={booking.id}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -12 }}
+                        className={`booking-card ${
+                          isBookingSelectionMode && isDeletable
+                            ? isSelected
+                              ? 'booking-card--selected'
+                              : 'booking-card--selectable'
+                            : ''
+                        }`}
+                        onClick={() => {
+                          if (isBookingSelectionMode && isDeletable) {
+                            toggleBookingSelection(booking.id);
+                          }
+                        }}
+                      >
+                        <div className="booking-card__head">
+                          <div className="booking-card__user-wrap">
+                            {isBookingSelectionMode && isDeletable && (
+                              <div className={`booking-card__check ${isSelected ? 'booking-card__check--active' : ''}`}>
+                                {isSelected ? <span>✓</span> : null}
+                              </div>
                             )}
+                            <div className="booking-card__avatar">
+                              <span>👤</span>
+                            </div>
+                            <div className="booking-card__user">
+                              <span className="booking-card__name">{userDisplay}</span>
+                              {userEmail ? <span className="booking-card__email">{userEmail}</span> : null}
+                            </div>
+                          </div>
+                          <div className={`booking-status-chip ${getStatusChipClass(booking.status)}`}>
+                            <span>{getStatusText(booking.status)}</span>
+                          </div>
+                        </div>
+
+                        <div className="booking-card__grid">
+                          <div className="booking-info-row">
+                            <span className="booking-info-row__icon">📅</span>
+                            <span className="booking-info-row__text">{booking.booking_date || '未设置日期'}</span>
+                          </div>
+                          <div className="booking-info-row">
+                            <span className="booking-info-row__icon">📍</span>
+                            <span className="booking-info-row__text">{locationDisplay}</span>
+                          </div>
+                          <div className="booking-info-row">
+                            <span className="booking-info-row__icon">📞</span>
+                            <span className="booking-info-row__text">{phoneDisplay}</span>
+                          </div>
+                          <div className="booking-info-row">
+                            <span className="booking-info-row__icon">💬</span>
+                            <span className="booking-info-row__text">{wechatDisplay}</span>
+                          </div>
+                        </div>
+
+                        {booking.booking_types?.name ? (
+                          <div className="booking-type-chip">
+                            <span>{booking.booking_types.name}</span>
+                          </div>
+                        ) : null}
+
+                        {booking.notes ? (
+                          <div className="booking-notes">
+                            <span className="booking-notes__text">{booking.notes}</span>
+                          </div>
+                        ) : null}
+
+                        <span className="booking-card__meta">{formatBookingMetaTime(booking.created_at)}</span>
+
+                        {!isBookingSelectionMode && (
+                          <div className="booking-card__actions">
+                            {canConfirm ? (
+                              <button
+                                type="button"
+                                className="booking-action-btn booking-action-btn--confirm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleConfirm(booking.id);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                确认预约
+                              </button>
+                            ) : null}
+                            {canStart ? (
+                              <button
+                                type="button"
+                                className="booking-action-btn booking-action-btn--start"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleStart(booking.id);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                开始拍摄
+                              </button>
+                            ) : null}
+                            {canFinish ? (
+                              <button
+                                type="button"
+                                className="booking-action-btn booking-action-btn--start"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleFinish(booking.id);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                完成预约
+                              </button>
+                            ) : null}
+                            {canCancel ? (
+                              <button
+                                type="button"
+                                className="booking-action-btn booking-action-btn--cancel"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleCancel(booking.id);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                取消预约
+                              </button>
+                            ) : null}
+                            {hasCoordinate ? (
+                              <button
+                                type="button"
+                                className="booking-action-btn booking-action-btn--map"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openBookingLocation(booking);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                查看定位
+                              </button>
+                            ) : null}
+                            {isDeletable ? (
+                              <button
+                                type="button"
+                                className="booking-action-btn booking-action-btn--delete"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openDeleteSingleBooking(booking.id);
+                                }}
+                                disabled={actionLoading}
+                              >
+                                删除订单
+                              </button>
+                            ) : null}
                           </div>
                         )}
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center flex-shrink-0">
-                          <User className="w-6 h-6 text-white" />
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-[#5D4037]">{booking.profiles?.name || '未知用户'}</h3>
-                          <p className="text-sm text-[#5D4037]/60">{booking.profiles?.email}</p>
-                        </div>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
-                        {getStatusText(booking.status)}
-                      </span>
-                    </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-4">
-                      <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <Calendar className="w-4 h-4 text-[#FFC857] flex-shrink-0" />
-                        <span>{booking.booking_date}</span>
-                      </div>
-                      <div className="flex items-start gap-2 text-sm text-[#5D4037]/80">
-                        <MapPin className="w-4 h-4 text-[#FFC857] flex-shrink-0 mt-0.5" />
-                        <span className="break-words">{booking.location}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <Phone className="w-4 h-4 text-[#FFC857] flex-shrink-0" />
-                        <span>{booking.phone}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-[#5D4037]/80">
-                        <MessageSquare className="w-4 h-4 text-[#FFC857] flex-shrink-0" />
-                        <span>{booking.wechat}</span>
-                      </div>
-                    </div>
-
-                    {booking.booking_types && (
-                      <div className="mb-4">
-                        <span className="px-3 py-1 bg-[#FFC857]/20 text-[#5D4037] text-xs rounded-full">
-                          {booking.booking_types.name}
-                        </span>
-                      </div>
-                    )}
-
-                    {booking.notes && (
-                      <div className="mb-4 p-3 bg-[#FFFBF0] rounded-xl">
-                        <p className="text-sm text-[#5D4037]/80">{booking.notes}</p>
-                      </div>
-                    )}
-
-                    {booking.status === 'pending' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleConfirm(booking.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors"
-                        >
-                          <Check className="w-4 h-4" />
-                          确认预约
-                        </button>
-                        <button
-                          onClick={() => handleCancel(booking.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                          取消预约
-                        </button>
-                      </div>
-                    )}
-
-                    {booking.status === 'confirmed' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleStart(booking.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors"
-                        >
-                          <Check className="w-4 h-4" />
-                          开始拍摄
-                        </button>
-                        <button
-                          onClick={() => handleCancel(booking.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                          取消预约
-                        </button>
-                      </div>
-                    )}
-
-                    {booking.status === 'in_progress' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleFinish(booking.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors"
-                        >
-                          <Check className="w-4 h-4" />
-                          完成预约
-                        </button>
-                        <button
-                          onClick={() => handleCancel(booking.id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                          取消预约
-                        </button>
-                      </div>
-                    )}
-                  </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
+              <div className="booking-pagination">
+                <button
+                  type="button"
+                  className="booking-page-btn booking-page-btn--ghost"
+                  onClick={() => setBookingCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={bookingsLoading || bookingCurrentPage <= 1}
+                >
+                  上一页
+                </button>
+                <span className="booking-page-indicator">第 {bookingCurrentPage} 页 / 共 {bookingTotalPages} 页</span>
+                <button
+                  type="button"
+                  className="booking-page-btn booking-page-btn--ghost"
+                  onClick={() => setBookingCurrentPage((prev) => Math.min(bookingTotalPages, prev + 1))}
+                  disabled={bookingsLoading || bookingCurrentPage >= bookingTotalPages}
+                >
+                  下一页
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
 
-      {/* 约拍类型管理内容 */}
       {activeTab === 'types' && (
-        <div className="space-y-6">
-          <div className="flex justify-end">
+        <div className="booking-panel">
+          <div className="booking-toolbar booking-toolbar--right">
             <button
+              type="button"
+              className="booking-pill-btn booking-pill-btn--primary"
               onClick={handleAddType}
-              className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+              disabled={submitting || actionLoading}
             >
-              <Plus className="w-5 h-5" />
-              添加类型
+              ＋ 添加类型
             </button>
           </div>
 
           {typesLoading ? (
-            <div className="text-center py-12">
-              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="py-10 text-center">
+              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#FFC857] border-t-transparent"></div>
               <p className="text-sm text-[#5D4037]/60">加载中...</p>
             </div>
           ) : bookingTypes.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <Camera className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-              <p className="text-[#5D4037]/60">暂无约拍类型</p>
+            <div className="booking-empty-card text-center">
+              <span className="booking-empty-card__icon">📷</span>
+              <p className="text-sm text-[#5D4037]/60">暂无约拍类型</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="booking-config-grid">
               {bookingTypes.map((type) => (
-                <div key={type.id} className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="font-bold text-[#5D4037] text-lg">{type.name}</h3>
-                      {type.description && (
-                        <p className="text-sm text-[#5D4037]/60 mt-1">{type.description}</p>
-                      )}
+                <div key={type.id} className="booking-config-card">
+                  <div className="booking-config-card__head">
+                    <div className="booking-config-card__main">
+                      <span className="booking-config-card__title">{type.name}</span>
+                      {type.description ? <span className="booking-config-card__desc">{type.description}</span> : null}
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${type.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {type.is_active ? '启用' : '禁用'}
-                    </span>
+                    <div className={`booking-config-state ${type.is_active ? 'booking-config-state--active' : 'booking-config-state--inactive'}`}>
+                      <span>{type.is_active ? '启用' : '禁用'}</span>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="booking-config-card__actions">
                     <button
+                      type="button"
+                      className="booking-config-btn booking-config-btn--edit"
                       onClick={() => handleEditType(type)}
-                      className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors text-sm"
+                      disabled={submitting || actionLoading}
                     >
                       编辑
                     </button>
                     <button
+                      type="button"
+                      className="booking-config-btn booking-config-btn--delete"
                       onClick={() => handleDeleteType(type)}
-                      className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors text-sm"
+                      disabled={submitting || actionLoading}
                     >
                       删除
                     </button>
                     <button
+                      type="button"
+                      className={`booking-config-btn ${type.is_active ? 'booking-config-btn--disable' : 'booking-config-btn--enable'}`}
                       onClick={() => handleToggleTypeStatus(type)}
-                      className={`flex-1 px-4 py-2 rounded-full transition-colors text-sm ${type.is_active ? 'bg-gray-500 text-white hover:bg-gray-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
+                      disabled={submitting || actionLoading}
                     >
                       {type.is_active ? '禁用' : '启用'}
                     </button>
@@ -1273,69 +1470,79 @@ export default function BookingsPage() {
         </div>
       )}
 
-      {/* 城市管理内容 */}
       {activeTab === 'cities' && (
-        <div className="space-y-6">
-          <div className="flex justify-end">
+        <div className="booking-panel">
+          <div className="booking-toolbar booking-toolbar--right">
             <button
+              type="button"
+              className="booking-pill-btn booking-pill-btn--primary"
               onClick={handleAddCity}
-              className="flex items-center gap-2 px-4 py-2 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow"
+              disabled={submitting || actionLoading}
             >
-              <Plus className="w-5 h-5" />
-              添加城市
+              ＋ 添加城市
             </button>
           </div>
 
           {citiesLoading ? (
-            <div className="text-center py-12">
-              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="py-10 text-center">
+              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#FFC857] border-t-transparent"></div>
               <p className="text-sm text-[#5D4037]/60">加载中...</p>
             </div>
           ) : cities.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <MapPin className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-              <p className="text-[#5D4037]/60">暂无允许的城市</p>
+            <div className="booking-empty-card text-center">
+              <span className="booking-empty-card__icon">📍</span>
+              <p className="text-sm text-[#5D4037]/60">暂无允许的城市</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {cities.map((city) => (
-                <div key={city.id} className="bg-white rounded-2xl p-6 shadow-sm border border-[#5D4037]/10">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="font-bold text-[#5D4037] text-lg">{city.city_name}</h3>
-                      {city.province && (
-                        <p className="text-sm text-[#5D4037]/60 mt-1">{city.province}</p>
-                      )}
-                      {city.city_code && (
-                        <p className="text-xs text-[#5D4037]/40 mt-1">代码: {city.city_code}</p>
-                      )}
+            <div className="booking-config-grid">
+              {cities.map((city) => {
+                const hasCoordinate = Number.isFinite(Number(city.latitude)) && Number.isFinite(Number(city.longitude));
+                const locationText = hasCoordinate
+                  ? `坐标：${Number(city.latitude).toFixed(6)}, ${Number(city.longitude).toFixed(6)}`
+                  : '';
+
+                return (
+                  <div key={city.id} className="booking-config-card">
+                    <div className="booking-config-card__head">
+                      <div className="booking-config-card__main">
+                        <span className="booking-config-card__title">{city.city_name}</span>
+                        {city.province ? <span className="booking-config-card__desc">{city.province}</span> : null}
+                        {city.city_code ? <span className="booking-config-card__meta">代码：{city.city_code}</span> : null}
+                        {locationText ? <span className="booking-config-card__meta">{locationText}</span> : null}
+                      </div>
+                      <div className={`booking-config-state ${city.is_active ? 'booking-config-state--active' : 'booking-config-state--inactive'}`}>
+                        <span>{city.is_active ? '启用' : '禁用'}</span>
+                      </div>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${city.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {city.is_active ? '启用' : '禁用'}
-                    </span>
+                    <div className="booking-config-card__actions">
+                      <button
+                        type="button"
+                        className="booking-config-btn booking-config-btn--edit"
+                        onClick={() => handleEditCity(city)}
+                        disabled={submitting || actionLoading}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        className="booking-config-btn booking-config-btn--delete"
+                        onClick={() => handleDeleteCity(city)}
+                        disabled={submitting || actionLoading}
+                      >
+                        删除
+                      </button>
+                      <button
+                        type="button"
+                        className={`booking-config-btn ${city.is_active ? 'booking-config-btn--disable' : 'booking-config-btn--enable'}`}
+                        onClick={() => handleToggleCityStatus(city)}
+                        disabled={submitting || actionLoading}
+                      >
+                        {city.is_active ? '禁用' : '启用'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleEditCity(city)}
-                      className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors text-sm"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCity(city)}
-                      className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors text-sm"
-                    >
-                      删除
-                    </button>
-                    <button
-                      onClick={() => handleToggleCityStatus(city)}
-                      className={`flex-1 px-4 py-2 rounded-full transition-colors text-sm ${city.is_active ? 'bg-gray-500 text-white hover:bg-gray-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
-                    >
-                      {city.is_active ? '禁用' : '启用'}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1348,7 +1555,7 @@ export default function BookingsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            className="booking-modal-mask"
             onClick={() => setShowTypeModal(false)}
           >
             <motion.div
@@ -1356,34 +1563,35 @@ export default function BookingsPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="booking-modal booking-modal--form"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-[#5D4037]">{editingType ? '编辑类型' : '添加类型'}</h2>
+              <div className="booking-modal__head">
+                <h2 className="booking-modal__title">{editingType ? '编辑类型' : '添加类型'}</h2>
                 <button
+                  type="button"
                   onClick={() => setShowTypeModal(false)}
-                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                  className="booking-modal__close"
                 >
                   <X className="w-5 h-5 text-[#5D4037]" />
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
-                    类型名称 <span className="text-red-500">*</span>
+              <div className="booking-modal__body">
+                <div className="booking-modal__field">
+                  <label className="booking-modal__label">
+                    类型名称 <span className="booking-modal__required">*</span>
                   </label>
                   <input
                     type="text"
                     value={typeFormData.name}
                     onChange={(e) => setTypeFormData({ ...typeFormData, name: e.target.value })}
                     placeholder="例如：常规约拍"
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                    className="booking-modal__input"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                <div className="booking-modal__field">
+                  <label className="booking-modal__label">
                     描述（可选）
                   </label>
                   <textarea
@@ -1391,14 +1599,15 @@ export default function BookingsPage() {
                     onChange={(e) => setTypeFormData({ ...typeFormData, description: e.target.value })}
                     placeholder="简单描述这个类型..."
                     rows={3}
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none resize-none"
+                    className="booking-modal__textarea"
                   />
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleSaveType}
                   disabled={submitting}
-                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                  className="booking-modal__submit"
                 >
                   {submitting ? '保存中...' : '确认保存'}
                 </button>
@@ -1415,7 +1624,7 @@ export default function BookingsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            className="booking-modal-mask"
             onClick={() => setShowCityModal(false)}
           >
             <motion.div
@@ -1423,52 +1632,51 @@ export default function BookingsPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="booking-modal booking-modal--form"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-[#5D4037]">{editingCity ? '编辑城市' : '添加城市'}</h2>
+              <div className="booking-modal__head">
+                <h2 className="booking-modal__title">{editingCity ? '编辑城市' : '添加城市'}</h2>
                 <button
+                  type="button"
                   onClick={() => setShowCityModal(false)}
-                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                  className="booking-modal__close"
                 >
                   <X className="w-5 h-5 text-[#5D4037]" />
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
-                    城市名称 <span className="text-red-500">*</span>
+              <div className="booking-modal__body">
+                <div className="booking-modal__field">
+                  <label className="booking-modal__label">
+                    城市名称 <span className="booking-modal__required">*</span>
                   </label>
                   <div className="space-y-2">
                     <button
                       type="button"
                       onClick={() => setShowCityMapPicker(true)}
-                      className="w-full px-4 py-3 bg-white border-2 border-[#5D4037]/20 rounded-xl text-left transition-all hover:border-[#FFC857] hover:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] focus:outline-none focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.2)] group"
+                      className="booking-city-picker"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
+                      <div className="booking-city-picker__main text-left">
                           {cityFormData.city_name ? (
-                            <p className="text-[#5D4037] font-medium">{cityFormData.city_name}</p>
+                            <p className="booking-city-picker__value">{cityFormData.city_name}</p>
                           ) : (
-                            <p className="text-[#5D4037]/40">点击在地图上选择城市...</p>
+                            <p className="booking-city-picker__placeholder">点击在地图上选择城市...</p>
                           )}
-                        </div>
-                        <MapPin className="w-5 h-5 text-[#FFC857] group-hover:scale-110 transition-transform" />
                       </div>
+                      <MapPin className="booking-city-picker__icon h-5 w-5" />
                     </button>
                     <input
                       type="text"
                       value={cityFormData.city_name}
                       onChange={(e) => setCityFormData({ ...cityFormData, city_name: e.target.value })}
                       placeholder="或手动输入城市名称"
-                      className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                      className="booking-modal__input"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                <div className="booking-modal__field">
+                  <label className="booking-modal__label">
                     省份（可选）
                   </label>
                   <input
@@ -1476,12 +1684,12 @@ export default function BookingsPage() {
                     value={cityFormData.province}
                     onChange={(e) => setCityFormData({ ...cityFormData, province: e.target.value })}
                     placeholder="例如：广西壮族自治区"
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                    className="booking-modal__input"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[#5D4037] mb-2">
+                <div className="booking-modal__field">
+                  <label className="booking-modal__label">
                     城市代码（可选）
                   </label>
                   <input
@@ -1489,14 +1697,15 @@ export default function BookingsPage() {
                     value={cityFormData.city_code}
                     onChange={(e) => setCityFormData({ ...cityFormData, city_code: e.target.value })}
                     placeholder="腾讯地图 adcode（可选）"
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none"
+                    className="booking-modal__input"
                   />
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleSaveCity}
                   disabled={submitting}
-                  className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
+                  className="booking-modal__submit"
                 >
                   {submitting ? '保存中...' : '确认保存'}
                 </button>
@@ -1513,7 +1722,7 @@ export default function BookingsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            className="booking-modal-mask"
             onClick={() => !actionLoading && setCancelingBooking(null)}
           >
             <motion.div
@@ -1521,30 +1730,32 @@ export default function BookingsPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: "spring", duration: 0.3 }}
-              className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md"
+              className="booking-confirm-modal"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="booking-confirm-modal__head">
+                <div className="booking-confirm-modal__icon booking-confirm-modal__icon--danger">
                   <X className="w-8 h-8 text-red-600" />
                 </div>
-                <h3 className="text-xl font-bold text-[#5D4037] mb-2">取消预约</h3>
-                <p className="text-sm text-[#5D4037]/80">
+                <span className="booking-confirm-modal__title">取消预约</span>
+                <span className="booking-confirm-modal__desc">
                   确定要取消这个预约吗？
-                </p>
+                </span>
               </div>
-              <div className="flex gap-2">
+              <div className="booking-confirm-modal__actions">
                 <button
+                  type="button"
                   onClick={() => setCancelingBooking(null)}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--ghost"
                 >
                   返回
                 </button>
                 <button
+                  type="button"
                   onClick={confirmCancel}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--danger"
                 >
                   {actionLoading ? '取消中...' : '确认取消'}
                 </button>
@@ -1561,32 +1772,40 @@ export default function BookingsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            className="booking-modal-mask"
             onClick={() => !actionLoading && setDeletingType(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-md"
+              className="booking-confirm-modal"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-[#5D4037] mb-4">确认删除约拍类型</h3>
-              <p className="text-[#5D4037]/80 mb-6">
-                确定要删除约拍类型「{deletingType.name}」吗？此操作无法撤销。
-              </p>
-              <div className="flex gap-3">
+              <div className="booking-confirm-modal__head">
+                <div className="booking-confirm-modal__icon booking-confirm-modal__icon--danger">
+                  <Trash2 className="h-7 w-7 text-red-600" />
+                </div>
+                <span className="booking-confirm-modal__title">确认删除约拍类型</span>
+                <span className="booking-confirm-modal__desc">
+                  确定要删除约拍类型「<span className="booking-confirm-modal__accent">{deletingType.name}</span>」吗？
+                </span>
+                <div className="booking-confirm-modal__warn">此操作不可撤销。</div>
+              </div>
+              <div className="booking-confirm-modal__actions">
                 <button
+                  type="button"
                   onClick={() => setDeletingType(null)}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--ghost"
                 >
                   取消
                 </button>
                 <button
+                  type="button"
                   onClick={confirmDeleteType}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--danger"
                 >
                   {actionLoading ? '删除中...' : '确认删除'}
                 </button>
@@ -1603,43 +1822,45 @@ export default function BookingsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            className="booking-modal-mask"
             onClick={() => !actionLoading && setShowBatchDeleteBookingsConfirm(false)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-md"
+              className="booking-confirm-modal"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="booking-confirm-modal__head">
+                <div className="booking-confirm-modal__icon booking-confirm-modal__icon--danger">
                   <Trash2 className="w-8 h-8 text-red-600" />
                 </div>
-                <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除预约</h3>
-                <p className="text-sm text-[#5D4037]/80 mb-4">
-                  确定要删除选中的 <span className="font-bold text-red-600">{selectedBookingIds.length}</span> 个预约吗？
-                </p>
-                <div className="bg-red-50 rounded-xl p-4">
-                  <p className="text-sm text-red-800">
-                    <AlertCircle className="w-4 h-4 inline mr-1" />
-                    此操作不可撤销！
-                  </p>
+                <span className="booking-confirm-modal__title">
+                  {bookingSelectedCount === 1 ? '删除预约' : '批量删除预约'}
+                </span>
+                <span className="booking-confirm-modal__desc">
+                  确定要删除选中的 <span className="booking-confirm-modal__accent">{bookingSelectedCount}</span> 个预约吗？
+                </span>
+                <div className="booking-confirm-modal__warn">
+                  <AlertCircle className="mr-1 inline h-4 w-4" />
+                  此操作不可撤销！
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="booking-confirm-modal__actions">
                 <button
+                  type="button"
                   onClick={() => setShowBatchDeleteBookingsConfirm(false)}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--ghost"
                 >
                   取消
                 </button>
                 <button
+                  type="button"
                   onClick={confirmBatchDeleteBookings}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--danger"
                 >
                   {actionLoading ? '删除中...' : '确认删除'}
                 </button>
@@ -1656,32 +1877,40 @@ export default function BookingsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            className="booking-modal-mask"
             onClick={() => !actionLoading && setDeletingCity(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-md"
+              className="booking-confirm-modal"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-[#5D4037] mb-4">确认删除城市</h3>
-              <p className="text-[#5D4037]/80 mb-6">
-                确定要删除城市「{deletingCity.city_name}」吗？此操作无法撤销。
-              </p>
-              <div className="flex gap-3">
+              <div className="booking-confirm-modal__head">
+                <div className="booking-confirm-modal__icon booking-confirm-modal__icon--danger">
+                  <Trash2 className="h-7 w-7 text-red-600" />
+                </div>
+                <span className="booking-confirm-modal__title">确认删除城市</span>
+                <span className="booking-confirm-modal__desc">
+                  确定要删除城市「<span className="booking-confirm-modal__accent">{deletingCity.city_name}</span>」吗？
+                </span>
+                <div className="booking-confirm-modal__warn">此操作不可撤销。</div>
+              </div>
+              <div className="booking-confirm-modal__actions">
                 <button
+                  type="button"
                   onClick={() => setDeletingCity(null)}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--ghost"
                 >
                   取消
                 </button>
                 <button
+                  type="button"
                   onClick={confirmDeleteCity}
                   disabled={actionLoading}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-full font-medium hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                  className="booking-confirm-modal__btn booking-confirm-modal__btn--danger"
                 >
                   {actionLoading ? '删除中...' : '确认删除'}
                 </button>

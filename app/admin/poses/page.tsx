@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
@@ -1125,22 +1125,22 @@ export default function PosesPage() {
   };
 
   return (
-    <div className="space-y-6 pt-6">
+    <div className="admin-mobile-page pose-page space-y-6 pt-6">
       {/* 页面标题 */}
-      <div>
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+      <div className="pose-header">
+        <h1 className="pose-header__title text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           摆姿管理 📸
         </h1>
-        <p className="text-sm text-[#5D4037]/60">管理拍照姿势库和标签</p>
+        <p className="pose-header__desc text-sm text-[#5D4037]/60">管理拍照姿势库和标签</p>
       </div>
 
       {/* Tab切换 */}
-      <div className="flex gap-2 border-b border-[#5D4037]/10 overflow-x-auto">
+      <div className="pose-tabs flex gap-2 border-b border-[#5D4037]/10 overflow-x-auto">
         <button
           onClick={() => setActiveTab('poses')}
-          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
+          className={`pose-tab-item px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
             activeTab === 'poses'
-              ? 'text-[#5D4037]'
+              ? 'pose-tab-item--active text-[#5D4037]'
               : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
           }`}
         >
@@ -1148,15 +1148,15 @@ export default function PosesPage() {
           {activeTab === 'poses' && (
             <motion.div
               layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
+              className="pose-tab-item__line absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
             />
           )}
         </button>
         <button
           onClick={() => setActiveTab('tags')}
-          className={`px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
+          className={`pose-tab-item px-4 sm:px-6 py-3 font-medium transition-all relative whitespace-nowrap ${
             activeTab === 'tags'
-              ? 'text-[#5D4037]'
+              ? 'pose-tab-item--active text-[#5D4037]'
               : 'text-[#5D4037]/40 hover:text-[#5D4037]/60'
           }`}
         >
@@ -1164,7 +1164,7 @@ export default function PosesPage() {
           {activeTab === 'tags' && (
             <motion.div
               layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
+              className="pose-tab-item__line absolute bottom-0 left-0 right-0 h-0.5 bg-[#FFC857]"
             />
           )}
         </button>
@@ -1174,10 +1174,10 @@ export default function PosesPage() {
       {activeTab === 'poses' && (
         <div className="space-y-6">
           {/* 操作栏 */}
-          <div className="flex items-center justify-between gap-4">
+          <div className="pose-toolbar flex items-center justify-between gap-4">
             {/* 标签筛选 */}
-            <div className="flex-1 flex items-center gap-2 overflow-x-auto pb-2">
-              <Tag className="w-4 h-4 text-[#5D4037]/60 flex-shrink-0" />
+            <div className="pose-filter-scroll flex-1 flex items-center gap-2 overflow-x-auto pb-2">
+              <Tag className="pose-filter-row__icon w-4 h-4 text-[#5D4037]/60 flex-shrink-0" />
               {tags.map((tag) => (
                 <button
                   key={tag.id}
@@ -1193,7 +1193,7 @@ export default function PosesPage() {
               ))}
             </div>
 
-            <div className="flex gap-2 flex-shrink-0">
+            <div className="pose-toolbar-actions flex gap-2 flex-shrink-0">
               {!isSelectionMode ? (
                 <>
                   <button
@@ -1239,17 +1239,17 @@ export default function PosesPage() {
 
           {/* 摆姿列表 */}
           {posesLoading ? (
-            <div className="text-center py-12">
-              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-sm text-[#5D4037]/60">加载中...</p>
+            <div className="pose-loading text-center py-12">
+              <div className="pose-loading__spinner w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="pose-loading__text text-sm text-[#5D4037]/60">加载中...</p>
             </div>
           ) : poses.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <Camera className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+            <div className="pose-empty-card text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+              <Camera className="pose-empty-card__icon w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
               <p className="text-[#5D4037]/60">暂无摆姿数据</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            <div className="pose-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               <AnimatePresence>
                 {poses.map((pose) => (
                   <motion.div
@@ -1379,7 +1379,7 @@ export default function PosesPage() {
       {activeTab === 'tags' && (
         <div className="space-y-6">
           {/* 操作按钮 */}
-          <div className="flex justify-end gap-2">
+          <div className="pose-toolbar-actions flex justify-end gap-2">
             {!isTagSelectionMode ? (
               <>
                 <button
@@ -1424,13 +1424,13 @@ export default function PosesPage() {
 
           {/* 标签列表 */}
           {tagsLoading ? (
-            <div className="text-center py-12">
-              <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-sm text-[#5D4037]/60">加载中...</p>
+            <div className="pose-loading text-center py-12">
+              <div className="pose-loading__spinner w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="pose-loading__text text-sm text-[#5D4037]/60">加载中...</p>
             </div>
           ) : tags.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <Tag className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+            <div className="pose-empty-card text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+              <Tag className="pose-empty-card__icon w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
               <p className="text-[#5D4037]/60">暂无标签数据</p>
             </div>
           ) : (

@@ -24,6 +24,10 @@ type MaintenancePayload = {
   skipped_tasks?: unknown;
 };
 
+interface MaintenanceButtonProps {
+  variant?: 'default' | 'stats';
+}
+
 const TASK_LABELS: Record<string, string> = {
   beta_feature_bindings_cleanup: '\u5185\u6d4b\u529f\u80fd\u7ed1\u5b9a\u6e05\u7406',
   slider_captcha_challenges_cleanup: '\u6ed1\u5757\u9a8c\u8bc1\u8bb0\u5f55\u6e05\u7406',
@@ -35,6 +39,7 @@ const TASK_LABELS: Record<string, string> = {
 const MAINTAIN_TITLE = '\u6267\u884c\u7ef4\u62a4\u4efb\u52a1';
 const RUNNING_TEXT = '\u6267\u884c\u4e2d...';
 const RUN_TEXT = '\u7acb\u5373\u7ef4\u62a4';
+const STATS_RUN_TEXT = '\u7ef4\u62a4\u4efb\u52a1';
 const UNKNOWN_ERROR = '\u672a\u77e5\u9519\u8bef';
 
 function readCount(value: unknown): number {
@@ -51,6 +56,23 @@ function readStringList(value: unknown): string[] {
 
 function formatTaskName(taskName: string): string {
   return TASK_LABELS[taskName] || taskName;
+}
+
+function compactMaintenanceWarning(message: string): string {
+  const normalized = String(message || '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.includes('Cannot operate more than 50 files one time')) {
+    return '单次存储删除数量超过上限，系统已自动切换为分批删除。';
+  }
+
+  return normalized.length > 100 ? `${normalized.slice(0, 100)}...` : normalized;
 }
 
 function buildMaintenanceMessage(payload: MaintenancePayload): string {
@@ -72,7 +94,9 @@ function buildMaintenanceMessage(payload: MaintenancePayload): string {
   ];
 
   const extras: string[] = [];
-  const warningList = readStringList(cleanup.storage_cleanup_warnings);
+  const warningList = readStringList(cleanup.storage_cleanup_warnings)
+    .map(compactMaintenanceWarning)
+    .filter(Boolean);
   if (warningList.length > 0) {
     extras.push(`\u5b58\u50a8\u6e05\u7406\u544a\u8b66\uff1a${warningList.join('\uff1b')}`);
   }
@@ -85,9 +109,10 @@ function buildMaintenanceMessage(payload: MaintenancePayload): string {
   return `\u7ef4\u62a4\u4efb\u52a1\u6267\u884c\u5b8c\u6210\uff1a${summaryParts.join('\uff0c')}${extras.length > 0 ? `\uff1b${extras.join('\uff1b')}` : ''}`;
 }
 
-export default function MaintenanceButton() {
+export default function MaintenanceButton({ variant = 'default' }: MaintenanceButtonProps) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const isStatsVariant = variant === 'stats';
 
   const runMaintenance = async () => {
     setRunning(true);
@@ -129,13 +154,21 @@ export default function MaintenanceButton() {
       <button
         onClick={runMaintenance}
         disabled={running}
-        className="inline-flex h-11 items-center gap-2 rounded-full border border-[#FFC857]/38 bg-[linear-gradient(135deg,rgba(255,248,228,0.96),rgba(255,255,255,0.88))] px-4 text-sm font-semibold text-[#5D4037] shadow-[0_10px_18px_rgba(93,64,55,0.08)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_24px_rgba(93,64,55,0.10)] disabled:cursor-not-allowed disabled:opacity-60"
+        className={isStatsVariant
+          ? 'stats-maint-btn'
+          : 'inline-flex h-11 items-center gap-2 rounded-full border border-[#FFC857]/38 bg-[linear-gradient(135deg,rgba(255,248,228,0.96),rgba(255,255,255,0.88))] px-4 text-sm font-semibold text-[#5D4037] shadow-[0_10px_18px_rgba(93,64,55,0.08)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_24px_rgba(93,64,55,0.10)] disabled:cursor-not-allowed disabled:opacity-60'}
         title={MAINTAIN_TITLE}
       >
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#FFC857]/18 text-[#5D4037]">
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
-        </span>
-        <span>{running ? RUNNING_TEXT : RUN_TEXT}</span>
+        {isStatsVariant ? (
+          <span>{running ? RUNNING_TEXT : STATS_RUN_TEXT}</span>
+        ) : (
+          <>
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#FFC857]/18 text-[#5D4037]">
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
+            </span>
+            <span>{running ? RUNNING_TEXT : RUN_TEXT}</span>
+          </>
+        )}
       </button>
 
       <AnimatePresence>

@@ -23,10 +23,10 @@ export default function Toast({ message, type = 'info', onClose, duration = 3000
   };
 
   return (
-    <div className={`fixed bottom-[calc(68px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 ${bgColors[type]} text-[#5D4037] px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 z-50 animate-in slide-in-from-bottom-4 duration-300`}>
-      <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="p-1 hover:bg-black/10 rounded-full transition-colors">
-        <X className="w-4 h-4" />
+    <div className={`fixed bottom-[calc(68px+env(safe-area-inset-bottom))] left-1/2 z-50 flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1.5 rounded-[20px] ${bgColors[type]} px-3 py-2 text-[#5D4037] shadow-lg animate-in slide-in-from-bottom-4 duration-300`}>
+      <span className="max-w-[calc(100vw-64px)] whitespace-nowrap text-[13px] font-medium leading-none">{message}</span>
+      <button onClick={onClose} className="flex h-5 w-5 items-center justify-center rounded-full transition-colors hover:bg-black/10">
+        <X className="h-3.5 w-3.5" />
       </button>
     </div>
   );

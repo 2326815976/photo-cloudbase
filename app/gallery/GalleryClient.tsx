@@ -1,14 +1,13 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Eye, Camera, RotateCcw, MapPin } from 'lucide-react';
+import { Heart, Eye, Camera, MapPin, X } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
-import { useGallery } from '@/lib/swr/hooks';
 import { getSessionId } from '@/lib/utils/session';
 import { vibrate } from '@/lib/android';
-import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
+import { formatDateDisplayUTC8, getTodayUTC8, parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 import {
   GALLERY_PAGE_CACHE_KEY,
   clearGalleryPageCacheStorage,
@@ -19,6 +18,7 @@ import { getBackendRecoveryState, subscribeBackendRecovery } from '@/lib/backend
 import SimpleImage from '@/components/ui/SimpleImage';
 import ImagePreview from '@/components/ImagePreview';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
+import PageTopHeader from '@/components/PageTopHeader';
 
 interface Photo {
   id: string;
@@ -28,6 +28,7 @@ interface Photo {
   original_url: string;   // 原图 URL（用于下载）
   story_text?: string | null;
   has_story?: boolean;
+  story_highlight?: boolean;
   is_highlight?: boolean;
   sort_order?: number;
   shot_date?: string | null;
@@ -52,6 +53,17 @@ interface GalleryFolder {
   name: string;
 }
 
+type GallerySortMode = 'time_desc' | 'time_asc';
+type GalleryFilterMode = 'all' | 'highlight' | 'story';
+type GalleryFilterPreset = 'default_desc' | 'time_asc' | 'highlight' | 'story';
+
+const GALLERY_FILTER_PRESET_OPTIONS: Array<{ preset: GalleryFilterPreset; label: string }> = [
+  { preset: 'default_desc', label: '时间降序' },
+  { preset: 'time_asc', label: '时间升序' },
+  { preset: 'highlight', label: '高亮' },
+  { preset: 'story', label: '故事' },
+];
+
 const ROOT_GALLERY_FOLDER_ID = '__ROOT__';
 
 const TAG_GUIDE_AUTO_DISMISS_MS = 15000;
@@ -60,6 +72,12 @@ const GALLERY_VIEWPORT_FILL_BUFFER_PX = 24;
 const TAG_WAVE_ROUNDS = 3;
 const TAG_WAVE_STEP_DELAY_MS = 380;
 const TAG_WAVE_ROUND_GAP_MS = 240;
+const GALLERY_STORY_PANEL_MIN_HEIGHT = 146;
+const GALLERY_STORY_PAPER_MIN_HEIGHT = 129;
+const GALLERY_STORY_BASE_TEXT_HEIGHT = 92;
+const GALLERY_STORY_LINE_HEIGHT = 22;
+const GALLERY_STORY_CHARS_PER_LINE = 14;
+const GALLERY_TIMELINE_SINGLE_COLUMN_BREAKPOINT = 768;
 const TAG_WAVE_BUTTON_VARIANTS = {
   idle: { y: 0, scale: 1 },
   waveA: { y: [0, -4, 0], scale: [1, 1.02, 1] },
@@ -91,13 +109,28 @@ function resolveLoadedPhotoAspectRatio(width: number, height: number, fallback =
   return Math.min(GALLERY_LAYOUT_RATIO_MAX, Math.max(GALLERY_RUNTIME_RATIO_MIN, ratio));
 }
 
+function estimateGalleryTextLines(value: unknown, charsPerLine: number = GALLERY_STORY_CHARS_PER_LINE) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return 0;
+  }
+
+  const perLine = Math.max(8, Number(charsPerLine || 0) || GALLERY_STORY_CHARS_PER_LINE);
+  return text
+    .split(/\r?\n/)
+    .reduce((total, line) => total + Math.max(1, Math.ceil(line.trim().length / perLine)), 0);
+}
+
 function estimateGalleryCardHeight(photo: Photo, isStoryOpen: boolean, aspectRatio?: number) {
   const hasStoryText = Boolean(String(photo.story_text || '').trim());
   const resolvedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
     ? Number(aspectRatio)
     : clampPhotoAspectRatio(photo.width, photo.height, 1);
   const mediaHeight = isStoryOpen && hasStoryText
-    ? 190
+    ? Math.max(
+        GALLERY_STORY_PANEL_MIN_HEIGHT,
+        GALLERY_STORY_BASE_TEXT_HEIGHT + estimateGalleryTextLines(photo.story_text, GALLERY_STORY_CHARS_PER_LINE) * GALLERY_STORY_LINE_HEIGHT
+      )
     : resolvedAspectRatio * 180;
   return mediaHeight + 25;
 }
@@ -172,56 +205,172 @@ function buildGalleryFolderList(
 
 const GALLERY_MEMORY_CACHE_TTL = 30 * 60 * 1000;
 
-let galleryMemoryCache: { photos: Photo[]; total: number; cachedAt: number } = {
+interface GalleryRootCachePayload {
+  photos: Photo[];
+  total: number;
+  folders: GalleryFolder[];
+  rootFolderName: string;
+  cachedAt: number;
+}
+
+const createEmptyGalleryRootCache = (): GalleryRootCachePayload => ({
   photos: [],
   total: 0,
+  folders: [],
+  rootFolderName: '根目录',
   cachedAt: 0,
-};
+});
 
-const readGalleryMemoryCache = (): { photos: Photo[]; total: number } | null => {
-  if (galleryMemoryCache.photos.length === 0) return null;
+function resolveGalleryRootFolderName(value: unknown): string {
+  const normalized = String(value ?? '').trim();
+  return normalized || '根目录';
+}
+
+function hasGalleryRootCacheContent(cache: Pick<GalleryRootCachePayload, 'photos' | 'folders'>): boolean {
+  return cache.photos.length > 0 || cache.folders.length > 1;
+}
+
+let galleryMemoryCache: GalleryRootCachePayload = createEmptyGalleryRootCache();
+
+const readGalleryMemoryCache = (): Omit<GalleryRootCachePayload, 'cachedAt'> | null => {
+  if (!hasGalleryRootCacheContent(galleryMemoryCache)) return null;
 
   const isExpired = Date.now() - galleryMemoryCache.cachedAt > GALLERY_MEMORY_CACHE_TTL;
   if (isExpired) {
-    galleryMemoryCache = { photos: [], total: 0, cachedAt: 0 };
+    galleryMemoryCache = createEmptyGalleryRootCache();
     return null;
   }
+
+  const normalizedRootFolderName = resolveGalleryRootFolderName(galleryMemoryCache.rootFolderName);
 
   return {
     photos: galleryMemoryCache.photos.map((photo) => ({ ...photo })),
     total: galleryMemoryCache.total,
+    folders: buildGalleryFolderList(galleryMemoryCache.folders, normalizedRootFolderName),
+    rootFolderName: normalizedRootFolderName,
   };
 };
 
-const writeGalleryMemoryCache = (photos: Photo[], total: number) => {
-  if (photos.length === 0) {
-    galleryMemoryCache = { photos: [], total: 0, cachedAt: 0 };
+const writeGalleryMemoryCache = (
+  photos: Photo[],
+  total: number,
+  folders: GalleryFolder[],
+  rootFolderName: string
+) => {
+  const normalizedRootFolderName = resolveGalleryRootFolderName(rootFolderName);
+  const normalizedFolders = buildGalleryFolderList(folders, normalizedRootFolderName);
+
+  if (photos.length === 0 && normalizedFolders.length <= 1) {
+    galleryMemoryCache = createEmptyGalleryRootCache();
     return;
   }
 
   galleryMemoryCache = {
     photos: photos.map((photo) => ({ ...photo })),
     total,
+    folders: normalizedFolders.map((folder) => ({ ...folder })),
+    rootFolderName: normalizedRootFolderName,
     cachedAt: Date.now(),
   };
 };
 
 const clearGalleryMemoryCache = () => {
-  galleryMemoryCache = { photos: [], total: 0, cachedAt: 0 };
+  galleryMemoryCache = createEmptyGalleryRootCache();
 };
+
+function appendUniquePhotos(currentPhotos: Photo[], incomingPhotos: Photo[]): Photo[] {
+  if (currentPhotos.length === 0) {
+    return incomingPhotos.slice();
+  }
+
+  if (incomingPhotos.length === 0) {
+    return currentPhotos;
+  }
+
+  const existingIds = new Set(currentPhotos.map((photo) => String(photo.id)));
+  const incremental = incomingPhotos.filter((photo) => !existingIds.has(String(photo.id)));
+
+  return incremental.length > 0 ? currentPhotos.concat(incremental) : currentPhotos;
+}
+
+function normalizeDateOnlyText(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return matched ? `${matched[1]}-${matched[2]}-${matched[3]}` : '';
+}
+
+function getGalleryPhotoDateText(photo: Photo): string {
+  const parsed = parseDateTimeUTC8(photo.shot_date || photo.created_at);
+  if (!parsed) {
+    return '';
+  }
+  const shifted = new Date(parsed.getTime() + 8 * 60 * 60 * 1000);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getGalleryPhotoTimeValue(photo: Photo): number {
+  const parsed = parseDateTimeUTC8(photo.shot_date || photo.created_at);
+  return parsed ? parsed.getTime() : 0;
+}
+
+function resolveGalleryFilterPreset(preset: string): {
+  preset: GalleryFilterPreset;
+  sortMode: GallerySortMode;
+  filterMode: GalleryFilterMode;
+} {
+  const normalized = String(preset || '').trim();
+  if (normalized === 'time_asc') {
+    return { preset: 'time_asc', sortMode: 'time_asc', filterMode: 'all' };
+  }
+  if (normalized === 'highlight') {
+    return { preset: 'highlight', sortMode: 'time_desc', filterMode: 'highlight' };
+  }
+  if (normalized === 'story') {
+    return { preset: 'story', sortMode: 'time_desc', filterMode: 'story' };
+  }
+  return { preset: 'default_desc', sortMode: 'time_desc', filterMode: 'all' };
+}
+
+function getActiveGalleryFilterPreset(filterMode: GalleryFilterMode, sortMode: GallerySortMode): GalleryFilterPreset {
+  if (filterMode === 'highlight') return 'highlight';
+  if (filterMode === 'story') return 'story';
+  if (sortMode === 'time_asc') return 'time_asc';
+  return 'default_desc';
+}
+
+function hasGalleryStory(photo: Photo): boolean {
+  return Boolean(photo.has_story) || Boolean(String(photo.story_text || '').trim());
+}
+
+function isGalleryPhotoHighlighted(photo: Photo): boolean {
+  return Boolean(photo.story_highlight) || Boolean(photo.is_highlight) || hasGalleryStory(photo);
+}
 
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
   const [folders, setFolders] = useState<GalleryFolder[]>(() => buildGalleryFolderList([], '根目录'));
   const [rootFolderName, setRootFolderName] = useState<string>('根目录');
   const [backendState, setBackendState] = useState(getBackendRecoveryState);
   const [showTagGuide, setShowTagGuide] = useState(false);
   const [showFolderSelector, setShowFolderSelector] = useState(false);
+  const [sortMode, setSortMode] = useState<GallerySortMode>('time_desc');
+  const [filterMode, setFilterMode] = useState<GalleryFilterMode>('all');
+  const [filterDateStart, setFilterDateStart] = useState('');
+  const [filterDateEnd, setFilterDateEnd] = useState('');
   const [tempFolderId, setTempFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
+  const [tempFilterPreset, setTempFilterPreset] = useState<GalleryFilterPreset>('default_desc');
+  const [tempFilterDateStart, setTempFilterDateStart] = useState('');
+  const [tempFilterDateEnd, setTempFilterDateEnd] = useState('');
+  const [filterModalError, setFilterModalError] = useState('');
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const [isSwitchingTag, setIsSwitchingTag] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const tagGuideTimerRef = useRef<number | null>(null);
@@ -247,126 +396,239 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateViewportWidth = () => {
+      setViewportWidth(window.innerWidth || 0);
+    };
+
+    updateViewportWidth();
+    window.addEventListener('resize', updateViewportWidth);
+    return () => window.removeEventListener('resize', updateViewportWidth);
+  }, []);
+
   const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
   const memoryGallery =
-    initialPhotos.length > 0 || shouldForceRefreshFromDirty || selectedFolderId !== ROOT_GALLERY_FOLDER_ID
+    initialPhotos.length > 0 || shouldForceRefreshFromDirty
       ? null
       : readGalleryMemoryCache();
   const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
   const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
+  const hydratedInitialPage = memoryGallery ? 1 : initialPage;
 
   const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<Photo | null>(null);
-  const [page, setPage] = useState(initialPage);
+  const [page, setPage] = useState(hydratedInitialPage);
   const [allPhotos, setAllPhotos] = useState<Photo[]>(hydratedInitialPhotos);
+  const [total, setTotal] = useState(hydratedInitialTotal);
+  const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(hydratedInitialTotal > hydratedInitialPhotos.length);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const isLoadingMoreRef = useRef(false);
   const hasClientInitialFetchStartedRef = useRef(false);
+  const loadRequestTokenRef = useRef(0);
+  const allPhotosRef = useRef<Photo[]>(hydratedInitialPhotos);
+  const pageRef = useRef(hydratedInitialPage);
+  const selectedFolderIdRef = useRef(selectedFolderId);
   const pageSize = 20;
-  const isInitialPage = page === initialPage;
   const GALLERY_CACHE_KEY = `${GALLERY_PAGE_CACHE_KEY}_${selectedFolderId}`;
-  // 使用 SWR 获取照片数据,自动缓存和重新验证
-  const { data, error, isLoading, mutate: refreshGallery } = useGallery(
-    page,
-    pageSize,
-    isInitialPage && selectedFolderId === ROOT_GALLERY_FOLDER_ID && hydratedInitialPhotos.length > 0
-      ? { photos: hydratedInitialPhotos, total: hydratedInitialTotal }
-      : undefined,
-    galleryCacheToken,
-    selectedFolderId
+  const maxFilterDate = useMemo(() => getTodayUTC8(), []);
+  const activeFilterPreset = useMemo(
+    () => getActiveGalleryFilterPreset(filterMode, sortMode),
+    [filterMode, sortMode]
+  );
+  const normalizedFilterDateStart = normalizeDateOnlyText(filterDateStart);
+  const normalizedFilterDateEnd = normalizeDateOnlyText(filterDateEnd);
+  const photos = useMemo(() => {
+    let viewRows = Array.isArray(allPhotos) ? allPhotos.slice() : [];
+
+    if (normalizedFilterDateStart || normalizedFilterDateEnd) {
+      viewRows = viewRows.filter((photo) => {
+        const photoDate = getGalleryPhotoDateText(photo);
+        if (!photoDate) return false;
+        if (normalizedFilterDateStart && photoDate < normalizedFilterDateStart) return false;
+        if (normalizedFilterDateEnd && photoDate > normalizedFilterDateEnd) return false;
+        return true;
+      });
+    }
+
+    if (filterMode === 'highlight') {
+      viewRows = viewRows.filter((photo) => isGalleryPhotoHighlighted(photo));
+    } else if (filterMode === 'story') {
+      viewRows = viewRows.filter((photo) => hasGalleryStory(photo));
+    }
+
+    return viewRows.slice().sort((photoA, photoB) => {
+      const timeA = getGalleryPhotoTimeValue(photoA);
+      const timeB = getGalleryPhotoTimeValue(photoB);
+      if (timeA !== timeB) {
+        return sortMode === 'time_asc' ? timeA - timeB : timeB - timeA;
+      }
+
+      return String(photoB.created_at || '').localeCompare(String(photoA.created_at || ''), 'zh-CN');
+    });
+  }, [allPhotos, filterMode, normalizedFilterDateEnd, normalizedFilterDateStart, sortMode]);
+
+  useEffect(() => {
+    allPhotosRef.current = allPhotos;
+    pageRef.current = page;
+    selectedFolderIdRef.current = selectedFolderId;
+    if (selectedFolderId === ROOT_GALLERY_FOLDER_ID) {
+      writeGalleryMemoryCache(allPhotos, Math.max(total, allPhotos.length), folders, rootFolderName);
+    }
+  }, [allPhotos, folders, page, rootFolderName, selectedFolderId, total]);
+
+  useEffect(() => {
+    if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
+    if (!memoryGallery) return;
+
+    const nextRootFolderName = resolveGalleryRootFolderName(memoryGallery.rootFolderName);
+    const nextFolders = buildGalleryFolderList(memoryGallery.folders, nextRootFolderName);
+    const hasFolderChanges =
+      nextRootFolderName !== rootFolderName
+      || nextFolders.length !== folders.length
+      || nextFolders.some((folder, index) => {
+        const currentFolder = folders[index];
+        return !currentFolder || currentFolder.id !== folder.id || currentFolder.name !== folder.name;
+      });
+
+    if (!hasFolderChanges) return;
+
+    setRootFolderName(nextRootFolderName);
+    setFolders(nextFolders);
+  }, [folders, memoryGallery, rootFolderName, selectedFolderId]);
+
+  const loadGalleryPage = useCallback(
+    async (pageNo: number, options?: { silent?: boolean; folderId?: string }) => {
+      const silent = Boolean(options?.silent);
+      const targetFolderId =
+        String(options?.folderId ?? selectedFolderIdRef.current ?? ROOT_GALLERY_FOLDER_ID).trim() || ROOT_GALLERY_FOLDER_ID;
+      const isFirstPage = pageNo === 1;
+      const requestToken = loadRequestTokenRef.current + 1;
+      loadRequestTokenRef.current = requestToken;
+
+      if (isFirstPage) {
+        if (!silent) {
+          setIsLoading(true);
+        }
+        isLoadingMoreRef.current = false;
+        setIsLoadingMore(false);
+      } else {
+        isLoadingMoreRef.current = true;
+        setIsLoadingMore(true);
+      }
+
+      try {
+        const dbClient = createClient();
+        if (!dbClient) {
+          throw new Error('数据库客户端不可用');
+        }
+
+        const { data, error } = await dbClient.rpc('get_public_gallery', {
+          page_no: pageNo,
+          page_size: pageSize,
+          folder_id: targetFolderId,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (requestToken !== loadRequestTokenRef.current) {
+          return;
+        }
+
+        const payload = data ?? {};
+        const pagePhotos = Array.isArray(payload.photos) ? (payload.photos as Photo[]) : [];
+        const nextTotal = Math.max(0, Number(payload.total ?? 0) || 0);
+        const nextRootFolderName =
+          typeof payload.root_folder_name === 'string' && payload.root_folder_name.trim()
+            ? payload.root_folder_name.trim()
+            : rootFolderName;
+        const nextFolders = buildGalleryFolderList(
+          Array.isArray(payload.folders) ? payload.folders : folders,
+          nextRootFolderName,
+          folders
+        );
+        const mergedPhotos = isFirstPage
+          ? pagePhotos
+          : appendUniquePhotos(allPhotosRef.current, pagePhotos);
+        const hasKnownTotal = nextTotal > 0;
+        const nextHasMore = hasKnownTotal
+          ? pagePhotos.length >= pageSize && mergedPhotos.length < nextTotal
+          : pagePhotos.length >= pageSize;
+
+        setRootFolderName(nextRootFolderName);
+        setFolders(nextFolders);
+        setAllPhotos(mergedPhotos);
+        setTotal(nextTotal);
+        pageRef.current = pageNo;
+        setPage(pageNo);
+        setHasMore(nextHasMore);
+        setIsSwitchingTag(false);
+
+        if (targetFolderId === ROOT_GALLERY_FOLDER_ID && isFirstPage) {
+          const galleryCacheKey = `${GALLERY_PAGE_CACHE_KEY}_${targetFolderId}`;
+          try {
+            if (mergedPhotos.length > 0 || nextFolders.length > 1) {
+              localStorage.setItem(
+                galleryCacheKey,
+                JSON.stringify({
+                  photos: mergedPhotos,
+                  total: nextTotal || mergedPhotos.length,
+                  folders: nextFolders,
+                  root_folder_name: nextRootFolderName,
+                  cachedAt: Date.now(),
+                })
+              );
+            } else {
+              localStorage.removeItem(galleryCacheKey);
+            }
+          } catch {
+            // 忽略缓存写入失败
+          }
+        }
+      } catch (loadError) {
+        if (requestToken !== loadRequestTokenRef.current) {
+          return;
+        }
+
+        console.warn('load public gallery page failed:', loadError);
+        setIsSwitchingTag(false);
+      } finally {
+        if (requestToken !== loadRequestTokenRef.current) {
+          return;
+        }
+
+        if (isFirstPage) {
+          setIsLoading(false);
+        }
+        isLoadingMoreRef.current = false;
+        setIsLoadingMore(false);
+      }
+    },
+    [folders, pageSize, rootFolderName, selectedFolderId]
   );
 
-  // 从 SWR 数据中提取照片和总数
-  const photos = allPhotos;
-  const total = typeof data?.total === 'number' ? data.total : hydratedInitialTotal;
-
-  // 当 SWR 数据更新时，刷新或追加照片
-  useEffect(() => {
-    writeGalleryMemoryCache(allPhotos, Math.max(total, allPhotos.length));
-  }, [allPhotos, total]);
-
-  useEffect(() => {
-    const nextRootFolderName =
-      typeof data?.root_folder_name === 'string' && data.root_folder_name.trim()
-        ? data.root_folder_name.trim()
-        : rootFolderName;
-
-    if (nextRootFolderName !== rootFolderName) {
-      setRootFolderName(nextRootFolderName);
-    }
-
-    if (Array.isArray(data?.folders) || nextRootFolderName !== rootFolderName) {
-      setFolders((previousFolders) =>
-        buildGalleryFolderList(
-          Array.isArray(data?.folders) ? data.folders : previousFolders,
-          nextRootFolderName,
-          previousFolders
-        )
-      );
-    }
-  }, [data?.folders, data?.root_folder_name, rootFolderName]);
-
-  useEffect(() => {
-    if (!data?.photos) return;
-
-    if (page === 1) {
-      isLoadingMoreRef.current = false;
-      setAllPhotos(data.photos);
-      setHasMore(data.photos.length >= pageSize && data.photos.length < data.total);
-      setIsLoadingMore(false);
-      setIsSwitchingTag(false);
-      return;
-    }
-
-    setAllPhotos(prev => {
-      const existingIds = new Set(prev.map(p => p.id));
-      const newPhotos = data.photos.filter((p: Photo) => !existingIds.has(p.id));
-      const updatedPhotos = [...prev, ...newPhotos];
-      setHasMore(data.photos.length >= pageSize && updatedPhotos.length < data.total);
-      return updatedPhotos;
-    });
-    setIsLoadingMore(false);
-  }, [data?.photos, data?.total, page, pageSize]);
-
-  useEffect(() => {
-    if (!error) {
-      return;
-    }
-
-    isLoadingMoreRef.current = false;
-    setIsLoadingMore(false);
-    setIsSwitchingTag(false);
-  }, [error]);
+  const refreshGallery = useCallback(
+    async (options?: { silent?: boolean; folderId?: string }) => {
+      await loadGalleryPage(1, options);
+    },
+    [loadGalleryPage]
+  );
 
   useEffect(() => {
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
   }, [selectedFolderId]);
 
-  // 缓存首页照片墙数据，用于下次进入秒开
-  useEffect(() => {
-    if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
-    if (page !== 1) return;
-    if (!data?.photos || data.photos.length === 0) return;
-
-    try {
-      localStorage.setItem(
-        GALLERY_CACHE_KEY,
-        JSON.stringify({
-          photos: data.photos,
-          total: data.total || data.photos.length,
-          cachedAt: Date.now(),
-        })
-      );
-    } catch {
-      // 忽略缓存写入失败
-    }
-  }, [page, data, selectedFolderId]);
-
   // 无初始数据时尝试读取本地缓存，避免反复进入加载动画
   useEffect(() => {
     if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
-    if (memoryGallery && memoryGallery.photos.length > 0) return;
+    if (shouldForceRefreshFromDirty) return;
+    if (memoryGallery) return;
     if (initialPhotos.length > 0) return;
     if (allPhotos.length > 0) return;
 
@@ -374,20 +636,35 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       const raw = localStorage.getItem(GALLERY_CACHE_KEY);
       if (!raw) return;
 
-      const parsed = JSON.parse(raw) as { photos?: Photo[]; total?: number; cachedAt?: number };
+      const parsed = JSON.parse(raw) as {
+        photos?: Photo[];
+        total?: number;
+        folders?: unknown;
+        root_folder_name?: string;
+        cachedAt?: number;
+      };
       const cachedPhotos = Array.isArray(parsed?.photos) ? parsed.photos : [];
-      if (cachedPhotos.length === 0) return;
+      const cachedRootFolderName = resolveGalleryRootFolderName(parsed?.root_folder_name);
+      const cachedFolders = buildGalleryFolderList(parsed?.folders, cachedRootFolderName);
+      if (cachedPhotos.length === 0 && cachedFolders.length <= 1) return;
 
       const isExpired = typeof parsed.cachedAt === 'number' && Date.now() - parsed.cachedAt > 30 * 60 * 1000;
-      if (isExpired) return;
+      if (isExpired) {
+        localStorage.removeItem(GALLERY_CACHE_KEY);
+        return;
+      }
 
-      setAllPhotos(cachedPhotos);
       const cachedTotal = typeof parsed.total === 'number' ? parsed.total : cachedPhotos.length;
+      setRootFolderName(cachedRootFolderName);
+      setFolders(cachedFolders);
+      setAllPhotos(cachedPhotos);
+      setTotal(cachedTotal);
+      setPage(1);
       setHasMore(cachedPhotos.length < cachedTotal);
     } catch {
       // 忽略缓存解析失败
     }
-  }, [initialPhotos.length, allPhotos.length, selectedFolderId]);
+  }, [GALLERY_CACHE_KEY, initialPhotos.length, allPhotos.length, memoryGallery, selectedFolderId, shouldForceRefreshFromDirty]);
 
   const requestNextPage = useCallback(() => {
     if (isLoading || isLoadingMoreRef.current || !hasMore) {
@@ -396,9 +673,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
-    setPage((prev) => prev + 1);
+    void loadGalleryPage(pageRef.current + 1, { folderId: selectedFolderIdRef.current });
     return true;
-  }, [hasMore, isLoading]);
+  }, [hasMore, isLoading, loadGalleryPage]);
 
   const evaluateScrollPagination = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -555,11 +832,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   };
 
   const hasStory = (photo: Photo): boolean => {
-    return Boolean(String(photo.story_text || '').trim());
+    return hasGalleryStory(photo);
   };
 
   const isHighlighted = (photo: Photo): boolean => {
-    return hasStory(photo) || Boolean(photo.is_highlight);
+    return isGalleryPhotoHighlighted(photo);
   };
 
   const toggleStoryCard = (photoId: string, e: React.MouseEvent) => {
@@ -661,11 +938,17 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         return;
       }
 
+      loadRequestTokenRef.current += 1;
       isLoadingMoreRef.current = false;
+      hasClientInitialFetchStartedRef.current = false;
+      pageRef.current = 1;
+      selectedFolderIdRef.current = nextFolderId;
       setIsSwitchingTag(true);
       setPage(1);
       setAllPhotos([]);
+      setTotal(0);
       setHasMore(true);
+      setIsLoading(false);
       setIsLoadingMore(false);
       setStoryOpenMap({});
       setPhotoAspectRatioMap({});
@@ -673,13 +956,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setFullscreenPhoto(null);
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
       setSelectedFolderId(nextFolderId);
+      void refreshGallery({ folderId: nextFolderId });
     },
-    [dismissTagGuide, selectedFolderId]
+    [dismissTagGuide, refreshGallery, selectedFolderId]
   );
 
   const openFolderSelector = useCallback(() => {
     dismissTagGuide();
     setTempFolderId(selectedFolderId);
+    setTempFilterPreset(activeFilterPreset);
+    setTempFilterDateStart(normalizedFilterDateStart);
+    setTempFilterDateEnd(normalizedFilterDateEnd);
+    setFilterModalError('');
 
     const targetButton = folderButtonRefs.current[selectedFolderId];
     if (targetButton) {
@@ -691,23 +979,56 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
 
     setShowFolderSelector(true);
-  }, [dismissTagGuide, selectedFolderId]);
+  }, [activeFilterPreset, dismissTagGuide, normalizedFilterDateEnd, normalizedFilterDateStart, selectedFolderId]);
 
   const closeFolderSelector = useCallback(() => {
     setShowFolderSelector(false);
     setTempFolderId(selectedFolderId);
-  }, [selectedFolderId]);
+    setTempFilterPreset(activeFilterPreset);
+    setTempFilterDateStart(normalizedFilterDateStart);
+    setTempFilterDateEnd(normalizedFilterDateEnd);
+    setFilterModalError('');
+  }, [activeFilterPreset, normalizedFilterDateEnd, normalizedFilterDateStart, selectedFolderId]);
 
   const handleResetFolderSelector = useCallback(() => {
     setTempFolderId(ROOT_GALLERY_FOLDER_ID);
+    setTempFilterPreset('default_desc');
+    setTempFilterDateStart('');
+    setTempFilterDateEnd('');
+    setFilterModalError('');
   }, []);
 
   const handleApplyFolderSelector = useCallback(() => {
-    setShowFolderSelector(false);
-    if (tempFolderId !== selectedFolderId) {
-      handleSwitchFolder(tempFolderId);
+    const nextPreset = String(tempFilterPreset || activeFilterPreset);
+    const nextFolderId = String(tempFolderId || ROOT_GALLERY_FOLDER_ID).trim() || ROOT_GALLERY_FOLDER_ID;
+    const resolvedPreset = resolveGalleryFilterPreset(nextPreset);
+    const nextFilterDateStart = normalizeDateOnlyText(tempFilterDateStart);
+    const nextFilterDateEnd = normalizeDateOnlyText(tempFilterDateEnd);
+
+    if (nextFilterDateStart && nextFilterDateEnd && nextFilterDateStart > nextFilterDateEnd) {
+      setFilterModalError('开始日期不能晚于结束日期');
+      return;
     }
-  }, [handleSwitchFolder, selectedFolderId, tempFolderId]);
+
+    setShowFolderSelector(false);
+    setFilterModalError('');
+    setSortMode(resolvedPreset.sortMode);
+    setFilterMode(resolvedPreset.filterMode);
+    setFilterDateStart(nextFilterDateStart);
+    setFilterDateEnd(nextFilterDateEnd);
+
+    if (nextFolderId !== selectedFolderId) {
+      handleSwitchFolder(nextFolderId);
+    }
+  }, [
+    activeFilterPreset,
+    handleSwitchFolder,
+    selectedFolderId,
+    tempFilterDateEnd,
+    tempFilterDateStart,
+    tempFilterPreset,
+    tempFolderId,
+  ]);
 
   const setFolderButtonRef = useCallback(
     (folderId: string) => (node: HTMLButtonElement | null) => {
@@ -754,9 +1075,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
     const nextRatio = resolveLoadedPhotoAspectRatio(dimensions.width, dimensions.height, 1);
+    const currentPhoto = allPhotosRef.current.find((photo) => photo.id === photoId);
+    const fallbackRatio = currentPhoto
+      ? clampPhotoAspectRatio(currentPhoto.width, currentPhoto.height, 1)
+      : 0;
+
     setPhotoAspectRatioMap((prev) => {
-      const currentRatio = prev[photoId];
-      if (typeof currentRatio === 'number' && Math.abs(currentRatio - nextRatio) < 0.01) {
+      const currentRatio = typeof prev[photoId] === 'number' ? prev[photoId] : fallbackRatio;
+      if (currentRatio > 0 && Math.abs(currentRatio - nextRatio) < 0.08) {
         return prev;
       }
       return {
@@ -782,6 +1108,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const showPageLoading = (isLoading && allPhotos.length === 0) || isSwitchingTag;
 
+  const galleryColumnCount = 2;
+  const galleryColumnGapClassName = 'gap-2';
+
   const galleryMasonryItems = useMemo(
     () => photos.map((photo, index) => ({ photo, index })),
     [photos]
@@ -795,17 +1124,61 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       Boolean(storyOpenMap[photo.id]),
       resolvePhotoAspectRatio(photo)
     ),
-    resetKey: selectedFolderId,
+    columnCount: galleryColumnCount,
+    resetKey: `${selectedFolderId}:${activeFilterPreset}:${normalizedFilterDateStart}:${normalizedFilterDateEnd}:${galleryColumnCount}`,
   });
 
-  // Android WebView 常见：服务端未预取时，主动触发首屏拉取，避免停留在loading
   useEffect(() => {
-    if (hasClientInitialFetchStartedRef.current) return;
-    if (allPhotos.length > 0) return;
+    if (previewPhoto && !photos.some((photo) => photo.id === previewPhoto.id)) {
+      setPreviewPhoto(null);
+    }
+
+    if (fullscreenPhoto && !photos.some((photo) => photo.id === fullscreenPhoto.id)) {
+      setFullscreenPhoto(null);
+    }
+  }, [fullscreenPhoto, photos, previewPhoto]);
+
+  useEffect(() => {
+    if (pathname !== '/gallery') {
+      loadRequestTokenRef.current += 1;
+      hasClientInitialFetchStartedRef.current = false;
+      isLoadingMoreRef.current = false;
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      setIsSwitchingTag(false);
+      return;
+    }
+
+    const shouldSkipInitialRefresh =
+      allPhotos.length > 0
+      && (selectedFolderId !== ROOT_GALLERY_FOLDER_ID || folders.length > 1);
+
+    if (hasClientInitialFetchStartedRef.current || shouldSkipInitialRefresh || isLoading || backendState.backendReconnecting) {
+      return;
+    }
 
     hasClientInitialFetchStartedRef.current = true;
+    if (isSwitchingTag) {
+      setIsSwitchingTag(false);
+    }
     void refreshGallery();
-  }, [allPhotos.length, refreshGallery]);
+  }, [allPhotos.length, backendState.backendReconnecting, folders.length, isLoading, isSwitchingTag, pathname, refreshGallery, selectedFolderId]);
+
+  useEffect(() => {
+    if (!isSwitchingTag || pathname !== '/gallery') {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsSwitchingTag(false);
+      if (!backendState.backendReconnecting && allPhotos.length === 0 && !isLoading) {
+        hasClientInitialFetchStartedRef.current = false;
+        void refreshGallery();
+      }
+    }, 8500);
+
+    return () => window.clearTimeout(timer);
+  }, [allPhotos.length, backendState.backendReconnecting, isLoading, isSwitchingTag, pathname, refreshGallery]);
 
   if (showPageLoading) {
     return (
@@ -854,24 +1227,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   return (
     <div className="flex flex-col h-full w-full bg-[#FFFBF0]">
       {/* 照片墙页头 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="px-4 pt-[11px] pb-[10px]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-                照片墙
-              </h1>
-            </div>
-            <div className="inline-flex shrink-0 items-center rounded-full bg-[#FFC857]/24 px-[10px] py-[5px] text-[10px] font-bold leading-none text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]">
-              ✨ 贩卖人间路过的温柔 ✨
-            </div>
-          </div>
-        </div>
-      </motion.div>
+      <div className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
+        <PageTopHeader
+          title={String.fromCodePoint(0x7167, 0x7247, 0x5899)}
+          badge={String.fromCodePoint(0x1f4f8) + ' ' + String.fromCodePoint(0x8d29, 0x5356, 0x4eba, 0x95f4, 0x8def, 0x8fc7, 0x7684, 0x6e29, 0x67d4) + ' ' + String.fromCodePoint(0x1f4f8)}
+        />
+      </div>
 
       {/* 滚动区域 */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-20 gallery-scroll-container">
@@ -946,16 +1307,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             transition={{ duration: 0.22 }}
             className="py-14 text-center"
           >
-            <p className="text-[13px] text-[#5D4037]/50">暂无照片</p>
+            <p className="text-[13px] text-[#5D4037]/50">
+              {allPhotos.length > 0 ? String.fromCodePoint(0x6682, 0x65E0, 0x7B26, 0x5408, 0x7B5B, 0x9009, 0x6761, 0x4EF6, 0x7684, 0x7167, 0x7247) : String.fromCodePoint(0x6682, 0x65E0, 0x7167, 0x7247)}
+            </p>
           </motion.div>
         ) : (
           <>
             {/* 双列瀑布流布局 */}
-            <div className="flex items-start gap-2">
+            <div className={`flex items-start ${galleryColumnGapClassName}`}>
               {galleryColumns.map((column, columnIndex) => (
                 <div
                   key={`gallery-column-${columnIndex}`}
-                  className="flex min-w-0 flex-1 flex-col gap-2"
+                  className={`flex min-w-0 flex-1 flex-col ${galleryColumnGapClassName}`}
                 >
                   {column.map(({ photo, index }) => (
                 <motion.div
@@ -967,7 +1330,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                 >
                   {/* 小红书风格卡片 */}
                   <div
-                    className={`bg-white rounded-[12px] overflow-hidden transition-all duration-300 ${
+                    className={`box-border bg-white rounded-[12px] overflow-hidden transition-all duration-300 ${
                       isHighlighted(photo)
                         ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_16px_rgba(255,183,3,0.48),0_4px_10px_rgba(93,64,55,0.20)] translate-y-[-1px]'
                         : 'border border-transparent shadow-[0_5px_15px_rgba(93,64,55,0.10)]'
@@ -976,12 +1339,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     {/* 图片区域 */}
                     <div className="relative">
                       {storyOpenMap[photo.id] && hasStory(photo) ? (
-                        <div className="min-h-[190px] p-2 bg-gradient-to-br from-[#FFFDF7] via-[#FFF5DC] to-[#FCEBC5]">
-                          <div className="relative rounded-[9px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[9px] py-[9px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
+                        <div className="min-h-[140px] box-border bg-[linear-gradient(150deg,#FFFDF7_0%,#FFF5DC_52%,#FCEBC5_100%)] p-[8px]">
+                          <div className="relative min-h-[124px] rounded-[9px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[9px] pt-[9px] pb-[10px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
                             <span className="mb-[5px] inline-flex h-[17px] items-center justify-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
-                              关于此刻
+                              {String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
                             </span>
-                            <p className="text-[12.5px] leading-[1.78] text-[#5D4037]/93 font-semibold whitespace-pre-wrap break-words tracking-[0.02em]">
+                            <p className="whitespace-pre-wrap break-words text-left text-[12.5px] font-semibold leading-[1.78] tracking-[0.4px] text-[#5D4037]/93">
                               {String(photo.story_text || '').trim()}
                             </p>
                           </div>
@@ -1010,8 +1373,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                               whileTap={{ scale: 0.94 }}
                               onClick={(e) => handleLike(photo.id, e)}
                               className="compact-button inline-flex min-h-0 appearance-none items-center gap-[2px] border-0 bg-transparent p-0 text-white/95 shadow-none outline-none transition-all duration-200 active:opacity-90"
-                              aria-label="????"
-                              title="????"
+                              aria-label={String.fromCodePoint(0x70B9, 0x8D5E)}
+                              title={String.fromCodePoint(0x70B9, 0x8D5E)}
                             >
                               <motion.div
                                 animate={photo.is_liked ? { scale: [1, 1.16, 1] } : {}}
@@ -1034,20 +1397,46 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                       {hasStory(photo) && (
                         <button
+                          type="button"
                           onClick={(e) => toggleStoryCard(photo.id, e)}
-                          className={`absolute right-[5px] top-[5px] flex h-[25px] w-[25px] items-center justify-center rounded-full border backdrop-blur-sm transition-all active:scale-95 ${
+                          className={`absolute right-[5px] top-[5px] flex items-center justify-center overflow-hidden rounded-full transition-all active:scale-95 ${
                             isHighlighted(photo)
-                              ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border-[1.5px] border-[#5D4037]/45 text-[#5D4037] shadow-[0_0_0_1px_rgba(255,229,156,0.9),0_5px_12px_rgba(255,183,3,0.55)] animate-pulse'
-                              : 'bg-black/38 border border-white/45 text-white'
+                              ? 'border border-[#5D4037]/45 bg-[linear-gradient(135deg,#FFD76E_0%,#FFC857_100%)]'
+                              : 'border border-white/45 bg-black/38'
                           }`}
-                          aria-label="查看此刻"
-                          title="查看此刻"
+                          style={
+                            isHighlighted(photo)
+                              ? {
+                                  width: '30px',
+                                  height: '30px',
+                                  minWidth: '30px',
+                                  minHeight: '30px',
+                                  padding: 0,
+                                  boxShadow: '0 0 0 1px rgba(255,229,156,0.9), 0 5px 12px rgba(255,183,3,0.55)',
+                                }
+                              : {
+                                  width: '30px',
+                                  height: '30px',
+                                  minWidth: '30px',
+                                  minHeight: '30px',
+                                  padding: 0,
+                                }
+                          }
+                          aria-label={String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
+                          title={String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
                         >
-                          <RotateCcw
-                            className={`h-[13px] w-[13px] transition-transform duration-200 ${
+                          <span
+                            className={`font-bold leading-none transition-transform duration-200 ${
                               storyOpenMap[photo.id] ? 'rotate-180' : ''
-                            } ${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
-                          />
+                            } ${
+                              isHighlighted(photo)
+                                ? 'text-[#5D4037] [text-shadow:0_0.5px_0_rgba(255,255,255,0.55)]'
+                                : 'text-white'
+                            }`}
+                            style={{ fontSize: '16px', lineHeight: 1 }}
+                          >
+                            {String.fromCodePoint(0x21BB)}
+                          </span>
                         </button>
                       )}
                     </div>
@@ -1074,27 +1463,28 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             </div>
 
             {/* 加载更多指示器 */}
-            {isLoadingMore && hasMore && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-6 flex items-center justify-center gap-3"
-              >
-                <div className="h-5 w-5 animate-spin rounded-full border-[3px] border-[#FFC857]/40 border-t-[#FFC857]" />
-                <p className="text-[13px] font-bold text-[#5D4037]/60">拾光中...</p>
-              </motion.div>
-            )}
+            <div className="mt-6 min-h-[28px]" style={{ overflowAnchor: 'none' }}>
+              {isLoadingMore && hasMore && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex items-center justify-center gap-3"
+                >
+                  <div className="h-5 w-5 animate-spin rounded-full border-[3px] border-[#FFC857]/40 border-t-[#FFC857]" />
+                  <p className="text-[13px] font-bold text-[#5D4037]/60">拾光中...</p>
+                </motion.div>
+              )}
 
-            {/* 到底提示 */}
-            {!hasMore && allPhotos.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-6 text-center"
-              >
-                <p className="text-[13px] text-[#5D4037]/40">✨ 已经到底啦 ✨</p>
-              </motion.div>
-            )}
+              {!hasMore && allPhotos.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center"
+                >
+                  <p className="text-[13px] text-[#5D4037]/40">✨ 已经到底啦 ✨</p>
+                </motion.div>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -1193,7 +1583,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
               onClick={closeFolderSelector}
-              aria-label="关闭全部筛选"
+              aria-label={String.fromCodePoint(0x5173, 0x95ED, 0x5168, 0x90E8, 0x7B5B, 0x9009)}
               className="fixed inset-0 z-40 bg-[#5D4037]/18 backdrop-blur-[2px]"
             />
             <motion.div
@@ -1205,58 +1595,140 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             >
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="overflow-hidden rounded-[20px] border border-[#5D4037]/8 bg-[#FFFDF7] shadow-[0_18px_44px_rgba(93,64,55,0.18)]"
+                className="flex max-h-[66vh] flex-col overflow-hidden rounded-[20px] border border-[#5D4037]/8 bg-[#FFFDF7] shadow-[0_18px_44px_rgba(93,64,55,0.18)]"
               >
-                <div className="flex items-center justify-between border-b border-[#5D4037]/6 px-4 py-3">
+                <div className="flex items-center justify-between border-b border-[#5D4037]/10 px-4 py-3">
                   <div>
-                    <h3 className="text-[15px] font-bold text-[#5D4037]">全部筛选</h3>
-                    <p className="mt-1 text-[11px] text-[#8D6E63]/72">选择你想看的标签分类</p>
+                    <h3 className="text-[15px] font-bold text-[#5D4037]">{String.fromCodePoint(0x5168, 0x90E8, 0x7B5B, 0x9009)}</h3>
+                    <p className="mt-1 text-[11px] text-[#8D6E63]/72">{String.fromCodePoint(0x9009, 0x62E9, 0x4F60, 0x60F3, 0x770B, 0x7684, 0x6807, 0x7B7E, 0x5206, 0x7C7B)}</p>
                   </div>
                   <button
                     type="button"
                     onClick={closeFolderSelector}
-                    aria-label="关闭全部筛选"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-[#5D4037]/8 text-[20px] leading-none text-[#5D4037] transition-colors hover:bg-[#5D4037]/12"
+                    aria-label={String.fromCodePoint(0x5173, 0x95ED, 0x5168, 0x90E8, 0x7B5B, 0x9009)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-[#5D4037]/10 text-[#5D4037] transition-colors hover:bg-[#5D4037]/16"
                   >
-                    ×
+                    <X className="h-4 w-4" strokeWidth={2.5} />
                   </button>
                 </div>
-                <div className="max-h-[50vh] overflow-y-auto px-4 py-4">
-                  <p className="mb-3 text-[12px] font-semibold text-[#8D6E63]/80">标签</p>
-                  <div className="flex flex-wrap gap-2">
-                    {selectorFolders.map((folder) => {
-                      const isActive = tempFolderId === String(folder.id);
-                      return (
-                        <button
-                          key={`selector-${folder.id}`}
-                          type="button"
-                          onClick={() => setTempFolderId(String(folder.id))}
-                          className={`inline-flex min-h-[32px] items-center justify-center rounded-full px-3 text-[12px] font-semibold leading-none transition-all duration-200 active:scale-[0.98] ${
-                            isActive
-                              ? 'border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.12)]'
-                              : 'border-[1.5px] border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:border-[#5D4037]/28 hover:text-[#5D4037]'
-                          }`}
-                        >
-                          {folder.name}
-                        </button>
-                      );
-                    })}
+                <div className="flex-1 overflow-y-auto px-4 py-4">
+                  <div>
+                    <p className="mb-3 text-[12px] font-extrabold text-[#8D6E63]/82">{String.fromCodePoint(0x6807, 0x7B7E)}</p>
+                    <div className="grid max-h-[180px] grid-cols-3 gap-2 overflow-y-auto pr-1">
+                      {selectorFolders.map((folder) => {
+                        const isActive = tempFolderId === String(folder.id);
+                        return (
+                          <button
+                            key={`selector-${folder.id}`}
+                            type="button"
+                            onClick={() => {
+                              setTempFolderId(String(folder.id));
+                              setFilterModalError('');
+                            }}
+                            className={`flex h-[34px] min-w-0 items-center justify-center rounded-full px-2 text-[12px] font-bold leading-none transition-all duration-200 active:scale-[0.98] ${
+                              isActive
+                                ? 'border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0_rgba(93,64,55,0.12)]'
+                                : 'border border-dashed border-[#5D4037]/15 bg-white text-[#5D4037]/68 hover:border-[#5D4037]/28 hover:text-[#5D4037]'
+                            }`}
+                          >
+                            <span className="truncate">{folder.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <p className="mb-3 text-[12px] font-extrabold text-[#8D6E63]/82">{String.fromCodePoint(0x6761, 0x4EF6, 0x7B5B, 0x9009)}</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {GALLERY_FILTER_PRESET_OPTIONS.map((option) => {
+                        const isActive = tempFilterPreset === option.preset;
+                        return (
+                          <button
+                            key={`preset-${option.preset}`}
+                            type="button"
+                            onClick={() => {
+                              setTempFilterPreset(option.preset);
+                              setFilterModalError('');
+                            }}
+                            className={`flex h-[34px] min-w-0 items-center justify-center rounded-full px-2 text-[12px] font-bold leading-none transition-all duration-200 active:scale-[0.98] ${
+                              isActive
+                                ? 'border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0_rgba(93,64,55,0.12)]'
+                                : 'border border-dashed border-[#5D4037]/15 bg-white text-[#5D4037]/68 hover:border-[#5D4037]/28 hover:text-[#5D4037]'
+                            }`}
+                          >
+                            <span className="truncate">{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-[12px] font-extrabold text-[#8D6E63]/82">{String.fromCodePoint(0x65E5, 0x671F, 0x8303, 0x56F4)}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTempFilterDateStart('');
+                          setTempFilterDateEnd('');
+                          setFilterModalError('');
+                        }}
+                        className="inline-flex h-7 items-center justify-center rounded-full bg-[#5D4037]/8 px-3 text-[11px] font-bold leading-none text-[#5D4037]/74 transition-colors hover:bg-[#5D4037]/12"
+                      >
+                        {String.fromCodePoint(0x6E05, 0x7A7A, 0x65E5, 0x671F)}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                      <input
+                        type="date"
+                        value={tempFilterDateStart}
+                        max={maxFilterDate}
+                        onChange={(event) => {
+                          setTempFilterDateStart(normalizeDateOnlyText(event.target.value));
+                          setFilterModalError('');
+                        }}
+                        className={`h-10 min-w-0 rounded-[18px] border px-3 text-center text-[12px] font-bold leading-none text-[#5D4037] outline-none transition-colors ${
+                          tempFilterDateStart
+                            ? 'border-[#5D4037]/20 bg-[#FFC857]/12'
+                            : 'border-dashed border-[#5D4037]/15 bg-white text-[#8D6E63]/62'
+                        }`}
+                      />
+                      <span className="text-[12px] font-bold text-[#8D6E63]/56">{String.fromCodePoint(0x81F3)}</span>
+                      <input
+                        type="date"
+                        value={tempFilterDateEnd}
+                        max={maxFilterDate}
+                        onChange={(event) => {
+                          setTempFilterDateEnd(normalizeDateOnlyText(event.target.value));
+                          setFilterModalError('');
+                        }}
+                        className={`h-10 min-w-0 rounded-[18px] border px-3 text-center text-[12px] font-bold leading-none text-[#5D4037] outline-none transition-colors ${
+                          tempFilterDateEnd
+                            ? 'border-[#5D4037]/20 bg-[#FFC857]/12'
+                            : 'border-dashed border-[#5D4037]/15 bg-white text-[#8D6E63]/62'
+                        }`}
+                      />
+                    </div>
+                    {filterModalError ? (
+                      <p className="mt-2 text-[11px] font-semibold text-[#C97A51]">{filterModalError}</p>
+                    ) : null}
                   </div>
                 </div>
-                <div className="flex gap-2 border-t border-[#5D4037]/6 bg-white/55 px-4 py-3">
+                <div className="flex gap-2 border-t border-dashed border-[#5D4037]/10 bg-white/55 px-4 py-3">
                   <button
                     type="button"
                     onClick={handleResetFolderSelector}
                     className="flex-1 rounded-full bg-[#5D4037]/8 px-4 py-[10px] text-[12px] font-semibold text-[#5D4037] transition-colors hover:bg-[#5D4037]/12"
                   >
-                    重置
+                    {String.fromCodePoint(0x91CD, 0x7F6E)}
                   </button>
                   <button
                     type="button"
                     onClick={handleApplyFolderSelector}
                     className="flex-1 rounded-full bg-[#5D4037] px-4 py-[10px] text-[12px] font-semibold text-white transition-colors hover:bg-[#6A4B41]"
                   >
-                    确定
+                    {String.fromCodePoint(0x786E, 0x5B9A)}
                   </button>
                 </div>
               </div>
@@ -1266,12 +1738,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       </AnimatePresence>
 
       <ImagePreview
-        images={allPhotos.map((photo) => photo.preview_url)}
-        downloadUrls={allPhotos.map((photo) => photo.original_url || photo.preview_url)}
-        currentIndex={fullscreenPhoto ? allPhotos.findIndex((photo) => photo.id === fullscreenPhoto.id) : 0}
+        images={photos.map((photo) => photo.preview_url)}
+        downloadUrls={photos.map((photo) => photo.original_url || photo.preview_url)}
+        currentIndex={fullscreenPhoto ? Math.max(0, photos.findIndex((photo) => photo.id === fullscreenPhoto.id)) : 0}
         isOpen={!!fullscreenPhoto}
         onClose={() => setFullscreenPhoto(null)}
-        onIndexChange={(index) => setFullscreenPhoto(allPhotos[index] ?? null)}
+        onIndexChange={(index) => setFullscreenPhoto(photos[index] ?? null)}
         showCounter={true}
         showScale={true}
         enableLongPressDownload={true}
@@ -1333,3 +1805,5 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     </div>
   );
 }
+
+

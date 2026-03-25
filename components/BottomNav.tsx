@@ -25,6 +25,17 @@ export default function BottomNav() {
     setIsAndroid(isAndroidApp());
   }, []);
 
+  const handleNavClick = () => {
+    if (typeof document !== 'undefined') {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) {
+        activeElement.blur();
+      }
+      document.getSelection?.()?.removeAllRanges();
+    }
+    vibrate(30);
+  };
+
   // Android: 使用CSS动画
   if (isAndroid) {
     return (
@@ -39,7 +50,7 @@ export default function BottomNav() {
                 key={item.href}
                 href={item.href}
                 className="flex-1"
-                onClick={() => vibrate(30)}
+                onClick={handleNavClick}
               >
                 <div
                   className={`flex flex-col items-center gap-1 transition-all relative active:scale-90 ${
@@ -80,7 +91,7 @@ export default function BottomNav() {
               key={item.href}
               href={item.href}
               className="flex-1"
-              onClick={() => vibrate(30)}
+              onClick={handleNavClick}
             >
               <motion.div
                 whileTap={shouldReduceMotion ? undefined : { scale: 0.9 }}

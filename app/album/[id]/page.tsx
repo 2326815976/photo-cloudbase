@@ -1480,20 +1480,39 @@ export default function AlbumDetailPage() {
                   {hasStory(photo) && (
                     <button
                       onClick={(event) => toggleStoryCard(photo.id, event)}
-                      className={`absolute z-[3] flex h-[30px] w-[30px] items-center justify-center rounded-full border transition-all ${
-                        storyOpenMap[photo.id] ? 'bottom-[6px] right-[6px]' : 'left-[6px] top-[6px]'
+                      className={`absolute z-[3] flex items-center justify-center overflow-hidden rounded-full border transition-all ${
+                        storyOpenMap[photo.id] ? 'bottom-[5px] right-[5px]' : 'left-[5px] top-[5px]'
                       } ${
                         isHighlighted(photo)
-                          ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border-[1.5px] border-[#5D4037]/45 text-[#5D4037] shadow-[0_0_0_1px_rgba(255,229,156,0.9),0_5px_12px_rgba(255,183,3,0.55)] animate-pulse'
+                          ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border border-[#5D4037]/45 text-[#5D4037] animate-pulse'
                           : 'bg-black/35 border-white/50 text-white'
                       }`}
+                      style={
+                        isHighlighted(photo)
+                          ? {
+                              width: '30px',
+                              height: '30px',
+                              minWidth: '30px',
+                              minHeight: '30px',
+                              padding: 0,
+                              boxShadow: '0 0 0 1px rgba(255,229,156,0.9), 0 5px 12px rgba(255,183,3,0.55)',
+                            }
+                          : {
+                              width: '30px',
+                              height: '30px',
+                              minWidth: '30px',
+                              minHeight: '30px',
+                              padding: 0,
+                            }
+                      }
                       aria-label="查看关于此刻"
                       title="关于此刻"
                     >
                       <span
-                        className={`text-[16px] font-bold leading-none transition-transform duration-200 ${
+                        className={`font-bold leading-none transition-transform duration-200 ${
                           storyOpenMap[photo.id] ? 'rotate-180' : ''
                         } ${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
+                        style={{ fontSize: '16px', lineHeight: 1 }}
                       >
                         ↗
                       </span>

@@ -88,11 +88,11 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] [background-image:radial-gradient(circle_at_8%_0%,rgba(255,200,87,0.16),transparent_34%),radial-gradient(circle_at_94%_16%,rgba(255,153,102,0.12),transparent_30%)]" style={{ width: '100%', maxWidth: '100vw', overflow: 'hidden' }}>
+    <div className="admin-shell min-h-screen bg-[#FFFBF0] [background-image:radial-gradient(circle_at_8%_0%,rgba(255,200,87,0.16),transparent_34%),radial-gradient(circle_at_94%_16%,rgba(255,153,102,0.12),transparent_30%)]" style={{ width: '100%', maxWidth: '100vw', overflow: 'hidden' }}>
       <div className="relative flex min-h-screen">
         <AdminSidebar username={profile.name || profile.email || ADMIN_FALLBACK_NAME} />
-        <main className="relative flex-1 px-4 pb-8 pt-[72px] sm:px-6 md:ml-72 md:px-8 md:pt-6 lg:px-10">
-          <div className="mx-auto w-full max-w-[1480px]">{children}</div>
+        <main className="admin-main relative flex-1 px-4 pb-8 pt-[72px] sm:px-6 md:ml-72 md:px-8 md:pt-6 lg:px-10">
+          <div className="admin-main__inner mx-auto w-full max-w-[1480px]">{children}</div>
         </main>
       </div>
     </div>
