@@ -1,6 +1,10 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import { env } from '@/lib/env';
+
+type TencentWebServiceParamValue = string | number | boolean;
 
 type TencentWebServiceRaw = {
   status?: number;
@@ -42,11 +46,34 @@ function resolveTencentWebServiceKey(): string {
   return env.TMAP_SERVER_KEY();
 }
 
+function resolveTencentWebServiceSecret(): string {
+  return env.TMAP_SERVER_SK();
+}
+
+function buildTencentWebServiceQuery(params: Record<string, TencentWebServiceParamValue>, key: string): string {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([paramKey, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    searchParams.append(paramKey, String(value));
+  });
+  searchParams.append('key', key);
+  return searchParams.toString();
+}
+
+function createTencentWebServiceSignature(path: string, query: string, secret: string): string {
+  return createHash('md5')
+    .update(`${path}?${query}${secret}`)
+    .digest('hex');
+}
+
 export async function requestTencentWebService(
   path: string,
-  params: Record<string, string | number | boolean>
+  params: Record<string, TencentWebServiceParamValue>
 ): Promise<TencentWebServiceResult> {
   const key = resolveTencentWebServiceKey();
+  const secret = resolveTencentWebServiceSecret();
   if (!key) {
     return {
       ok: false,
@@ -57,11 +84,12 @@ export async function requestTencentWebService(
     };
   }
 
+  const query = buildTencentWebServiceQuery(params, key);
   const url = new URL(path, 'https://apis.map.qq.com');
-  Object.entries(params).forEach(([paramKey, value]) => {
-    url.searchParams.set(paramKey, String(value));
-  });
-  url.searchParams.set('key', key);
+  url.search = query;
+  if (secret) {
+    url.searchParams.set('sig', createTencentWebServiceSignature(url.pathname, query, secret));
+  }
 
   try {
     const response = await fetch(url.toString(), {

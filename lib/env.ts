@@ -81,6 +81,10 @@ function getTencentMapServerKey(): string {
   return getServerEnv('TMAP_SERVER_KEY', 'TMAP_WEBSERVICE_KEY');
 }
 
+function getTencentMapServerSecret(): string {
+  return getServerEnv('TMAP_SERVER_SK', 'TMAP_WEBSERVICE_SK');
+}
+
 export const env = {
   // 应用配置
   APP_URL: () => getEnv('APP_URL'),
@@ -90,6 +94,8 @@ export const env = {
   TMAP_JS_KEY: () => getTencentMapJsKey(),
   TMAP_SERVER_KEY: () => getTencentMapServerKey(),
   TMAP_WEBSERVICE_KEY: () => getTencentMapServerKey(),
+  TMAP_SERVER_SK: () => getTencentMapServerSecret(),
+  TMAP_WEBSERVICE_SK: () => getTencentMapServerSecret(),
 
   // 腾讯云 CloudBase 配置（服务端）
   CLOUDBASE_ID: () => getServerEnv('CLOUDBASE_ID'),
