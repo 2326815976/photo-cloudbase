@@ -668,8 +668,8 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
           <MapPin className="w-5 h-5 text-[#FFC857]" />
           <h3 className="text-lg font-semibold text-[#5D4037]">选择位置</h3>
         </div>
-        <button onClick={onClose} className={`p-2 hover:bg-gray-100 rounded-full transition-colors ${isAndroid ? 'active:scale-90' : ''}`}>
-          <X className="w-5 h-5 text-gray-500" />
+        <button onClick={onClose} className="icon-button action-icon-btn action-icon-btn--close">
+          <X className="action-icon-svg" />
         </button>
       </div>
 

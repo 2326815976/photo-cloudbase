@@ -3,13 +3,14 @@
 const BACKEND_HEALTH_CHECK_PATH = '/api/health/ready';
 const BACKEND_RECOVERY_MAX_WAIT_MS = 45 * 1000;
 const BACKEND_RECOVERY_INTERVAL_MS = 2500;
-const BACKEND_HEALTH_CHECK_TIMEOUT_MS = 5000;
+const BACKEND_HEALTH_CHECK_TIMEOUT_MS = 10000;
 const BACKEND_POST_RECOVERY_RETRY_TIMES = 2;
 const BACKEND_POST_RECOVERY_RETRY_DELAY_MS = 1500;
 
 type BackendRecoveryState = {
   backendReady: boolean;
   backendReconnecting: boolean;
+  backendRetryCount: number;
   backendLastError: string;
 };
 
@@ -17,6 +18,7 @@ type BackendRecoveryListener = (state: BackendRecoveryState) => void;
 
 type RecoveryResult = {
   recovered: boolean;
+  attempts: number;
   elapsedMs: number;
 };
 
@@ -36,8 +38,9 @@ type BackendRecoveryRequestInit = RequestInit & {
 };
 
 const state: BackendRecoveryState = {
-  backendReady: true,
+  backendReady: false,
   backendReconnecting: false,
+  backendRetryCount: 0,
   backendLastError: '',
 };
 
@@ -46,6 +49,9 @@ const listeners = new Set<BackendRecoveryListener>();
 let originalFetch: typeof window.fetch | null = null;
 let restoreFetch: (() => void) | null = null;
 let backendRecoveryPromise: Promise<RecoveryResult> | null = null;
+let backendReadyPromise: Promise<RecoveryResult | null> | null = null;
+let backendBootstrapPromise: Promise<RecoveryResult | null> | null = null;
+let teardownRecoverySignalListeners: (() => void) | null = null;
 
 function emitState() {
   const snapshot = getBackendRecoveryState();
@@ -68,6 +74,14 @@ function syncBackendStatus(patch: Partial<BackendRecoveryState>) {
   ) {
     state.backendReconnecting = patch.backendReconnecting;
     changed = true;
+  }
+
+  if (typeof patch.backendRetryCount === 'number') {
+    const nextRetryCount = Math.max(0, Number(patch.backendRetryCount || 0));
+    if (nextRetryCount !== state.backendRetryCount) {
+      state.backendRetryCount = nextRetryCount;
+      changed = true;
+    }
   }
 
   if (typeof patch.backendLastError === 'string' && patch.backendLastError !== state.backendLastError) {
@@ -329,7 +343,7 @@ function shouldTriggerBackendRecovery(error: unknown, statusCodeHint?: number) {
   return hasBackendTransientMessageKeyword(message);
 }
 
-async function probeBackendHealthOnce(fetchImpl: typeof window.fetch) {
+async function probeBackendHealth(fetchImpl: typeof window.fetch) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), BACKEND_HEALTH_CHECK_TIMEOUT_MS);
 
@@ -344,12 +358,30 @@ async function probeBackendHealthOnce(fetchImpl: typeof window.fetch) {
     });
 
     const payload = await parseResponsePayload(response.clone());
-    return response.ok && !isTransientPayloadError(payload) && payload !== false;
-  } catch {
-    return false;
+    if (response.ok && !isTransientPayloadError(payload) && payload !== false) {
+      return {
+        healthy: true,
+        error: '',
+      };
+    }
+
+    return {
+      healthy: false,
+      error: resolvePayloadMessage(payload, response.status, response.statusText || '服务暂时不可用'),
+    };
+  } catch (error) {
+    return {
+      healthy: false,
+      error: error instanceof Error ? error.message : String(error || '服务暂时不可用'),
+    };
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+async function probeBackendHealthOnce(fetchImpl: typeof window.fetch) {
+  const result = await probeBackendHealth(fetchImpl);
+  return result.healthy;
 }
 
 async function waitForBackendRecovery(fetchImpl: typeof window.fetch, triggerError?: unknown) {
@@ -371,11 +403,15 @@ async function waitForBackendRecovery(fetchImpl: typeof window.fetch, triggerErr
   const startedAt = Date.now();
 
   backendRecoveryPromise = (async () => {
+    let attempts = 0;
+
     while (Date.now() - startedAt <= BACKEND_RECOVERY_MAX_WAIT_MS) {
+      attempts += 1;
       const healthy = await probeBackendHealthOnce(fetchImpl);
       if (healthy) {
         const result = {
           recovered: true,
+          attempts,
           elapsedMs: Date.now() - startedAt,
         };
 
@@ -393,6 +429,7 @@ async function waitForBackendRecovery(fetchImpl: typeof window.fetch, triggerErr
 
     return {
       recovered: false,
+      attempts,
       elapsedMs: Date.now() - startedAt,
     };
   })().finally(() => {
@@ -412,16 +449,95 @@ async function waitForBackendRecovery(fetchImpl: typeof window.fetch, triggerErr
   return result;
 }
 
+function recoverBackendInBackground(fetchImpl: typeof window.fetch, reason?: string) {
+  if (typeof window === 'undefined' || !isBrowserOnline()) {
+    return;
+  }
+
+  if (backendReadyPromise || backendRecoveryPromise || (state.backendReady && !state.backendReconnecting)) {
+    return;
+  }
+
+  void waitForBackendRecovery(fetchImpl, reason || state.backendLastError || '服务暂时不可用').catch(
+    () => null
+  );
+}
+
+function attachRecoverySignalListeners(fetchImpl: typeof window.fetch) {
+  if (typeof window === 'undefined' || teardownRecoverySignalListeners) {
+    return;
+  }
+
+  const handleOnline = () => {
+    recoverBackendInBackground(fetchImpl, '网络已恢复');
+  };
+
+  window.addEventListener('online', handleOnline);
+
+  teardownRecoverySignalListeners = () => {
+    window.removeEventListener('online', handleOnline);
+    teardownRecoverySignalListeners = null;
+  };
+}
+
 async function ensureBackendReady(fetchImpl: typeof window.fetch, options?: BackendRecoveryRequestOptions) {
   if (options?.disabled || options?.skipReadyGate || !isBrowserOnline()) {
     return null;
   }
 
-  if (state.backendReady && !state.backendReconnecting) {
+  if (state.backendReady) {
     return null;
   }
 
-  return waitForBackendRecovery(fetchImpl, state.backendLastError || '服务暂时不可用');
+  if (backendReadyPromise) {
+    return backendReadyPromise;
+  }
+
+  syncBackendStatus({
+    backendReady: false,
+    backendReconnecting: true,
+  });
+
+  const startedAt = Date.now();
+
+  backendReadyPromise = (async () => {
+    let attempts = Math.max(0, Number(state.backendRetryCount || 0));
+
+    while (true) {
+      attempts += 1;
+      const probeResult = await probeBackendHealth(fetchImpl);
+
+      if (probeResult.healthy) {
+        const result = {
+          recovered: true,
+          attempts,
+          elapsedMs: Date.now() - startedAt,
+        };
+
+        syncBackendStatus({
+          backendReady: true,
+          backendReconnecting: false,
+          backendRetryCount: attempts,
+          backendLastError: '',
+        });
+
+        return result;
+      }
+
+      syncBackendStatus({
+        backendReady: false,
+        backendReconnecting: true,
+        backendRetryCount: attempts,
+        backendLastError: probeResult.error || state.backendLastError || '服务暂时不可用',
+      });
+
+      await sleep(BACKEND_RECOVERY_INTERVAL_MS);
+    }
+  })().finally(() => {
+    backendReadyPromise = null;
+  });
+
+  return backendReadyPromise;
 }
 
 async function retryRequestAfterRecovery(
@@ -599,6 +715,54 @@ export function subscribeBackendRecovery(listener: BackendRecoveryListener) {
   };
 }
 
+export function ensureBackendRecoveryFetchInstalled() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  installBackendRecoveryFetch();
+}
+
+export function bootstrapBackendReady() {
+  if (typeof window === 'undefined') {
+    return Promise.resolve<RecoveryResult | null>(null);
+  }
+
+  ensureBackendRecoveryFetchInstalled();
+
+  if (backendBootstrapPromise) {
+    return backendBootstrapPromise;
+  }
+
+  if (state.backendReady) {
+    return Promise.resolve<RecoveryResult | null>({
+      recovered: true,
+      attempts: Math.max(0, Number(state.backendRetryCount || 0)),
+      elapsedMs: 0,
+    });
+  }
+
+  const fetchImpl = originalFetch || window.fetch.bind(window);
+  attachRecoverySignalListeners(fetchImpl);
+
+  backendBootstrapPromise = (async () => {
+    if (!isBrowserOnline()) {
+      syncBackendStatus({
+        backendReady: false,
+        backendReconnecting: false,
+        backendLastError: '网络未连接',
+      });
+      return null;
+    }
+
+    return ensureBackendReady(fetchImpl);
+  })().finally(() => {
+    backendBootstrapPromise = null;
+  });
+
+  return backendBootstrapPromise;
+}
+
 export function installBackendRecoveryFetch() {
   if (typeof window === 'undefined') {
     return () => {};
@@ -609,6 +773,7 @@ export function installBackendRecoveryFetch() {
   }
 
   originalFetch = window.fetch.bind(window);
+  attachRecoverySignalListeners(originalFetch);
 
   const patchedFetch: typeof window.fetch = async (input, init) => {
     const fetchImpl = originalFetch;
@@ -629,10 +794,13 @@ export function installBackendRecoveryFetch() {
   window.fetch = patchedFetch;
 
   restoreFetch = () => {
+    teardownRecoverySignalListeners?.();
     if (originalFetch) {
       window.fetch = originalFetch;
     }
 
+    backendReadyPromise = null;
+    backendBootstrapPromise = null;
     restoreFetch = null;
     originalFetch = null;
   };

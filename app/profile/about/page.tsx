@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Mail, MessageSquare, Phone, QrCode, User } from 'lucide-react';
+import { loadLatestAboutSettingsWithCompat } from '@/lib/about/about-settings-compat';
 import { createClient } from '@/lib/cloudbase/client';
+import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 interface AboutSettings {
   author_name: string;
@@ -26,11 +29,40 @@ const DEFAULT_ABOUT: AboutSettings = {
 };
 
 function toText(value: unknown): string {
-  return String(value ?? '').trim();
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return '';
+  }
+
+  const normalized = text.toLowerCase();
+  return normalized === 'null' || normalized === 'undefined' ? '' : text;
+}
+
+function normalizeImageUrlText(value: unknown): string {
+  const text = toText(value);
+  if (!text) {
+    return '';
+  }
+
+  if (
+    text.startsWith('https://') ||
+    text.startsWith('http://') ||
+    text.startsWith('cloud://') ||
+    text.startsWith('/') ||
+    text.startsWith('data:image/')
+  ) {
+    return text;
+  }
+
+  return '';
 }
 
 export default function ProfileAboutPage() {
   const router = useRouter();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'about',
+    '关于'
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [about, setAbout] = useState<AboutSettings>(DEFAULT_ABOUT);
@@ -47,13 +79,7 @@ export default function ProfileAboutPage() {
         return;
       }
 
-      const { data, error: queryError } = await dbClient
-        .from('about_settings')
-        .select('author_name, phone, wechat, email, donation_qr_code, author_message')
-        .order('updated_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error: queryError } = await loadLatestAboutSettingsWithCompat(dbClient);
 
       if (queryError) {
         setError(`加载失败：${queryError.message || '未知错误'}`);
@@ -73,7 +99,7 @@ export default function ProfileAboutPage() {
         phone: toText(data.phone),
         wechat: toText(data.wechat),
         email: toText(data.email),
-        donation_qr_code: toText(data.donation_qr_code),
+        donation_qr_code: normalizeImageUrlText(data.donation_qr_code),
         author_message: toText(data.author_message),
       });
       setLoading(false);
@@ -92,17 +118,24 @@ export default function ProfileAboutPage() {
         <div className="px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+            className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            关于
-          </h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+              {managedTitle}
+            </h1>
+          </div>
+          {managedSubtitle ? (
+            <div className="inline-flex shrink-0 items-center rounded-full bg-[#FFC857]/24 px-[10px] py-[5px] text-[10px] font-bold leading-none text-[#8D6E63] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]">
+              {managedSubtitle}
+            </div>
+          ) : null}
         </div>
       </motion.div>
 
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+      <PreviewAwareScrollArea className="flex-1 overflow-y-auto px-6 pt-6">
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <div className="animate-spin rounded-full h-10 w-10 border-4 border-[#FFC857] border-t-transparent" />
@@ -176,7 +209,7 @@ export default function ProfileAboutPage() {
             )}
           </motion.div>
         )}
-      </div>
+      </PreviewAwareScrollArea>
     </div>
   );
 }

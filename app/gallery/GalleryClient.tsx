@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Eye, Camera, MapPin, X } from 'lucide-react';
+import { Heart, Eye, MapPin, X } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { getSessionId } from '@/lib/utils/session';
 import { vibrate } from '@/lib/android';
@@ -13,11 +13,14 @@ import {
   clearGalleryPageCacheStorage,
   consumeGalleryCacheDirtyFlag,
 } from '@/lib/gallery/cache-sync';
-import { getBackendRecoveryState, subscribeBackendRecovery } from '@/lib/backend-recovery';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import { useBackendRecoveryState } from '@/lib/hooks/useBackendRecoveryState';
 
 import SimpleImage from '@/components/ui/SimpleImage';
 import ImagePreview from '@/components/ImagePreview';
+import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import PageTopHeader from '@/components/PageTopHeader';
 
 interface Photo {
@@ -67,8 +70,10 @@ const GALLERY_FILTER_PRESET_OPTIONS: Array<{ preset: GalleryFilterPreset; label:
 const ROOT_GALLERY_FOLDER_ID = '__ROOT__';
 
 const TAG_GUIDE_AUTO_DISMISS_MS = 15000;
-const GALLERY_SCROLL_LOAD_TRIGGER_PROGRESS = 0.8;
+const GALLERY_SCROLL_LOAD_AHEAD_PX = 220;
 const GALLERY_VIEWPORT_FILL_BUFFER_PX = 24;
+const GALLERY_INITIAL_AUTOFILL_MAX_BATCHES = 2;
+const GALLERY_LOAD_SENTINEL_THRESHOLD = 0.01;
 const TAG_WAVE_ROUNDS = 3;
 const TAG_WAVE_STEP_DELAY_MS = 380;
 const TAG_WAVE_ROUND_GAP_MS = 240;
@@ -352,6 +357,11 @@ function isGalleryPhotoHighlighted(photo: Photo): boolean {
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'gallery',
+    String.fromCodePoint(0x7167, 0x7247, 0x5899),
+    String.fromCodePoint(0x1f4f8) + ' ' + String.fromCodePoint(0x8d29, 0x5356, 0x4eba, 0x95f4, 0x8def, 0x8fc7, 0x7684, 0x6e29, 0x67d4) + ' ' + String.fromCodePoint(0x1f4f8)
+  );
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
 
   const [galleryCacheToken] = useState<string>(() => {
@@ -378,7 +388,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const [folders, setFolders] = useState<GalleryFolder[]>(hydratedInitialFolders);
   const [rootFolderName, setRootFolderName] = useState<string>(hydratedInitialRootFolderName);
-  const [backendState, setBackendState] = useState(getBackendRecoveryState);
+  const backendState = useBackendRecoveryState();
   const [showTagGuide, setShowTagGuide] = useState(false);
   const [showFolderSelector, setShowFolderSelector] = useState(false);
   const [sortMode, setSortMode] = useState<GallerySortMode>('time_desc');
@@ -395,6 +405,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [isSwitchingTag, setIsSwitchingTag] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const paginationSentinelRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const tagGuideTimerRef = useRef<number | null>(null);
   const tagGuideShownOnceRef = useRef(false);
@@ -403,10 +414,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [tagWaveActiveIndex, setTagWaveActiveIndex] = useState(-1);
   const [tagWaveTick, setTagWaveTick] = useState(0);
 
-  useEffect(() => {
-    const unsubscribe = subscribeBackendRecovery(setBackendState);
-    return unsubscribe;
-  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -436,6 +443,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const allPhotosRef = useRef<Photo[]>(hydratedInitialPhotos);
   const pageRef = useRef(hydratedInitialPage);
   const selectedFolderIdRef = useRef(selectedFolderId);
+  const paginationZoneArmedRef = useRef(true);
+  const autoFillRemainingRef = useRef(GALLERY_INITIAL_AUTOFILL_MAX_BATCHES);
   const pageSize = 20;
   const GALLERY_CACHE_KEY = `${GALLERY_PAGE_CACHE_KEY}_${selectedFolderId}`;
   const maxFilterDate = useMemo(() => getTodayUTC8(), []);
@@ -680,72 +689,103 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     return true;
   }, [hasMore, isLoading, loadGalleryPage]);
 
-  const evaluateScrollPagination = useCallback(() => {
+  const maybeAutoFillViewport = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || isLoading || isLoadingMoreRef.current || !hasMore) {
       return false;
     }
 
-    const scrollTop = Number(scrollContainer.scrollTop || 0);
-    const viewportHeight = Number(scrollContainer.clientHeight || 0);
-    const pageHeight = Number(scrollContainer.scrollHeight || 0);
-
-    if (!(viewportHeight > 0) || !(pageHeight > 0)) {
+    if (!(autoFillRemainingRef.current > 0)) {
       return false;
     }
 
-    if (pageHeight <= viewportHeight + GALLERY_VIEWPORT_FILL_BUFFER_PX) {
-      return requestNextPage();
+    const viewportHeight = Number(scrollContainer.clientHeight || 0);
+    const contentHeight = Number(scrollContainer.scrollHeight || 0);
+
+    if (!(viewportHeight > 0) || !(contentHeight > 0)) {
+      return false;
     }
 
-    const scrollProgress = (scrollTop + viewportHeight) / pageHeight;
-    if (scrollProgress >= GALLERY_SCROLL_LOAD_TRIGGER_PROGRESS) {
-      return requestNextPage();
+    if (contentHeight > viewportHeight + GALLERY_VIEWPORT_FILL_BUFFER_PX) {
+      return false;
     }
 
-    return false;
+    autoFillRemainingRef.current -= 1;
+    const hasRequested = requestNextPage();
+    if (!hasRequested) {
+      autoFillRemainingRef.current += 1;
+    }
+    return hasRequested;
   }, [hasMore, isLoading, requestNextPage]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) {
+    const sentinel = paginationSentinelRef.current;
+    if (!scrollContainer || !sentinel) {
       return;
     }
 
-    let rafId = 0;
-    const handleScroll = () => {
-      if (rafId) {
-        return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) {
+          return;
+        }
+
+        if (!entry.isIntersecting) {
+          paginationZoneArmedRef.current = true;
+          return;
+        }
+
+        if (!paginationZoneArmedRef.current) {
+          return;
+        }
+
+        paginationZoneArmedRef.current = false;
+        const hasRequested = requestNextPage();
+        if (!hasRequested) {
+          paginationZoneArmedRef.current = true;
+        }
+      },
+      {
+        root: scrollContainer,
+        rootMargin: `0px 0px ${GALLERY_SCROLL_LOAD_AHEAD_PX}px 0px`,
+        threshold: GALLERY_LOAD_SENTINEL_THRESHOLD,
       }
+    );
 
-      rafId = window.requestAnimationFrame(() => {
-        rafId = 0;
-        evaluateScrollPagination();
-      });
-    };
-
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
-
-    return () => {
-      if (rafId) {
-        window.cancelAnimationFrame(rafId);
-      }
-      scrollContainer.removeEventListener('scroll', handleScroll);
-    };
-  }, [evaluateScrollPagination, selectedFolderId]);
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [photos.length, requestNextPage, selectedFolderId]);
 
   useEffect(() => {
     if (isLoading || isLoadingMore || !hasMore || photos.length === 0) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      evaluateScrollPagination();
-    }, 120);
+    let firstFrame = 0;
+    let secondFrame = 0;
 
-    return () => window.clearTimeout(timer);
-  }, [evaluateScrollPagination, hasMore, isLoading, isLoadingMore, photos.length, selectedFolderId]);
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        maybeAutoFillViewport();
+      });
+    });
+
+    return () => {
+      if (firstFrame) {
+        window.cancelAnimationFrame(firstFrame);
+      }
+      if (secondFrame) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [hasMore, isLoading, isLoadingMore, maybeAutoFillViewport, photos.length, selectedFolderId]);
+
+  useEffect(() => {
+    paginationZoneArmedRef.current = true;
+    autoFillRemainingRef.current = GALLERY_INITIAL_AUTOFILL_MAX_BATCHES;
+  }, [selectedFolderId]);
 
 
 
@@ -948,10 +988,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       selectedFolderIdRef.current = nextFolderId;
       setIsSwitchingTag(true);
       setPage(1);
-      setAllPhotos([]);
-      setTotal(0);
       setHasMore(true);
-      setIsLoading(false);
       setIsLoadingMore(false);
       setStoryOpenMap({});
       setPhotoAspectRatioMap({});
@@ -1079,6 +1116,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
     const nextRatio = resolveLoadedPhotoAspectRatio(dimensions.width, dimensions.height, 1);
     const currentPhoto = allPhotosRef.current.find((photo) => photo.id === photoId);
+    const hasStableStoredRatio = Boolean(
+      currentPhoto
+      && Number(currentPhoto.width || 0) > 0
+      && Number(currentPhoto.height || 0) > 0
+    );
+    if (hasStableStoredRatio) {
+      return;
+    }
     const fallbackRatio = currentPhoto
       ? clampPhotoAspectRatio(currentPhoto.width, currentPhoto.height, 1)
       : 0;
@@ -1102,14 +1147,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   
 
-  const loadingTitle = backendState.backendReconnecting || isSwitchingTag ? '时光中...' : '加载中...';
-  const loadingDescription = backendState.backendReconnecting
-    ? '重连服务器中，请等待'
-    : isSwitchingTag
-      ? '正在切换照片标签'
-      : '正在加载照片墙';
+  const loadingTitle = isSwitchingTag ? '拾光中...' : '加载中...';
+  const loadingDescription = isSwitchingTag ? '正在切换照片标签' : '正在加载照片墙';
 
-  const showPageLoading = (isLoading && allPhotos.length === 0) || isSwitchingTag;
+  const showInitialPageLoading = isLoading && allPhotos.length === 0;
+  const showContentOverlayLoading = isSwitchingTag;
 
   const galleryColumnCount = 2;
   const galleryColumnGapClassName = 'gap-2';
@@ -1183,47 +1225,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     return () => window.clearTimeout(timer);
   }, [allPhotos.length, backendState.backendReconnecting, isLoading, isSwitchingTag, pathname, refreshGallery]);
 
-  if (showPageLoading) {
+  if (showInitialPageLoading) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#FFFBF0] px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-          className="flex flex-col items-center gap-5"
-        >
-          <div className="relative h-24 w-24">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-              className="absolute inset-0 rounded-full border-[5px] border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-              className="absolute inset-[12px] rounded-full border-[5px] border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#FFFBF0] shadow-[0_4px_14px_rgba(93,64,55,0.08)]">
-                <Camera className="h-7 w-7 text-[#FFC857]" />
-              </div>
-            </div>
-          </div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="text-center"
-          >
-            <p className="mb-1.5 text-[20px] font-extrabold text-[#5D4037]">
-              {loadingTitle}
-            </p>
-            <p className="text-[13px] text-[#5D4037]/60">
-              {loadingDescription}
-            </p>
-          </motion.div>
-        </motion.div>
-      </div>
+      <MiniProgramRecoveryScreen
+        title={loadingTitle}
+        description={loadingDescription}
+        className="min-h-[100dvh] px-6"
+      />
     );
   }
 
@@ -1232,13 +1240,16 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       {/* 照片墙页头 */}
       <div className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
         <PageTopHeader
-          title={String.fromCodePoint(0x7167, 0x7247, 0x5899)}
-          badge={String.fromCodePoint(0x1f4f8) + ' ' + String.fromCodePoint(0x8d29, 0x5356, 0x4eba, 0x95f4, 0x8def, 0x8fc7, 0x7684, 0x6e29, 0x67d4) + ' ' + String.fromCodePoint(0x1f4f8)}
+          title={managedTitle}
+          badge={managedSubtitle || undefined}
         />
       </div>
 
       {/* 滚动区域 */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-20 gallery-scroll-container">
+      <PreviewAwareScrollArea
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto gallery-scroll-container"
+      >
         <div className="sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0]">
           <div className="px-[3px] py-0">
             <div className={`flex min-h-[46px] gap-1 ${showTagGuide ? 'items-start' : 'items-center'}`}>
@@ -1302,7 +1313,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         </div>
 
 
-        <div className="px-3 pt-3">
+        <div className="relative min-h-[60vh] px-3 pt-3">
+          {showContentOverlayLoading && (
+            <MiniProgramRecoveryScreen
+              title={loadingTitle}
+              description={loadingDescription}
+              className="absolute inset-0 z-20 min-h-0 bg-[#FFFBF0]/92 px-4 backdrop-blur-[2px]"
+              contentClassName="gap-3 scale-[0.92]"
+            />
+          )}
         {photos.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -1465,6 +1484,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
               ))}
             </div>
 
+            <div ref={paginationSentinelRef} className="h-px w-full" aria-hidden="true" />
+
             {/* 加载更多指示器 */}
             <div className="mt-6 min-h-[28px]" style={{ overflowAnchor: 'none' }}>
               {isLoadingMore && hasMore && (
@@ -1490,8 +1511,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             </div>
           </>
         )}
-      </div>
-      </div>
+        </div>
+      </PreviewAwareScrollArea>
 
       <AnimatePresence>
         {previewPhoto && (
@@ -1609,15 +1630,15 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     type="button"
                     onClick={closeFolderSelector}
                     aria-label={String.fromCodePoint(0x5173, 0x95ED, 0x5168, 0x90E8, 0x7B5B, 0x9009)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-[#5D4037]/10 text-[#5D4037] transition-colors hover:bg-[#5D4037]/16"
+                    className="icon-button action-icon-btn action-icon-btn--close"
                   >
-                    <X className="h-4 w-4" strokeWidth={2.5} />
+                    <X className="action-icon-svg" strokeWidth={2.5} />
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
                   <div>
                     <p className="mb-3 text-[12px] font-extrabold text-[#8D6E63]/82">{String.fromCodePoint(0x6807, 0x7B7E)}</p>
-                    <div className="grid max-h-[180px] grid-cols-3 gap-2 overflow-y-auto pr-1">
+                    <div className="grid max-h-[180px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
                       {selectorFolders.map((folder) => {
                         const isActive = tempFolderId === String(folder.id);
                         return (
@@ -1643,7 +1664,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                   <div className="mt-5">
                     <p className="mb-3 text-[12px] font-extrabold text-[#8D6E63]/82">{String.fromCodePoint(0x6761, 0x4EF6, 0x7B5B, 0x9009)}</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {GALLERY_FILTER_PRESET_OPTIONS.map((option) => {
                         const isActive = tempFilterPreset === option.preset;
                         return (
@@ -1808,5 +1829,3 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     </div>
   );
 }
-
-

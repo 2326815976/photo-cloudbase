@@ -1,21 +1,44 @@
-import { createAdminClient, createClient } from '@/lib/cloudbase/server';
 import { NextResponse } from 'next/server';
+import { createAdminClient, createClient } from '@/lib/cloudbase/server';
+import {
+  isRetryableSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from '@/lib/cloudbase/sql-executor';
 
-export const dynamic = 'force-dynamic'; // 不缓存
+export const dynamic = 'force-dynamic';
 
 type SessionClient = Awaited<ReturnType<typeof createClient>>;
 type AdminCheckResult =
   | { ok: true }
   | { ok: false; response: NextResponse };
 
+function buildTransientResponse() {
+  return NextResponse.json(
+    {
+      error: TRANSIENT_BACKEND_ERROR_MESSAGE,
+      code: TRANSIENT_BACKEND_ERROR_CODE,
+    },
+    { status: 503 }
+  );
+}
+
+function buildServerErrorResponse(message: string, status: number = 500) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckResult> {
-  const { data: authData } = await dbClient.auth.getUser();
+  const { data: authData, error: authError } = await dbClient.auth.getUser();
+  if (authError) {
+    if (isRetryableSqlError(authError)) {
+      return { ok: false, response: buildTransientResponse() };
+    }
+    return { ok: false, response: buildServerErrorResponse('????????') };
+  }
+
   const user = authData?.user ?? null;
   if (!user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: '未授权' }, { status: 401 }),
-    };
+    return { ok: false, response: buildServerErrorResponse('???', 401) };
   }
 
   let isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
@@ -27,21 +50,17 @@ async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckRe
       .maybeSingle();
 
     if (profileError) {
-      console.error('Error checking admin profile:', profileError);
-      return {
-        ok: false,
-        response: NextResponse.json({ error: '读取管理员信息失败' }, { status: 500 }),
-      };
+      if (isRetryableSqlError(profileError)) {
+        return { ok: false, response: buildTransientResponse() };
+      }
+      return { ok: false, response: buildServerErrorResponse('?????????') };
     }
 
     isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
   }
 
   if (!isAdmin) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: '需要管理员权限' }, { status: 403 }),
-    };
+    return { ok: false, response: buildServerErrorResponse('???????', 403) };
   }
 
   return { ok: true };
@@ -59,7 +78,7 @@ function normalizeDateLiteral(input: unknown): string {
     }
 
     const directMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (directMatch && directMatch[1]) {
+    if (directMatch?.[1]) {
       return directMatch[1];
     }
 
@@ -85,25 +104,26 @@ function normalizeDateLiteral(input: unknown): string {
   return '';
 }
 
-// 删除锁定日期
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  void request;
+
   try {
     const { id } = await params;
     const blockedDateId = Number(id);
     if (!Number.isInteger(blockedDateId) || blockedDateId <= 0) {
-      return NextResponse.json({ error: '锁定日期 ID 非法' }, { status: 400 });
+      return buildServerErrorResponse('???? ID ??', 400);
     }
+
     const sessionClient = await createClient();
     const adminCheck = await ensureAdminSession(sessionClient);
     if (!adminCheck.ok) {
       return adminCheck.response;
     }
-    const adminDbClient = createAdminClient();
 
-    // 快照：避免并发/重复删除造成假成功
+    const adminDbClient = createAdminClient();
     const { data: snapshotRow, error: snapshotError } = await adminDbClient
       .from('booking_blackouts')
       .select('id, date')
@@ -111,27 +131,30 @@ export async function DELETE(
       .maybeSingle();
 
     if (snapshotError) {
+      if (isRetryableSqlError(snapshotError)) {
+        return buildTransientResponse();
+      }
       console.error('Error fetching blocked date snapshot:', snapshotError);
-      return NextResponse.json({ error: '删除失败' }, { status: 500 });
+      return buildServerErrorResponse('????');
     }
 
     if (!snapshotRow) {
-      return NextResponse.json({ error: '锁定日期不存在或已删除' }, { status: 404 });
+      return buildServerErrorResponse('???????????', 404);
     }
+
     const targetDate = normalizeDateLiteral((snapshotRow as { date?: unknown }).date);
 
-    // 先按主键删除，保证本次操作目标行一定被真正删除
     const { error: deleteByIdError } = await adminDbClient
       .from('booking_blackouts')
       .delete()
       .eq('id', blockedDateId);
 
     if (deleteByIdError) {
+      if (isRetryableSqlError(deleteByIdError)) {
+        return buildTransientResponse();
+      }
       console.error('Error deleting blocked date by id:', deleteByIdError);
-      return NextResponse.json(
-        { error: `删除失败：${String(deleteByIdError.message || deleteByIdError.code || '未知错误')}` },
-        { status: 500 }
-      );
+      return buildServerErrorResponse(`?????${String(deleteByIdError.message || deleteByIdError.code || '????')}`);
     }
 
     const { data: remainingById, error: verifyByIdError } = await adminDbClient
@@ -141,15 +164,17 @@ export async function DELETE(
       .maybeSingle();
 
     if (verifyByIdError) {
+      if (isRetryableSqlError(verifyByIdError)) {
+        return buildTransientResponse();
+      }
       console.error('Error verifying blocked date delete by id:', verifyByIdError);
-      return NextResponse.json({ error: '删除失败' }, { status: 500 });
+      return buildServerErrorResponse('????');
     }
 
     if (remainingById) {
-      return NextResponse.json({ error: '删除失败，请稍后重试' }, { status: 500 });
+      return buildServerErrorResponse('??????????');
     }
 
-    // 历史脏数据兼容：同一天可能存在重复记录，额外按日期清理，避免“删除后又恢复”
     if (targetDate) {
       const { error: deleteByDateError } = await adminDbClient
         .from('booking_blackouts')
@@ -157,11 +182,11 @@ export async function DELETE(
         .eq('date', targetDate);
 
       if (deleteByDateError) {
+        if (isRetryableSqlError(deleteByDateError)) {
+          return buildTransientResponse();
+        }
         console.error('Error deleting duplicated blocked dates by date:', deleteByDateError);
-        return NextResponse.json(
-          { error: `删除失败：${String(deleteByDateError.message || deleteByDateError.code || '未知错误')}` },
-          { status: 500 }
-        );
+        return buildServerErrorResponse(`?????${String(deleteByDateError.message || deleteByDateError.code || '????')}`);
       }
 
       const { data: remainingByDate, error: verifyByDateError } = await adminDbClient
@@ -171,20 +196,25 @@ export async function DELETE(
         .maybeSingle();
 
       if (verifyByDateError) {
+        if (isRetryableSqlError(verifyByDateError)) {
+          return buildTransientResponse();
+        }
         console.error('Error verifying blocked date delete by date:', verifyByDateError);
-        return NextResponse.json({ error: '删除失败' }, { status: 500 });
+        return buildServerErrorResponse('????');
       }
 
       if (remainingByDate) {
-        return NextResponse.json({ error: '删除失败，请稍后重试' }, { status: 500 });
+        return buildServerErrorResponse('??????????');
       }
     }
 
     return NextResponse.json({ success: true, date: targetDate || null });
   } catch (error) {
+    if (isRetryableSqlError(error)) {
+      return buildTransientResponse();
+    }
+
     console.error('Unexpected error:', error);
-    return NextResponse.json({ error: '服务器错误' }, { status: 500 });
+    return buildServerErrorResponse('?????');
   }
 }
-
-

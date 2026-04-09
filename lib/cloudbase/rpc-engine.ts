@@ -1,4 +1,4 @@
-﻿import 'server-only';
+import 'server-only';
 
 import { Buffer } from 'buffer';
 import { randomUUID } from 'crypto';
@@ -8,6 +8,7 @@ import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import {
   executeSQL,
+  extractErrorMessage,
   isRetryableSqlError,
   TRANSIENT_BACKEND_ERROR_CODE,
   TRANSIENT_BACKEND_ERROR_MESSAGE,
@@ -304,9 +305,13 @@ function mapAlbumPhotoRow(
 ): Record<string, any> {
   const photoId = String(row.id);
   const storyText = normalizeMaybeStoryText(row.story_text);
+  const legacyUrl = normalizeMaybeUrlText(
+    row.url ?? row.original_url ?? row.preview_url ?? row.thumbnail_url
+  );
   return {
     id: photoId,
     folder_id: row.folder_id ? String(row.folder_id) : null,
+    url: legacyUrl,
     thumbnail_url: row.thumbnail_url ?? null,
     preview_url: row.preview_url ?? null,
     original_url: row.original_url ?? null,
@@ -568,7 +573,6 @@ function resolveSourcePhotoBestUrl(source: Record<string, any>): string {
   const candidates = [
     source.original_url,
     source.preview_url,
-    source.url,
     source.thumbnail_url,
   ];
   for (let i = 0; i < candidates.length; i += 1) {
@@ -618,10 +622,10 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
 
   const foldersResult = await executeSQL(
     `
-      SELECT id, name
+      SELECT id, name, sort_order
       FROM album_folders
       WHERE album_id = {{wall_album_id}}
-      ORDER BY created_at DESC
+      ORDER BY sort_order ASC, created_at ASC
     `,
     {
       wall_album_id: SYSTEM_WALL_ALBUM_ID,
@@ -634,9 +638,10 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
       `
         SELECT
           p.id,
-          COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
-          COALESCE(p.preview_url, p.url) AS preview_url,
-          COALESCE(p.original_url, p.preview_url, p.url) AS original_url,
+          COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+          COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+          COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+          COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
           p.width,
           p.height,
           p.blurhash,
@@ -673,9 +678,10 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
       `
         SELECT
           p.id,
-          COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
-          COALESCE(p.preview_url, p.url) AS preview_url,
-          COALESCE(p.original_url, p.preview_url, p.url) AS original_url,
+          COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+          COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+          COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+          COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
           p.width,
           p.height,
           p.blurhash,
@@ -715,11 +721,12 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     wallValues
   );
 
-  await hydrateCloudBaseTempUrlsInRows(photos, ['thumbnail_url', 'preview_url', 'original_url']);
+  await hydrateCloudBaseTempUrlsInRows(photos, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
 
   return {
     photos: photos.map((row) => ({
       ...row,
+      url: normalizeMaybeUrlText(row.url ?? row.original_url ?? row.preview_url ?? row.thumbnail_url),
       story_text: normalizeMaybeStoryText(row.story_text),
       is_liked: toBoolean(row.is_liked),
       like_count: toNumber(row.like_count, 0),
@@ -741,6 +748,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     folders: foldersResult.rows.map((row) => ({
       id: String(row.id),
       name: String(row.name ?? ''),
+      sort_order: toNumber(row.sort_order, 2147483647),
     })),
   };
 }
@@ -799,10 +807,10 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
 
   const foldersResult = await executeSQL(
     `
-      SELECT id, name
+      SELECT id, name, sort_order
       FROM album_folders
       WHERE album_id = {{album_id}}
-      ORDER BY created_at DESC
+      ORDER BY sort_order ASC, created_at ASC
     `,
     {
       album_id: album.id,
@@ -818,9 +826,10 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
         SELECT
           id,
           folder_id,
-          COALESCE(thumbnail_url, url) AS thumbnail_url,
-          COALESCE(preview_url, url) AS preview_url,
-          COALESCE(original_url, url) AS original_url,
+          COALESCE(url, original_url, preview_url, thumbnail_url) AS url,
+          COALESCE(thumbnail_url, preview_url, original_url, url) AS thumbnail_url,
+          COALESCE(preview_url, original_url, thumbnail_url, url) AS preview_url,
+          COALESCE(original_url, preview_url, thumbnail_url, url) AS original_url,
           story_text,
           is_highlight,
           sort_order,
@@ -845,7 +854,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
     );
 
     photoRows = photosResult.rows;
-    await hydrateCloudBaseTempUrlsInRows(photoRows, ['thumbnail_url', 'preview_url', 'original_url']);
+    await hydrateCloudBaseTempUrlsInRows(photoRows, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
 
     const photoIds = photoRows.map((row) => String(row.id));
     if (photoIds.length > 0) {
@@ -907,6 +916,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
     folders: foldersResult.rows.map((row) => ({
       id: String(row.id),
       name: String(row.name ?? ''),
+      sort_order: toNumber(row.sort_order, 2147483647),
     })),
     photos: photoRows.map((row) => mapAlbumPhotoRow(row, commentsByPhotoId)),
   };
@@ -960,9 +970,10 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
       SELECT
         p.id,
         p.folder_id,
-        COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
-        COALESCE(p.preview_url, p.url) AS preview_url,
-        COALESCE(p.original_url, p.url) AS original_url,
+        COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+        COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+        COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+        COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
         p.story_text,
         p.is_highlight,
         p.sort_order,
@@ -989,7 +1000,7 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
       offset,
     }
   );
-  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['thumbnail_url', 'preview_url', 'original_url']);
+  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
 
   const countResult = await executeSQL(
     `
@@ -1380,10 +1391,10 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
       SELECT
         p.id,
         p.album_id,
-        p.url,
-        p.thumbnail_url,
-        p.preview_url,
-        p.original_url,
+        COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+        COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+        COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+        COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
         p.width,
         p.height,
         p.blurhash,
@@ -1419,7 +1430,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
         AND (
           thumbnail_url LIKE {{source_pattern}}
           OR preview_url LIKE {{source_pattern}}
-          OR url LIKE {{source_pattern}}
+          OR original_url LIKE {{source_pattern}}
         )
       ORDER BY created_at DESC
       LIMIT 1
@@ -1433,10 +1444,10 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
 
   if (existingWall) {
     const deleteTargets = [
+      String(existingWall.url ?? '').trim(),
       String(existingWall.thumbnail_url ?? '').trim(),
       String(existingWall.preview_url ?? '').trim(),
       String(existingWall.original_url ?? '').trim(),
-      String(existingWall.url ?? '').trim(),
     ].filter(Boolean);
 
     if (deleteTargets.length > 0) {
@@ -1493,9 +1504,9 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     const insertValues: Record<string, unknown> = {
       id: randomUUID(),
       album_id: SYSTEM_WALL_ALBUM_ID,
-      url: previewUpload.downloadUrl,
       thumbnail_url: thumbnailUpload.downloadUrl,
       preview_url: previewUpload.downloadUrl,
+      original_url: previewUpload.downloadUrl,
       story_text: normalizeMaybeStoryText(sourcePhoto.story_text),
       is_highlight: toBoolean(sourcePhoto.is_highlight) ? 1 : 0,
       width: wallVariant.width || toNumber(sourcePhoto.width, 0),
@@ -1515,7 +1526,6 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           id,
           album_id,
           folder_id,
-          url,
           thumbnail_url,
           preview_url,
           original_url,
@@ -1534,10 +1544,9 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           {{id}},
           {{album_id}},
           NULL,
-          {{url}},
           {{thumbnail_url}},
           {{preview_url}},
-          NULL,
+          {{original_url}},
           {{story_text}},
           {{is_highlight}},
           2147483647,
@@ -1581,7 +1590,7 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
 
   const result = await executeSQL(
     `
-      SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
+      SELECT p.id, p.url, p.thumbnail_url, p.preview_url, p.original_url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE a.access_key = {{access_key}}
@@ -1625,10 +1634,10 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
   }
 
   const deleteTargets = [
+    String(targetRow.url ?? '').trim(),
     String(targetRow.thumbnail_url ?? '').trim(),
     String(targetRow.preview_url ?? '').trim(),
     String(targetRow.original_url ?? '').trim(),
-    String(targetRow.url ?? '').trim(),
   ].filter(Boolean);
 
   let storageCleanupFailed = false;
@@ -2182,30 +2191,76 @@ interface ScalarQueryTask {
   key?: string;
 }
 
-async function runScalarQueryTasks(tasks: ScalarQueryTask[], concurrency: number = 6): Promise<number[]> {
+async function runTasksWithConcurrency<T>(
+  taskFactories: Array<() => Promise<T>>,
+  concurrency: number = 1
+): Promise<T[]> {
   const safeConcurrency = Math.max(1, concurrency);
-  const values: number[] = [];
+  const values: T[] = [];
 
-  for (let index = 0; index < tasks.length; index += safeConcurrency) {
-    const chunk = tasks.slice(index, index + safeConcurrency);
-    const chunkValues = await Promise.all(
-      chunk.map((task) => scalar(task.sql, task.values ?? {}, task.key ?? 'value'))
-    );
+  for (let index = 0; index < taskFactories.length; index += safeConcurrency) {
+    const chunk = taskFactories.slice(index, index + safeConcurrency);
+    const chunkValues = await Promise.all(chunk.map((taskFactory) => taskFactory()));
     values.push(...chunkValues);
   }
 
   return values;
 }
 
+async function runScalarQueryTasks(tasks: ScalarQueryTask[], concurrency: number = 3): Promise<number[]> {
+  return runTasksWithConcurrency(
+    tasks.map((task) => () => scalar(task.sql, task.values ?? {}, task.key ?? 'value')),
+    concurrency
+  );
+}
+
 async function rpcGetAdminDashboardStats(context: AuthContext) {
   requireAdmin(context);
+
+  const trendWindowDays = 7;
+  const [
+    hasUserActiveLogsTable,
+    hasPhotoCommentsTable,
+    hasPoseTagsTable,
+    hasAllowedCitiesTable,
+    hasBookingBlackoutsTable,
+    hasAppReleasesTable,
+    hasAnalyticsDailyTable,
+    hasBookingTypesTable,
+    ] = await runTasksWithConcurrency(
+    [
+      () => hasTable('user_active_logs'),
+      () => hasTable('photo_comments'),
+      () => hasTable('pose_tags'),
+      () => hasTable('allowed_cities'),
+      () => hasTable('booking_blackouts'),
+      () => hasTable('app_releases'),
+      () => hasTable('analytics_daily'),
+      () => hasTable('booking_types'),
+    ],
+    2
+  );
+
+  const unavailableSources: string[] = [];
+  if (!hasUserActiveLogsTable) unavailableSources.push('user_active_logs');
+  if (!hasPhotoCommentsTable) unavailableSources.push('photo_comments');
+  if (!hasPoseTagsTable) unavailableSources.push('pose_tags');
+  if (!hasAllowedCitiesTable) unavailableSources.push('allowed_cities');
+  if (!hasBookingBlackoutsTable) unavailableSources.push('booking_blackouts');
+  if (!hasAppReleasesTable) unavailableSources.push('app_releases');
+  if (!hasAnalyticsDailyTable) unavailableSources.push('analytics_daily');
+  if (!hasBookingTypesTable) unavailableSources.push('booking_types');
 
   const scalarTasks: ScalarQueryTask[] = [
     { sql: 'SELECT COUNT(*) AS value FROM profiles' },
     { sql: "SELECT COUNT(*) AS value FROM profiles WHERE role = 'admin'" },
     { sql: "SELECT COUNT(*) AS value FROM profiles WHERE role = 'user'" },
     { sql: `SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
-    { sql: `SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}` },
+    {
+      sql: hasUserActiveLogsTable
+        ? `SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}`
+        : 'SELECT 0 AS value',
+    },
     {
       sql: 'SELECT COUNT(*) AS value FROM albums WHERE id <> {{system_wall_album_id}} AND access_key <> {{system_wall_album_access_key}}',
       values: {
@@ -2240,7 +2295,9 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     { sql: 'SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 0' },
     { sql: 'SELECT COALESCE(SUM(view_count), 0) AS value FROM album_photos' },
     { sql: 'SELECT COALESCE(SUM(like_count), 0) AS value FROM album_photos' },
-    { sql: 'SELECT COUNT(*) AS value FROM photo_comments' },
+    {
+      sql: hasPhotoCommentsTable ? 'SELECT COUNT(*) AS value FROM photo_comments' : 'SELECT 0 AS value',
+    },
     { sql: 'SELECT COALESCE(ROUND(AVG(rating), 2), 0) AS value FROM album_photos WHERE rating > 0' },
     { sql: 'SELECT COUNT(*) AS value FROM bookings' },
     { sql: `SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
@@ -2253,10 +2310,20 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     { sql: 'SELECT COUNT(*) AS value FROM poses' },
     { sql: `SELECT COUNT(*) AS value FROM poses WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
     { sql: 'SELECT COALESCE(SUM(view_count), 0) AS value FROM poses' },
-    { sql: 'SELECT COUNT(*) AS value FROM pose_tags' },
-    { sql: 'SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1' },
-    { sql: `SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}` },
-    { sql: 'SELECT COUNT(*) AS value FROM app_releases' },
+    {
+      sql: hasPoseTagsTable ? 'SELECT COUNT(*) AS value FROM pose_tags' : 'SELECT 0 AS value',
+    },
+    {
+      sql: hasAllowedCitiesTable ? 'SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1' : 'SELECT 0 AS value',
+    },
+    {
+      sql: hasBookingBlackoutsTable
+        ? `SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}`
+        : 'SELECT 0 AS value',
+    },
+    {
+      sql: hasAppReleasesTable ? 'SELECT COUNT(*) AS value FROM app_releases' : 'SELECT 0 AS value',
+    },
   ];
 
   const [
@@ -2292,7 +2359,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     totalCities,
     totalBlackoutDates,
     totalReleases,
-  ] = await runScalarQueryTasks(scalarTasks, 6);
+  ] = await runScalarQueryTasks(scalarTasks, 3);
 
   const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
   const photosTotalDownloads = hasDownloadCountColumn
@@ -2326,60 +2393,116 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     photosHighlighted = 0;
   }
 
-  const bookingsTypesResult = await executeSQL(
-    `
-      SELECT bt.name AS type_name, COUNT(b.id) AS count
-      FROM booking_types bt
-      LEFT JOIN bookings b ON b.type_id = bt.id
-      GROUP BY bt.id, bt.name
-      ORDER BY bt.id ASC
-    `
-  );
+  const bookingsTypesRows = hasBookingTypesTable
+    ? (
+        await executeSQL(
+          `
+            SELECT bt.name AS type_name, COUNT(b.id) AS count
+            FROM booking_types bt
+            LEFT JOIN bookings b ON b.type_id = bt.id
+            GROUP BY bt.id, bt.name
+            ORDER BY bt.id ASC
+          `
+        )
+      ).rows
+    : [];
 
-  const topTagsResult = await executeSQL(
-    `
-      SELECT name AS tag_name, usage_count
-      FROM pose_tags
-      ORDER BY usage_count DESC
-      LIMIT 10
-    `
-  );
+  const topTagsRows = hasPoseTagsTable
+    ? (
+        await executeSQL(
+          `
+            SELECT name AS tag_name, usage_count
+            FROM pose_tags
+            ORDER BY usage_count DESC
+            LIMIT 10
+          `
+        )
+      ).rows
+    : [];
 
-  const latestReleaseResult = await executeSQL(
-    `
-      SELECT version, platform, created_at
-      FROM app_releases
-      ORDER BY created_at DESC
-      LIMIT 1
-    `
-  );
+  const latestReleaseRows = hasAppReleasesTable
+    ? (
+        await executeSQL(
+          `
+            SELECT version, platform, created_at
+            FROM app_releases
+            ORDER BY created_at DESC
+            LIMIT 1
+          `
+        )
+      ).rows
+    : [];
 
-  const trendUsersResult = await executeSQL(
-    `
-      SELECT date, new_users_count AS count
-      FROM analytics_daily
-      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
-      ORDER BY date DESC
-    `
-  );
+  const trendUsersRows = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT date, new_users_count AS count
+            FROM analytics_daily
+            WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY)
+            ORDER BY date ASC
+          `
+        )
+      ).rows
+    : [];
 
-  const trendActiveUsersResult = await executeSQL(
-    `
-      SELECT date, active_users_count AS count
-      FROM analytics_daily
-      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
-      ORDER BY date DESC
-    `
-  );
+  const trendActiveUsersRows = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT date, active_users_count AS count
+            FROM analytics_daily
+            WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY)
+            ORDER BY date ASC
+          `
+        )
+      ).rows
+    : [];
 
-  const trendBookingsResult = await executeSQL(
-    `
-      SELECT date, new_bookings_count AS count
-      FROM analytics_daily
-      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
-      ORDER BY date DESC
-    `
+  const trendBookingsRows = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT date, new_bookings_count AS count
+            FROM analytics_daily
+            WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY)
+            ORDER BY date ASC
+          `
+        )
+      ).rows
+    : [];
+
+  const snapshotMetaRow = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT
+              MAX(date) AS latest_date,
+              SUM(CASE WHEN date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY) THEN 1 ELSE 0 END) AS recent_days,
+              CASE
+                WHEN (MAX(date) <=> NULL) THEN NULL
+                ELSE DATEDIFF(${TODAY_UTC8_EXPR}, MAX(date))
+              END AS lag_days
+            FROM analytics_daily
+          `
+        )
+      ).rows[0] ?? null
+    : null;
+
+  const trendDaysAvailable = Math.max(
+    trendUsersRows.length,
+    trendActiveUsersRows.length,
+    trendBookingsRows.length,
+    toNumber(snapshotMetaRow?.recent_days, 0)
   );
+  const snapshotLagDays = snapshotMetaRow ? toNumber(snapshotMetaRow.lag_days, 0) : null;
+  const snapshotStatus = !hasAnalyticsDailyTable
+    ? 'unavailable'
+    : trendDaysAvailable <= 0
+      ? 'empty'
+      : snapshotLagDays !== null && snapshotLagDays > 0
+        ? 'stale'
+        : 'ready';
 
   return {
     users: {
@@ -2417,7 +2540,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       finished: bookingsFinished,
       cancelled: bookingsCancelled,
       upcoming: bookingsUpcoming,
-      types: bookingsTypesResult.rows.map((row) => ({
+      types: bookingsTypesRows.map((row) => ({
         type_name: row.type_name ?? '',
         count: toNumber(row.count, 0),
       })),
@@ -2427,7 +2550,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       new_today: posesNewToday,
       total_views: posesTotalViews,
       total_tags: posesTotalTags,
-      top_tags: topTagsResult.rows.map((row) => ({
+      top_tags: topTagsRows.map((row) => ({
         tag_name: row.tag_name ?? '',
         usage_count: toNumber(row.usage_count, 0),
       })),
@@ -2436,12 +2559,21 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       total_cities: totalCities,
       total_blackout_dates: totalBlackoutDates,
       total_releases: totalReleases,
-      latest_version: latestReleaseResult.rows[0] ?? null,
+      latest_version: latestReleaseRows[0] ?? null,
     },
     trends: {
-      daily_new_users: trendUsersResult.rows,
-      daily_active_users: trendActiveUsersResult.rows,
-      daily_new_bookings: trendBookingsResult.rows,
+      daily_new_users: trendUsersRows,
+      daily_active_users: trendActiveUsersRows,
+      daily_new_bookings: trendBookingsRows,
+    },
+    meta: {
+      generated_at: new Date().toISOString(),
+      trend_days_expected: trendWindowDays,
+      trend_days_available: trendDaysAvailable,
+      snapshot_latest_date: snapshotMetaRow?.latest_date ?? null,
+      snapshot_lag_days: snapshotLagDays,
+      snapshot_status: snapshotStatus,
+      unavailable_sources: unavailableSources,
     },
   };
 }
@@ -2578,7 +2710,7 @@ async function cleanupExpiredData() {
 
   const expiredPhotoAssets = await executeSQL(
     `
-      SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
+      SELECT p.id, p.url, p.thumbnail_url, p.preview_url, p.original_url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE p.album_id <> {{wall_album_id}}
@@ -2591,10 +2723,10 @@ async function cleanupExpiredData() {
 
   const photoRows = expiredPhotoAssets.rows.map((row) => ({
     id: String(row.id ?? '').trim(),
+    url: String(row.url ?? '').trim(),
     thumbnail_url: String(row.thumbnail_url ?? '').trim(),
     preview_url: String(row.preview_url ?? '').trim(),
     original_url: String(row.original_url ?? '').trim(),
-    url: String(row.url ?? '').trim(),
   })).filter((row) => row.id);
 
   const photoIds = Array.from(new Set(photoRows.map((row) => row.id)));
@@ -2664,7 +2796,7 @@ async function cleanupExpiredData() {
     if (existingPhotoIdSet.has(row.id)) {
       return;
     }
-    [row.thumbnail_url, row.preview_url, row.original_url, row.url]
+    [row.url, row.thumbnail_url, row.preview_url, row.original_url]
       .filter(Boolean)
       .forEach((item) => photoDeleteTargets.add(item));
   });
@@ -3069,6 +3201,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
       error: null,
     };
   } catch (error) {
+    if (process.env.NODE_ENV !== 'production' && isRetryableSqlError(error)) {
+      console.warn('[cloudbase.rpc.transient]', { functionName, raw: extractErrorMessage(error) });
+    }
     const normalizedError = normalizeRpcError(error, 'RPC 调用失败');
     return {
       data: null,

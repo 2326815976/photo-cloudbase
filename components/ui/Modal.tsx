@@ -42,9 +42,9 @@ export default function Modal({ isOpen, onClose, children, className }: ModalPro
               >
                 <button
                   onClick={onClose}
-                  className="absolute top-4 right-4 p-2 rounded-full hover:bg-accent/20 transition-colors"
+                  className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
                 >
-                  <X className="w-5 h-5 text-foreground" />
+                  <X className="action-icon-svg" />
                 </button>
                 {children}
               </div>
@@ -82,9 +82,9 @@ export default function Modal({ isOpen, onClose, children, className }: ModalPro
             >
               <button
                 onClick={onClose}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-accent/20 transition-colors"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
               >
-                <X className="w-5 h-5 text-foreground" />
+                <X className="action-icon-svg" />
               </button>
               {children}
             </motion.div>

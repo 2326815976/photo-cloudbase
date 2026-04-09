@@ -8,8 +8,14 @@ interface CompatError {
 }
 
 type CompatClient = ReturnType<typeof buildCompatClient>;
+type SessionResponse = { ok: boolean; body: any };
+
+const SESSION_CACHE_TTL_MS = 45 * 1000;
 
 let compatClientInstance: CompatClient | null = null;
+let cachedSessionResponse: SessionResponse | null = null;
+let cachedSessionAt = 0;
+let pendingSessionRequest: Promise<SessionResponse> | null = null;
 
 function normalizeCompatError(input: unknown, fallback: string): CompatError {
   if (input && typeof input === 'object') {
@@ -47,7 +53,10 @@ async function parseResponseBody(response: Response): Promise<any> {
   }
 }
 
-async function requestJson(url: string, init: RequestInit): Promise<{ ok: boolean; body: any }> {
+async function requestJson(
+  url: string,
+  init: RequestInit & { backendRecovery?: { disabled?: boolean; skipReadyGate?: boolean } }
+): Promise<{ ok: boolean; body: any }> {
   const response = await fetch(url, {
     credentials: 'include',
     ...init,
@@ -58,6 +67,48 @@ async function requestJson(url: string, init: RequestInit): Promise<{ ok: boolea
     ok: response.ok,
     body,
   };
+}
+
+function clearSessionCache() {
+  cachedSessionResponse = null;
+  cachedSessionAt = 0;
+  pendingSessionRequest = null;
+}
+
+async function fetchSessionResponse(force = false): Promise<SessionResponse> {
+  if (!force && cachedSessionResponse) {
+    const age = Date.now() - cachedSessionAt;
+    if (age >= 0 && age <= SESSION_CACHE_TTL_MS) {
+      return cachedSessionResponse;
+    }
+  }
+
+  if (!force && pendingSessionRequest) {
+    return pendingSessionRequest;
+  }
+
+  pendingSessionRequest = requestJson('/api/auth/session', {
+    method: 'GET',
+    backendRecovery: { skipReadyGate: true },
+  })
+    .then((result) => {
+      if (result.ok && !result.body?.error) {
+        cachedSessionResponse = result;
+        cachedSessionAt = Date.now();
+      } else {
+        clearSessionCache();
+      }
+      return result;
+    })
+    .catch((error) => {
+      clearSessionCache();
+      throw error;
+    })
+    .finally(() => {
+      pendingSessionRequest = null;
+    });
+
+  return pendingSessionRequest;
 }
 
 type StorageFolder = 'albums' | 'gallery' | 'poses' | 'releases';
@@ -181,9 +232,7 @@ function buildBrowserCompatClient(): CompatClient {
     authClient: {
       getUser: async () => {
         try {
-          const { ok, body } = await requestJson('/api/auth/session', {
-            method: 'GET',
-          });
+          const { ok, body } = await fetchSessionResponse();
 
           if (!ok && !body?.error) {
             return {
@@ -205,9 +254,7 @@ function buildBrowserCompatClient(): CompatClient {
       },
       getSession: async () => {
         try {
-          const { ok, body } = await requestJson('/api/auth/session', {
-            method: 'GET',
-          });
+          const { ok, body } = await fetchSessionResponse();
 
           if (!ok && !body?.error) {
             return {
@@ -230,6 +277,7 @@ function buildBrowserCompatClient(): CompatClient {
         }
       },
       signInWithPassword: async (params: { phone: string; password: string }) => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/login', {
             method: 'POST',
@@ -244,6 +292,8 @@ function buildBrowserCompatClient(): CompatClient {
             };
           }
 
+          clearSessionCache();
+          clearSessionCache();
           return {
             data: { user: body?.data?.user ?? null },
             error: null,
@@ -256,6 +306,7 @@ function buildBrowserCompatClient(): CompatClient {
         }
       },
       signOut: async () => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/logout', {
             method: 'POST',
@@ -356,6 +407,7 @@ function buildBrowserCompatClient(): CompatClient {
         }
       },
       exchangeCodeForSession: async (code: string) => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/exchange-code', {
             method: 'POST',
@@ -370,6 +422,7 @@ function buildBrowserCompatClient(): CompatClient {
             };
           }
 
+          clearSessionCache();
           return {
             data: { session: body?.data?.session ?? null },
             error: null,

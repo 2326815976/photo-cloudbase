@@ -1,8 +1,8 @@
-/** @type {import('next').NextConfig} */
 const isWindows = process.platform === 'win32';
 
+/** @type {import('next').NextConfig} */
 const nextConfig = {
-  // standalone 模式会在 build 阶段生成 symlink（Windows 下常见 EPERM），因此仅在非 Windows 环境启用。
+  // standalone 模式在 Windows 下容易因 symlink 导致 EPERM，因此仅在非 Windows 环境启用
   ...(isWindows ? {} : { output: 'standalone' }),
 
   async headers() {
@@ -66,17 +66,17 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
 
-  // 配置API路由的请求体大小限制（支持大文件上传）
+  // 配置 API 路由请求体大小限制，支持较大文件上传
   experimental: {
     serverActions: {
       bodySizeLimit: '50mb',
     },
   },
 
-  // Webpack 配置：处理服务器端专用模块
+  // Webpack 配置：处理仅服务端可用的模块
   webpack: (config, { isServer, dev }) => {
     if (!isServer) {
-      // 在客户端构建时，排除 Node.js 内置模块
+      // 客户端构建时排除 Node.js 内置模块
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
@@ -92,11 +92,11 @@ const nextConfig = {
       };
     }
 
-    // 生产环境移除console日志
+    // 生产环境移除 console 日志
     if (!dev) {
       config.optimization.minimizer = config.optimization.minimizer || [];
 
-      // 使用 Next.js 内置的 Terser 配置
+      // 复用 Next.js 内置的 Terser 配置
       const existingTerser = config.optimization.minimizer.find(
         (plugin) => plugin.constructor.name === 'TerserPlugin'
       );
@@ -116,7 +116,7 @@ const nextConfig = {
   },
 
   images: {
-    // CloudBase 云存储常见域名（含自定义域名/默认域名）
+    // CloudBase 云存储常见域名，包含默认域名与自定义域名
     remotePatterns: [
       {
         protocol: 'https',
@@ -133,6 +133,6 @@ const nextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     formats: ['image/webp'],
   },
-}
+};
 
-export default nextConfig
+export default nextConfig;

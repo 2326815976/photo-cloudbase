@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
-import { Camera, Plus, Trash2, Tag, Search, Edit2, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Camera, Plus, Trash2, Tag, Search, Pencil, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generatePoseImage } from '@/lib/utils/image-versions';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
@@ -21,6 +21,7 @@ interface PoseTag {
   id: number;
   name: string;
   usage_count: number;
+  sort_order?: number;
   created_at: string;
 }
 
@@ -72,6 +73,23 @@ function parseUniqueTagNames(rawInput: string): string[] {
   return uniqueNames;
 }
 
+function dedupeTagNames(tagNames: string[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+
+  tagNames.forEach((item) => {
+    const name = normalizeTagName(item);
+    const key = name.toLocaleLowerCase();
+    if (!name || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    names.push(name);
+  });
+
+  return names;
+}
+
 const IMAGE_INSERT_TIMEOUT_MS = 30 * 1000;
 
 function formatErrorMessage(error: unknown): string {
@@ -85,6 +103,51 @@ function formatErrorMessage(error: unknown): string {
     }
   }
   return '未知错误';
+}
+
+function isSortOrderColumnMissing(error: unknown): boolean {
+  const message =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '').toLowerCase()
+      : String(error ?? '').toLowerCase();
+
+  return (
+    message.includes('sort_order') &&
+    (message.includes('unknown column') ||
+      message.includes('does not exist') ||
+      (message.includes('column') && message.includes('not found')))
+  );
+}
+
+async function fetchOrderedPoseTags(
+  dbClient: NonNullable<ReturnType<typeof createClient>>
+): Promise<PoseTag[]> {
+  const sortedResult = await dbClient
+    .from('pose_tags')
+    .select('*')
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+
+  if (!sortedResult.error) {
+    return Array.isArray(sortedResult.data) ? sortedResult.data : [];
+  }
+
+  if (!isSortOrderColumnMissing(sortedResult.error)) {
+    throw sortedResult.error;
+  }
+
+  const fallbackResult = await dbClient
+    .from('pose_tags')
+    .select('*')
+    .order('usage_count', { ascending: false })
+    .order('name', { ascending: true });
+
+  if (fallbackResult.error) {
+    throw fallbackResult.error;
+  }
+
+  return Array.isArray(fallbackResult.data) ? fallbackResult.data : [];
 }
 
 function withTimeout<T>(
@@ -175,6 +238,9 @@ export default function PosesPage() {
   // 摆姿管理状态
   const [poses, setPoses] = useState<Pose[]>([]);
   const [posesLoading, setPosesLoading] = useState(true);
+  const [posesRefreshing, setPosesRefreshing] = useState(false);
+  const [posesError, setPosesError] = useState('');
+  const [posesReady, setPosesReady] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -194,6 +260,9 @@ export default function PosesPage() {
   // 标签管理状态
   const [tags, setTags] = useState<PoseTag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
+  const [tagsRefreshing, setTagsRefreshing] = useState(false);
+  const [tagsError, setTagsError] = useState('');
+  const [tagsReady, setTagsReady] = useState(false);
   const [showTagModal, setShowTagModal] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [addingTag, setAddingTag] = useState(false);
@@ -201,6 +270,7 @@ export default function PosesPage() {
   const [isTagSelectionMode, setIsTagSelectionMode] = useState(false);
   const [editingTag, setEditingTag] = useState<PoseTag | null>(null);
   const [editingTagName, setEditingTagName] = useState('');
+  const [tagSortingId, setTagSortingId] = useState(0);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [deletingPose, setDeletingPose] = useState<Pose | null>(null);
@@ -208,55 +278,104 @@ export default function PosesPage() {
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [showBatchDeleteTagsConfirm, setShowBatchDeleteTagsConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [brokenPoseImageIds, setBrokenPoseImageIds] = useState<number[]>([]);
   const posesLoadTokenRef = useRef(0);
   const tagsLoadTokenRef = useRef(0);
 
   useEffect(() => {
     void loadPoses();
-    void loadTags();
 
     return () => {
       posesLoadTokenRef.current += 1;
-      tagsLoadTokenRef.current += 1;
     };
   }, [selectedTags, currentPage]);
+
+  useEffect(() => {
+    void loadTags();
+
+    return () => {
+      tagsLoadTokenRef.current += 1;
+    };
+  }, []);
 
   // 摆姿管理函数
   const loadPoses = async () => {
     const loadToken = posesLoadTokenRef.current + 1;
     posesLoadTokenRef.current = loadToken;
+    const hasReadyPoses = posesReady;
+    const isFirstLoad = !hasReadyPoses;
 
-    setPosesLoading(true);
+    setPosesLoading(isFirstLoad);
+    setPosesRefreshing(!isFirstLoad);
+    setPosesError('');
+
     const dbClient = createClient();
     if (!dbClient) {
+      if (loadToken === posesLoadTokenRef.current) {
+        setPosesLoading(false);
+        setPosesRefreshing(false);
+        setPosesError('服务初始化失败，请刷新后重试');
+        setPosesReady(hasReadyPoses);
+        if (!hasReadyPoses) {
+          setPoses([]);
+          setTotalCount(0);
+        }
+      }
+      return false;
+    }
+
+    try {
+      let query = dbClient
+        .from('poses')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range((currentPage - 1) * posesPerPage, currentPage * posesPerPage - 1);
+
+      if (selectedTags.length > 0) {
+        query = query.overlaps('tags', selectedTags);
+      }
+
+      const { data, error, count } = await query;
+
+      if (loadToken !== posesLoadTokenRef.current) {
+        return false;
+      }
+
+      if (error) {
+        throw error;
+      }
+
+      const nextPoses = Array.isArray(data) ? data : [];
+      const nextTotalCount = count || 0;
+      const maxPage = nextTotalCount > 0 ? Math.max(1, Math.ceil(nextTotalCount / posesPerPage)) : 1;
+
+      if (nextTotalCount > 0 && currentPage > maxPage) {
+        setPosesLoading(false);
+        setPosesRefreshing(false);
+        setCurrentPage(maxPage);
+        return true;
+      }
+
+      setPoses(nextPoses);
+      setTotalCount(nextTotalCount);
+      setBrokenPoseImageIds((prev) => prev.filter((id) => nextPoses.some((pose) => pose.id === id)));
       setPosesLoading(false);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-
-    let query = dbClient
-      .from('poses')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range((currentPage - 1) * posesPerPage, currentPage * posesPerPage - 1);
-
-    if (selectedTags.length > 0) {
-      query = query.overlaps('tags', selectedTags);
-    }
-
-    const { data, error, count } = await query;
-
-    if (loadToken !== posesLoadTokenRef.current) {
-      return;
-    }
-
-    if (!error && data) {
-      setPoses(data);
-      setTotalCount(count || 0);
-    }
-    if (loadToken === posesLoadTokenRef.current) {
-      setPosesLoading(false);
+      setPosesRefreshing(false);
+      setPosesError('');
+      setPosesReady(true);
+      return true;
+    } catch (error) {
+      if (loadToken === posesLoadTokenRef.current) {
+        setPosesLoading(false);
+        setPosesRefreshing(false);
+        setPosesError(`加载摆姿失败：${formatErrorMessage(error)}`);
+        setPosesReady(hasReadyPoses);
+        if (!hasReadyPoses) {
+          setPoses([]);
+          setTotalCount(0);
+        }
+      }
+      return false;
     }
   };
 
@@ -430,8 +549,7 @@ export default function PosesPage() {
       setBatchImages([]);
       setImagePreview(null);
       setUploadProgress({ current: 0, total: 0 });
-      loadPoses();
-      loadTags();
+      void refreshPoseAdminData({ silent: true });
     } catch (error: any) {
       setShowToast({ message: `添加失败：${formatErrorMessage(error)}`, type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -473,8 +591,7 @@ export default function PosesPage() {
       setShowPoseModal(false);
       setEditingPose(null);
       setPoseFormData({ image: null, tags: [] });
-      loadPoses();
-      loadTags();
+      void refreshPoseAdminData({ silent: true });
       setShowToast({ message: '摆姿标签已更新', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
@@ -570,8 +687,7 @@ export default function PosesPage() {
 
       setActionLoading(false);
       setDeletingPose(null);
-      loadPoses();
-      loadTags();
+      void refreshPoseAdminData({ silent: true });
       if (storageCleanupFailed) {
         setShowToast({ message: '摆姿记录已删除，但云存储清理失败，请稍后重试', type: 'warning' });
       } else {
@@ -679,8 +795,7 @@ export default function PosesPage() {
       setActionLoading(false);
       setSelectedPoseIds([]);
       setIsSelectionMode(false);
-      loadPoses();
-      loadTags();
+      void refreshPoseAdminData({ silent: true });
 
       const warningParts: string[] = [];
       if (remainingIdSet.size > 0) {
@@ -787,31 +902,78 @@ export default function PosesPage() {
   const loadTags = async () => {
     const loadToken = tagsLoadTokenRef.current + 1;
     tagsLoadTokenRef.current = loadToken;
+    const hasReadyTags = tagsReady;
+    const isFirstLoad = !hasReadyTags;
 
-    setTagsLoading(true);
+    setTagsLoading(isFirstLoad);
+    setTagsRefreshing(!isFirstLoad);
+    setTagsError('');
+
     const dbClient = createClient();
     if (!dbClient) {
+      if (loadToken === tagsLoadTokenRef.current) {
+        setTagsLoading(false);
+        setTagsRefreshing(false);
+        setTagsError('服务初始化失败，请刷新后重试');
+        setTagsReady(hasReadyTags);
+        if (!hasReadyTags) {
+          setTags([]);
+          setSelectedTagIds([]);
+        }
+      }
+      return false;
+    }
+
+    try {
+      const data = await fetchOrderedPoseTags(dbClient);
+
+      if (loadToken !== tagsLoadTokenRef.current) {
+        return false;
+      }
+
+      const nextTags = Array.isArray(data) ? data : [];
+      const tagIdSet = new Set(nextTags.map((tag) => Number(tag.id)).filter((id) => Number.isFinite(id)));
+      const tagNameSet = new Set(nextTags.map((tag) => normalizeTagName(tag.name)).filter(Boolean));
+
+      setTags(nextTags);
+      setSelectedTagIds((prev) => prev.filter((id) => tagIdSet.has(id)));
+      setSelectedTags((prev) => prev.filter((name) => tagNameSet.has(normalizeTagName(name))));
       setTagsLoading(false);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
+      setTagsRefreshing(false);
+      setTagsError('');
+      setTagsReady(true);
+      return true;
+    } catch (error) {
+      if (loadToken === tagsLoadTokenRef.current) {
+        setTagsLoading(false);
+        setTagsRefreshing(false);
+        setTagsError(`加载标签失败：${formatErrorMessage(error)}`);
+        setTagsReady(hasReadyTags);
+        if (!hasReadyTags) {
+          setTags([]);
+          setSelectedTagIds([]);
+        }
+      }
+      return false;
+    }
+  };
+
+  const refreshPoseAdminData = async (options: { silent?: boolean } = {}) => {
+    const [posesLoaded, tagsLoaded] = await Promise.all([loadPoses(), loadTags()]);
+    if (options.silent) {
+      return posesLoaded && tagsLoaded;
     }
 
-    const { data, error } = await dbClient
-      .from('pose_tags')
-      .select('*')
-      .order('usage_count', { ascending: false });
-
-    if (loadToken !== tagsLoadTokenRef.current) {
-      return;
+    const successCount = [posesLoaded, tagsLoaded].filter(Boolean).length;
+    if (successCount === 2) {
+      setShowToast({ message: '摆姿管理已刷新', type: 'success' });
+    } else if (successCount > 0) {
+      setShowToast({ message: '摆姿管理已更新，但部分列表刷新失败', type: 'warning' });
+    } else {
+      setShowToast({ message: '摆姿管理刷新失败，请稍后重试', type: 'error' });
     }
-
-    if (!error && data) {
-      setTags(data);
-    }
-    if (loadToken === tagsLoadTokenRef.current) {
-      setTagsLoading(false);
-    }
+    setTimeout(() => setShowToast(null), 3000);
+    return successCount === 2;
   };
 
   const handleAddTag = async () => {
@@ -928,7 +1090,8 @@ export default function PosesPage() {
       return;
     }
 
-    if (normalizedTagName === normalizeTagName(editingTag.name)) {
+    const previousTagName = normalizeTagName(editingTag.name);
+    if (normalizedTagName === previousTagName) {
       setEditingTag(null);
       setEditingTagName('');
       return;
@@ -978,6 +1141,9 @@ export default function PosesPage() {
 
       setEditingTag(null);
       setEditingTagName('');
+      setSelectedTags((prev) =>
+        dedupeTagNames(prev.map((name) => (normalizeTagName(name) === previousTagName ? normalizedTagName : name)))
+      );
       loadTags();
       setShowToast({ message: '标签已更新', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
@@ -986,6 +1152,113 @@ export default function PosesPage() {
       setTimeout(() => setShowToast(null), 3000);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const moveTagByDirection = async (tagId: number, direction: 'top' | 'up' | 'down') => {
+    if (isTagSelectionMode || actionLoading || tagSortingId !== 0) {
+      return;
+    }
+
+    const currentIndex = tags.findIndex((tag) => tag.id === tagId);
+    if (currentIndex < 0) {
+      setShowToast({ message: '标签不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const targetIndex =
+      direction === 'top'
+        ? 0
+        : direction === 'up'
+          ? currentIndex - 1
+          : currentIndex + 1;
+
+    if (targetIndex < 0 || targetIndex >= tags.length || targetIndex === currentIndex) {
+      setShowToast({
+        message: direction === 'down' ? '当前标签已在最底部' : '当前标签已在最顶部',
+        type: 'warning',
+      });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const dbClient = createClient();
+    if (!dbClient) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setTagSortingId(tagId);
+    try {
+      const orderedTags = await fetchOrderedPoseTags(dbClient);
+      const orderedIndex = orderedTags.findIndex((item) => Number(item.id) === tagId);
+      if (orderedIndex < 0) {
+        throw new Error('标签不存在或已删除，请刷新后重试');
+      }
+
+      const nextIndex =
+        direction === 'top'
+          ? 0
+          : direction === 'up'
+            ? orderedIndex - 1
+            : orderedIndex + 1;
+
+      if (nextIndex < 0 || nextIndex >= orderedTags.length || nextIndex === orderedIndex) {
+        setShowToast({
+          message: direction === 'down' ? '当前标签已在最底部' : '当前标签已在最顶部',
+          type: 'warning',
+        });
+        setTimeout(() => setShowToast(null), 3000);
+        return;
+      }
+
+      const reordered = orderedTags.slice();
+      const [currentTag] = reordered.splice(orderedIndex, 1);
+      reordered.splice(nextIndex, 0, currentTag);
+
+      const currentOrderMap = new Map<number, number>();
+      orderedTags.forEach((item, index) => {
+        const sortOrder = Number(item.sort_order);
+        currentOrderMap.set(
+          Number(item.id),
+          Number.isFinite(sortOrder) && sortOrder > 0 ? Math.round(sortOrder) : (index + 1) * 10
+        );
+      });
+
+      const changedRows = reordered
+        .map((item, index) => ({
+          id: Number(item.id),
+          sort_order: (index + 1) * 10,
+        }))
+        .filter((item) => currentOrderMap.get(item.id) !== item.sort_order);
+
+      for (const row of changedRows) {
+        const { error } = await dbClient
+          .from('pose_tags')
+          .update({ sort_order: row.sort_order })
+          .eq('id', row.id);
+
+        if (error) {
+          if (isSortOrderColumnMissing(error)) {
+            throw new Error('数据库缺少 sort_order 字段，请先执行迁移：photo/sql/migrations/04_pose_tag_sort_order.sql');
+          }
+          throw error;
+        }
+      }
+
+      await loadTags();
+      setShowToast({
+        message: direction === 'top' ? '标签已置顶' : direction === 'up' ? '标签已上移' : '标签已下移',
+        type: 'success',
+      });
+      setTimeout(() => setShowToast(null), 3000);
+    } catch (error) {
+      setShowToast({ message: `标签排序失败：${formatErrorMessage(error)}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+    } finally {
+      setTagSortingId(0);
     }
   };
 
@@ -1020,10 +1293,10 @@ export default function PosesPage() {
         return;
       }
 
+      setSelectedTags((prev) => prev.filter((name) => normalizeTagName(name) !== normalizeTagName(deletingTag.name)));
       setActionLoading(false);
       setDeletingTag(null);
-      loadTags();
-      loadPoses();
+      void refreshPoseAdminData({ silent: true });
       setShowToast({ message: '标签已删除', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
@@ -1059,7 +1332,7 @@ export default function PosesPage() {
     try {
       const { data: selectedRows, error: snapshotError } = await dbClient
         .from('pose_tags')
-        .select('id')
+        .select('id,name')
         .in('id', selectedTagIds);
 
       if (snapshotError) throw snapshotError;
@@ -1075,6 +1348,9 @@ export default function PosesPage() {
       }
 
       const targetIds = rows.map((row: any) => Number(row.id)).filter((id) => Number.isFinite(id));
+      const deletedTagNameSet = new Set(
+        rows.map((row: any) => normalizeTagName(String(row?.name ?? ''))).filter(Boolean)
+      );
       const { error } = await dbClient
         .from('pose_tags')
         .delete()
@@ -1098,8 +1374,8 @@ export default function PosesPage() {
       setActionLoading(false);
       setSelectedTagIds([]);
       setIsTagSelectionMode(false);
-      loadTags();
-      loadPoses();
+      setSelectedTags((prev) => prev.filter((name) => !deletedTagNameSet.has(normalizeTagName(name))));
+      void refreshPoseAdminData({ silent: true });
 
       if (remainingIdSet.size > 0) {
         setShowToast({
@@ -1149,6 +1425,15 @@ export default function PosesPage() {
     );
   };
 
+  const orderedTagCards = tags.map((tag, index) => ({
+    ...tag,
+    sortIndex: index + 1,
+    canMoveTop: index > 0,
+    canMoveUp: index > 0,
+    canMoveDown: index < tags.length - 1,
+  }));
+  const tagOrderButtonClass =
+    'flex h-10 items-center justify-center rounded-[16px] px-2 text-[12px] font-semibold tracking-[0.02em] text-[#D18A2A] transition-all hover:bg-white/80 hover:text-[#B56B1B] disabled:cursor-not-allowed disabled:text-[#D6BF9B] disabled:hover:bg-transparent';
   return (
     <div className="admin-mobile-page pose-page space-y-6 pt-6">
       {/* 页面标题 */}
@@ -1218,9 +1503,16 @@ export default function PosesPage() {
               ))}
             </div>
 
-            <div className="pose-toolbar-actions flex gap-2 flex-shrink-0">
+            <div className={`pose-toolbar-actions ${!isSelectionMode ? 'pose-toolbar-actions--triplet' : ''} flex gap-2 flex-shrink-0`}>
               {!isSelectionMode ? (
                 <>
+                  <button
+                    onClick={() => void refreshPoseAdminData()}
+                    disabled={posesLoading || posesRefreshing || tagsLoading || tagsRefreshing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors disabled:opacity-50"
+                  >
+                    {posesLoading || posesRefreshing || tagsLoading || tagsRefreshing ? '刷新中' : '刷新'}
+                  </button>
                   <button
                     onClick={() => setIsSelectionMode(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
@@ -1263,15 +1555,42 @@ export default function PosesPage() {
           </div>
 
           {/* 摆姿列表 */}
-          {posesLoading ? (
-            <div className="pose-loading text-center py-12">
-              <div className="pose-loading__spinner w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="pose-loading__text text-sm text-[#5D4037]/60">加载中...</p>
+          {posesError && posesReady && (
+            <div className="pose-inline-error">
+              <p className="pose-inline-error__text">{posesError}</p>
+            </div>
+          )}
+
+          {posesLoading && !posesReady ? (
+            <div className="pose-state-card pose-state-card--loading schedule-state-card schedule-state-card--loading">
+              <div className="schedule-state-card__top">
+                <div className="schedule-state-card__badge schedule-state-card__badge--loading">
+                  <div className="pose-loading__spinner"></div>
+                </div>
+                <div className="schedule-state-card__copy">
+                  <p className="schedule-state-card__title">摆姿列表加载中</p>
+                  <p className="schedule-state-card__desc">正在同步最新的摆姿图片与标签数据，请稍候。</p>
+                </div>
+              </div>
+            </div>
+          ) : !posesReady ? (
+            <div className="pose-state-card">
+              <Camera className="pose-state-card__icon" />
+              <p className="pose-state-card__title">{posesError ? '摆姿数据暂时不可用' : '暂无摆姿数据'}</p>
+              <p className="pose-state-card__desc">{posesError || '上传摆姿后会展示在这里。'}</p>
+              <button
+                onClick={() => void refreshPoseAdminData()}
+                disabled={posesLoading || posesRefreshing}
+                className="pose-state-card__action"
+              >
+                {posesLoading || posesRefreshing ? '刷新中' : '重新加载'}
+              </button>
             </div>
           ) : poses.length === 0 ? (
-            <div className="pose-empty-card text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <Camera className="pose-empty-card__icon w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-              <p className="text-[#5D4037]/60">暂无摆姿数据</p>
+            <div className="pose-state-card">
+              <Camera className="pose-state-card__icon" />
+              <p className="pose-state-card__title">{selectedTags.length > 0 ? '当前筛选下暂无摆姿' : '暂无摆姿数据'}</p>
+              <p className="pose-state-card__desc">{selectedTags.length > 0 ? '可以切换标签筛选或手动刷新列表。' : '上传摆姿后会展示在这里。'}</p>
             </div>
           ) : (
             <div className="pose-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -1306,47 +1625,46 @@ export default function PosesPage() {
                           )}
                         </div>
                       )}
-                      <img
-                        src={pose.image_url}
-                        alt="摆姿"
-                        className="w-full h-full object-cover cursor-pointer"
-                        onClick={(e) => {
-                          if (!isSelectionMode) {
-                            e.stopPropagation();
-                            setPreviewImage(pose.image_url);
-                          }
-                        }}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent) {
-                            const errorDiv = document.createElement('div');
-                            errorDiv.className = 'absolute inset-0 flex items-center justify-center bg-gray-100';
-                            errorDiv.innerHTML = '<div class="text-center"><svg class="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><p class="text-xs text-gray-500">图片加载失败</p></div>';
-                            parent.appendChild(errorDiv);
-                          }
-                        }}
-                      />
+                      {brokenPoseImageIds.includes(pose.id) ? (
+                        <div className="pose-image-fallback">
+                          <AlertCircle className="pose-image-fallback__icon" />
+                          <span>图片加载失败</span>
+                        </div>
+                      ) : (
+                        <img
+                          src={pose.image_url}
+                          alt="pose-image"
+                          className="w-full h-full object-cover cursor-pointer"
+                          onClick={(e) => {
+                            if (!isSelectionMode) {
+                              e.stopPropagation();
+                              setPreviewImage(pose.image_url);
+                            }
+                          }}
+                          onError={() => {
+                            setBrokenPoseImageIds((prev) => (prev.includes(pose.id) ? prev : [...prev, pose.id]));
+                          }}
+                        />
+                      )}
                       {!isSelectionMode && (
-                        <div className="absolute top-2 right-2 flex gap-2">
+                        <div className="absolute top-2 right-2 flex gap-1.5">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               openEditModal(pose);
                             }}
-                            className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors shadow-md"
+                            className="icon-button action-icon-btn action-icon-btn--edit"
                           >
-                            <Edit2 size={28} strokeWidth={2.5} className="text-white" />
+                            <Pencil className="action-icon-svg action-icon-svg--edit" strokeWidth={2.2} />
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeletePose(pose.id, pose.storage_path);
                             }}
-                            className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-md"
+                            className="icon-button action-icon-btn action-icon-btn--delete"
                           >
-                            <Trash2 size={28} strokeWidth={2.5} className="text-white" />
+                            <Trash2 className="action-icon-svg action-icon-svg--delete" strokeWidth={2.2} />
                           </button>
                         </div>
                       )}
@@ -1404,9 +1722,16 @@ export default function PosesPage() {
       {activeTab === 'tags' && (
         <div className="space-y-6">
           {/* 操作按钮 */}
-          <div className="pose-toolbar-actions flex justify-end gap-2">
+          <div className={`pose-toolbar-actions ${!isTagSelectionMode ? 'pose-toolbar-actions--triplet' : ''} flex justify-end gap-2`}>
             {!isTagSelectionMode ? (
               <>
+                <button
+                  onClick={() => void refreshPoseAdminData()}
+                  disabled={posesLoading || posesRefreshing || tagsLoading || tagsRefreshing || tagSortingId !== 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors disabled:opacity-50"
+                >
+                  {posesLoading || posesRefreshing || tagsLoading || tagsRefreshing ? '刷新中' : '刷新'}
+                </button>
                 <button
                   onClick={() => setIsTagSelectionMode(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
@@ -1448,77 +1773,159 @@ export default function PosesPage() {
           </div>
 
           {/* 标签列表 */}
-          {tagsLoading ? (
-            <div className="pose-loading text-center py-12">
-              <div className="pose-loading__spinner w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="pose-loading__text text-sm text-[#5D4037]/60">加载中...</p>
+          {tagsError && tagsReady && (
+            <div className="pose-inline-error">
+              <p className="pose-inline-error__text">{tagsError}</p>
+            </div>
+          )}
+
+          {tagsLoading && !tagsReady ? (
+            <div className="pose-state-card pose-state-card--loading">
+              <div className="pose-loading__spinner mx-auto"></div>
+              <p className="pose-state-card__title">标签列表加载中</p>
+              <p className="pose-state-card__desc">正在同步标签排序与使用情况，请稍候。</p>
+            </div>
+          ) : !tagsReady ? (
+            <div className="pose-state-card">
+              <Tag className="pose-state-card__icon" />
+              <p className="pose-state-card__title">{tagsError ? '标签数据暂时不可用' : '暂无标签数据'}</p>
+              <p className="pose-state-card__desc">{tagsError || '创建标签后可用于摆姿筛选与管理。'}</p>
+              <button
+                onClick={() => void refreshPoseAdminData()}
+                disabled={tagsLoading || tagsRefreshing || tagSortingId !== 0}
+                className="pose-state-card__action"
+              >
+                {tagsLoading || tagsRefreshing ? '刷新中' : '重新加载'}
+              </button>
             </div>
           ) : tags.length === 0 ? (
-            <div className="pose-empty-card text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-              <Tag className="pose-empty-card__icon w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-              <p className="text-[#5D4037]/60">暂无标签数据</p>
+            <div className="pose-state-card">
+              <Tag className="pose-state-card__icon" />
+              <p className="pose-state-card__title">暂无标签数据</p>
+              <p className="pose-state-card__desc">创建标签后可用于摆姿筛选与管理。</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3 2xl:grid-cols-4">
               <AnimatePresence>
-                {tags.map((tag) => (
-                  <motion.div
-                    key={tag.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className={`bg-white rounded-2xl p-6 shadow-sm border transition-all ${
-                      isTagSelectionMode
-                        ? selectedTagIds.includes(tag.id)
-                          ? 'border-[#FFC857] bg-[#FFC857]/5 shadow-md'
-                          : 'border-[#5D4037]/10 hover:border-[#FFC857]/50'
-                        : 'border-[#5D4037]/10 hover:shadow-md'
-                    }`}
-                    onClick={() => isTagSelectionMode && toggleTagSelection(tag.id)}
-                    style={{ cursor: isTagSelectionMode ? 'pointer' : 'default' }}
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
+                {orderedTagCards.map((tag) => {
+                  const isSelected = selectedTagIds.includes(tag.id);
+                  const isSortingCurrentTag = tagSortingId === tag.id;
+
+                  return (
+                    <motion.div
+                      key={tag.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className={`relative overflow-hidden rounded-[26px] border bg-[linear-gradient(180deg,#FFFFFF_0%,#FFFDF7_100%)] px-4 py-4 shadow-[0_10px_24px_rgba(93,64,55,0.07)] transition-all ${
+                        isTagSelectionMode
+                          ? isSelected
+                            ? 'border-[#FFC857] bg-[#FFF8E6] shadow-[0_12px_30px_rgba(255,200,87,0.16)]'
+                            : 'border-[#5D4037]/10 hover:border-[#FFC857]/50'
+                          : 'border-[#5D4037]/10 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(93,64,55,0.12)]'
+                      } ${isSortingCurrentTag ? 'ring-2 ring-[#FFC857]/50' : ''}`}
+                      onClick={() => isTagSelectionMode && toggleTagSelection(tag.id)}
+                      style={{ cursor: isTagSelectionMode ? 'pointer' : 'default' }}
+                    >
+                      <div className="flex flex-col gap-3">
                         {isTagSelectionMode && (
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                            selectedTagIds.includes(tag.id)
-                              ? 'bg-[#FFC857] border-[#FFC857]'
-                              : 'border-[#5D4037]/30'
+                          <div className={`absolute left-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors ${
+                            isSelected
+                              ? 'border-[#FFC857] bg-[#FFC857] text-white shadow-sm'
+                              : 'border-[#5D4037]/20 bg-white text-transparent'
                           }`}>
-                            {selectedTagIds.includes(tag.id) && (
-                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
                           </div>
                         )}
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFC857] to-[#FFB347] flex items-center justify-center">
-                          <Tag className="w-6 h-6 text-white" />
+
+                        <div className={`flex items-start justify-between gap-2.5 ${isTagSelectionMode ? 'pl-7' : ''}`}>
+                          <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FFBE55] to-[#FFA63D] shadow-[0_7px_18px_rgba(255,184,85,0.24)]">
+                              <Tag className="h-5 w-5 text-white" />
+                            </div>
+                            <div className="min-w-0 flex-1 pt-0.5">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+                                  <h3 className="max-w-full break-all text-[22px] font-bold leading-none text-[#5D4037]">
+                                    {tag.name}
+                                  </h3>
+                                  <span className="inline-flex items-center rounded-full bg-[#FFF1C7] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[#A46A1D]">
+                                    #{tag.sortIndex}
+                                  </span>
+                                </div>
+                                <span className="text-[13px] leading-none text-[#8D6E63]">
+                                  使用 {tag.usage_count} 次
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {!isTagSelectionMode && (
+                            <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleEditTag(tag);
+                                }}
+                                disabled={actionLoading || tagSortingId !== 0}
+                                title="编辑标签"
+                                className="icon-button action-icon-btn action-icon-btn--edit disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Pencil className="action-icon-svg action-icon-svg--edit" strokeWidth={2.2} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDeleteTag(tag.id, tag.name);
+                                }}
+                                disabled={actionLoading || tagSortingId !== 0}
+                                title="删除标签"
+                                className="icon-button action-icon-btn action-icon-btn--delete disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Trash2 className="action-icon-svg action-icon-svg--delete" strokeWidth={2.2} />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div>
-                          <h3 className="font-bold text-[#5D4037]">{tag.name}</h3>
-                          <p className="text-xs text-[#5D4037]/60">使用 {tag.usage_count} 次</p>
-                        </div>
+
+                        {!isTagSelectionMode && (
+                          <div className="rounded-[22px] border border-[#F3D08A] bg-[linear-gradient(180deg,rgba(255,247,226,0.82)_0%,rgba(255,251,240,0.96)_100%)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+                            <div className="grid grid-cols-3 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => moveTagByDirection(tag.id, 'top')}
+                                disabled={actionLoading || tagSortingId !== 0 || !tag.canMoveTop}
+                                className={tagOrderButtonClass}
+                              >
+                                置顶
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveTagByDirection(tag.id, 'up')}
+                                disabled={actionLoading || tagSortingId !== 0 || !tag.canMoveUp}
+                                className={tagOrderButtonClass}
+                              >
+                                上移
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveTagByDirection(tag.id, 'down')}
+                                disabled={actionLoading || tagSortingId !== 0 || !tag.canMoveDown}
+                                className={tagOrderButtonClass}
+                              >
+                                下移
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {!isTagSelectionMode && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleEditTag(tag)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTag(tag.id, tag.name)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  );
+                })}
               </AnimatePresence>
             </div>
           )}
@@ -1548,9 +1955,9 @@ export default function PosesPage() {
                 </h2>
                 <button
                   onClick={() => setShowPoseModal(false)}
-                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                  className="icon-button action-icon-btn action-icon-btn--close"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" />
                 </button>
               </div>
 
@@ -1605,7 +2012,7 @@ export default function PosesPage() {
                           />
                           <button
                             onClick={() => handleImageSelect(null)}
-                            className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                            className="icon-button absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -1757,9 +2164,9 @@ export default function PosesPage() {
                 <h2 className="text-xl font-bold text-[#5D4037]">新增标签</h2>
                 <button
                   onClick={() => setShowTagModal(false)}
-                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                  className="icon-button action-icon-btn action-icon-btn--close"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" />
                 </button>
               </div>
 
@@ -1820,9 +2227,9 @@ export default function PosesPage() {
                     setEditingTag(null);
                     setEditingTagName('');
                   }}
-                  className="p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+                  className="icon-button action-icon-btn action-icon-btn--close"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" />
                 </button>
               </div>
 
@@ -1869,9 +2276,9 @@ export default function PosesPage() {
           >
             <button
               onClick={() => setPreviewImage(null)}
-              className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-colors"
+              className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
             >
-              <X className="w-6 h-6" />
+              <X className="action-icon-svg" />
             </button>
             <motion.img
               initial={{ scale: 0.9, opacity: 0 }}
@@ -2133,8 +2540,4 @@ export default function PosesPage() {
     </div>
   );
 }
-
-
-
-
 

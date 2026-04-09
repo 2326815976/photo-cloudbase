@@ -138,9 +138,9 @@ export default function UpdateDialog({ currentVersion, platform = 'Android', onC
           {!updateInfo.forceUpdate && (
             <button
               onClick={handleCancel}
-              className="absolute top-4 right-4 p-2 hover:bg-[#5D4037]/5 rounded-full transition-colors"
+              className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
             >
-              <X className="w-5 h-5 text-[#5D4037]/60" />
+              <X className="action-icon-svg" />
             </button>
           )}
 

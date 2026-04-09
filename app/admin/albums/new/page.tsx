@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { insertAlbumWithCompat } from '@/lib/admin/album-compat';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle, Upload, QrCode } from 'lucide-react';
@@ -223,17 +224,21 @@ export default function NewAlbumPage() {
         ? `${selectedExpiryDate} 23:59:59`
         : getDateTimeAfterDaysUTC8(formData.expiry_days);
 
-      const { error } = await dbClient.from('albums').insert({
-        title: formData.title || '未命名空间',
-        access_key: accessKey,
-        cover_url: coverUrl,
-        donation_qr_code_url: formData.enable_tipping ? donationQrUrl : null,
-        welcome_letter: formData.welcome_letter,
-        recipient_name: formData.recipient_name || '拾光者',
-        enable_tipping: formData.enable_tipping,
-        enable_welcome_letter: formData.enable_welcome_letter,
-        expires_at: expiresAt,
-      });
+      const { error } = await insertAlbumWithCompat(
+        dbClient,
+        {
+          title: formData.title || '未命名空间',
+          access_key: accessKey,
+          cover_url: coverUrl,
+          donation_qr_code_url: formData.enable_tipping ? donationQrUrl : null,
+          welcome_letter: formData.welcome_letter,
+          recipient_name: formData.recipient_name || '拾光者',
+          enable_tipping: formData.enable_tipping,
+          enable_welcome_letter: formData.enable_welcome_letter,
+          expires_at: expiresAt,
+        },
+        '创建专属空间失败'
+      );
 
       if (error) {
         await cleanupStorageByUrl(coverUrl, '封面');
@@ -258,7 +263,7 @@ export default function NewAlbumPage() {
     <div className="max-w-5xl mx-auto space-y-6 pt-6">
       <button
         onClick={() => router.back()}
-        className="w-9 h-9 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+        className="icon-button action-icon-btn action-icon-btn--back"
       >
         <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
       </button>
@@ -483,7 +488,7 @@ export default function NewAlbumPage() {
                         <button
                           type="button"
                           onClick={removeDonationQr}
-                          className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                          className="icon-button absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
                           title="移除赞赏码"
                         >
                           <XCircle className="w-4 h-4" />
@@ -523,7 +528,7 @@ export default function NewAlbumPage() {
                 <button
                   type="button"
                   onClick={removeCover}
-                  className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                  className="icon-button absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
                   title="移除封面"
                 >
                   <XCircle className="w-5 h-5" />

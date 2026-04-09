@@ -2,28 +2,60 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Lock, Image, Calendar, User } from 'lucide-react';
+import { Calendar, Home, Image, Info, Lock, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useMemo, useState } from 'react';
 import { vibrate } from '@/lib/android';
-import { useState, useEffect } from 'react';
 import { isAndroidApp } from '@/lib/platform';
+import type { WebShellRuntime } from '@/lib/page-center/config';
 
-const navItems = [
-  { href: '/', label: '首页', icon: Home },
-  { href: '/album', label: '返图', icon: Lock },
-  { href: '/gallery', label: '照片墙', icon: Image },
-  { href: '/booking', label: '约拍', icon: Calendar },
-  { href: '/profile', label: '我的', icon: User },
-];
+interface BottomNavProps {
+  hidden?: boolean;
+  runtime?: WebShellRuntime | null;
+  isAuthenticated?: boolean;
+}
 
-export default function BottomNav() {
-  const pathname = usePathname();
+const ICON_COMPONENT_MAP: Record<string, typeof User> = {
+  home: Home,
+  album: Lock,
+  gallery: Image,
+  booking: Calendar,
+  profile: User,
+  about: Info,
+};
+
+
+function isNavItemActive(pathname: string, href: string) {
+  if (href === '/') {
+    return pathname === '/';
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export default function BottomNav({ hidden = false, runtime = null, isAuthenticated = false }: BottomNavProps) {
+  const pathname = usePathname() || '/';
   const shouldReduceMotion = useReducedMotion();
   const [isAndroid, setIsAndroid] = useState(false);
 
   useEffect(() => {
     setIsAndroid(isAndroidApp());
   }, []);
+
+  const navItems = useMemo(() => {
+    const runtimeItems = runtime && Array.isArray(runtime.navItems)
+      ? runtime.navItems.map((item) => ({
+          href: item.href,
+          label: isAuthenticated ? item.label : item.guestLabel || item.label,
+          iconKey: item.iconKey,
+        }))
+      : [];
+    return runtimeItems.map((item) => ({
+      ...item,
+      icon: ICON_COMPONENT_MAP[item.iconKey] || User,
+    }));
+  }, [isAuthenticated, runtime]);
+
+  const useScrollableLayout = navItems.length > 5;
 
   const handleNavClick = () => {
     if (typeof document !== 'undefined') {
@@ -36,20 +68,29 @@ export default function BottomNav() {
     vibrate(30);
   };
 
-  // Android: 使用CSS动画
+  if (hidden || !runtime || navItems.length === 0) {
+    return null;
+  }
+
   if (isAndroid) {
     return (
-      <nav className="absolute bottom-0 left-0 w-full h-[68px] bg-[#FFFBF0]/95 backdrop-blur-md border-t-2 border-dashed border-[#5D4037]/15 shadow-[0_-2px_12px_rgba(93,64,55,0.08)] z-50 pb-[env(safe-area-inset-bottom)]">
-        <div className="flex justify-around items-center h-full px-4 pb-2">
+      <nav style={{ height: 'var(--app-shell-nav-height, calc(68px + env(safe-area-inset-bottom)))' }} className="absolute bottom-0 left-0 z-50 w-full border-t-2 border-dashed border-[#5D4037]/15 bg-[#FFFBF0]/95 shadow-[0_-2px_12px_rgba(93,64,55,0.08)] backdrop-blur-md">
+        <div
+          className={[
+            'h-full pb-[max(8px,env(safe-area-inset-bottom))]',
+            useScrollableLayout
+              ? 'flex items-center gap-1 overflow-x-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+              : 'flex justify-around items-center px-4',
+          ].join(' ')}
+        >
           {navItems.map((item) => {
-            const isActive = pathname === item.href || (item.href === '/album' && pathname.startsWith('/album'));
+            const isActive = isNavItemActive(pathname, item.href);
             const Icon = item.icon;
-
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex-1"
+                className={useScrollableLayout ? 'flex-none min-w-[68px] px-1' : 'flex-1'}
                 onClick={handleNavClick}
               >
                 <div
@@ -57,18 +98,16 @@ export default function BottomNav() {
                     isActive ? 'text-[#FFC857] scale-105' : 'text-[#5D4037]/60'
                   }`}
                 >
-                  {/* 活跃状态背景光晕 */}
-                  {isActive && (
+                  {isActive ? (
                     <div className="absolute -top-1 w-14 h-14 bg-[#FFC857]/30 rounded-full blur-lg animate-in fade-in duration-300" />
-                  )}
-
+                  ) : null}
                   <div className={`relative ${isActive ? 'animate-bounce' : ''}`}>
                     <Icon
                       className={`w-6 h-6 ${isActive ? 'fill-[#FFC857] drop-shadow-[0_2px_4px_rgba(255,200,87,0.3)]' : ''}`}
                       strokeWidth={isActive ? 2.5 : 2}
                     />
                   </div>
-                  <span className={`text-[10px] font-medium ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
+                  <span className={`max-w-[64px] truncate text-[10px] font-medium ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
                 </div>
               </Link>
             );
@@ -78,19 +117,24 @@ export default function BottomNav() {
     );
   }
 
-  // Web/iOS: 使用Framer Motion动画
   return (
-    <nav className="absolute bottom-0 left-0 w-full h-[68px] bg-[#FFFBF0]/95 backdrop-blur-md border-t-2 border-dashed border-[#5D4037]/15 shadow-[0_-2px_12px_rgba(93,64,55,0.08)] z-50 pb-[env(safe-area-inset-bottom)]">
-      <div className="flex justify-around items-center h-full px-4 pb-2">
+    <nav style={{ height: 'var(--app-shell-nav-height, calc(68px + env(safe-area-inset-bottom)))' }} className="absolute bottom-0 left-0 z-50 w-full border-t-2 border-dashed border-[#5D4037]/15 bg-[#FFFBF0]/95 shadow-[0_-2px_12px_rgba(93,64,55,0.08)] backdrop-blur-md">
+      <div
+        className={[
+          'h-full pb-[max(8px,env(safe-area-inset-bottom))]',
+          useScrollableLayout
+            ? 'flex items-center gap-1 overflow-x-auto px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+            : 'flex justify-around items-center px-4',
+        ].join(' ')}
+      >
         {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href === '/album' && pathname.startsWith('/album'));
+          const isActive = isNavItemActive(pathname, item.href);
           const Icon = item.icon;
-
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="flex-1"
+              className={useScrollableLayout ? 'flex-none min-w-[68px] px-1' : 'flex-1'}
               onClick={handleNavClick}
             >
               <motion.div
@@ -101,15 +145,13 @@ export default function BottomNav() {
                   isActive ? 'text-[#FFC857]' : 'text-[#5D4037]/60'
                 }`}
               >
-                {/* 活跃状态背景光晕 */}
-                {isActive && (
+                {isActive ? (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     className="absolute -top-1 w-14 h-14 bg-[#FFC857]/30 rounded-full blur-lg"
                   />
-                )}
-
+                ) : null}
                 <motion.div
                   animate={isActive && !shouldReduceMotion ? { y: [0, -3, 0] } : { y: 0 }}
                   transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5, ease: 'easeOut' }}
@@ -120,7 +162,7 @@ export default function BottomNav() {
                     strokeWidth={isActive ? 2.5 : 2}
                   />
                 </motion.div>
-                <span className={`text-[10px] font-medium ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
+                <span className={`max-w-[64px] truncate text-[10px] font-medium ${isActive ? 'font-bold' : ''}`}>{item.label}</span>
               </motion.div>
             </Link>
           );

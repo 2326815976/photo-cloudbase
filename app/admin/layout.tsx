@@ -1,16 +1,48 @@
 import type { ReactNode } from 'react';
-import { createClient } from '@/lib/cloudbase/server';
 import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/cloudbase/server';
 import AdminSidebar from './components/AdminSidebar';
 
-const CONNECTION_PANEL_TITLE = '\u7ba1\u7406\u53f0\u6682\u65f6\u4e0d\u53ef\u7528';
-const RETRY_TEXT = '\u7acb\u5373\u91cd\u8bd5';
-const BACK_TO_LOGIN_TEXT = '\u8fd4\u56de\u767b\u5f55';
-const ADMIN_FALLBACK_NAME = '\u7ba1\u7406\u5458';
+const CONNECTION_PANEL_TITLE = '管理台暂时不可用';
+const RETRY_TEXT = '立即重试';
+const BACK_TO_LOGIN_TEXT = '返回登录';
+const ADMIN_FALLBACK_NAME = '管理员';
+const ADMIN_AUTH_TIMEOUT_MS = 10000;
+
+type SessionUser = {
+  id: string;
+  role?: unknown;
+  name?: unknown;
+  email?: unknown;
+};
+
+type AdminProfile = {
+  role?: string;
+  name?: string;
+  email?: string;
+};
+
+function withTimeout<T>(promise: PromiseLike<T> | Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    Promise.resolve(promise)
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 function isTransientConnectionError(message: string): boolean {
   const normalized = String(message ?? '').toLowerCase();
   return (
+    normalized.includes('transient_backend') ||
+    normalized.includes('服务暂时不可用') ||
     normalized.includes('connect timeout') ||
     normalized.includes('request timeout') ||
     normalized.includes('timed out') ||
@@ -26,7 +58,7 @@ function renderConnectionErrorPanel(description: string) {
       <div className="relative w-full max-w-lg overflow-hidden rounded-[32px] border border-[#5D4037]/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(255,251,240,0.92)_100%)] p-6 shadow-[0_18px_42px_rgba(93,64,55,0.14)] backdrop-blur-sm sm:p-7">
         <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#FFC857] via-[#FFB347] to-[#FFD67E]" />
         <div className="mb-5 inline-flex items-center rounded-full bg-[#FFC857]/16 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-[#8D6E63]">
-          {'\u540e\u53f0\u8fde\u63a5\u63d0\u793a'}
+          {'后台连接提示'}
         </div>
         <h1 className="mb-3 text-[30px] font-bold leading-none text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
           {CONNECTION_PANEL_TITLE}
@@ -51,36 +83,80 @@ function renderConnectionErrorPanel(description: string) {
   );
 }
 
+async function loadProfileIfNeeded(dbClient: Awaited<ReturnType<typeof createClient>>, sessionUser: SessionUser): Promise<{
+  profile: AdminProfile | null;
+  profileError: { message?: string } | null;
+}> {
+  if (String(sessionUser.role ?? '').trim() === 'admin') {
+    return {
+      profile: {
+        role: 'admin',
+        name: typeof sessionUser.name === 'string' ? sessionUser.name : '',
+        email: typeof sessionUser.email === 'string' ? sessionUser.email : '',
+      },
+      profileError: null,
+    };
+  }
+
+  try {
+    const profileResult = await withTimeout(
+      dbClient.from('profiles').select('role, name, email').eq('id', sessionUser.id).maybeSingle(),
+      ADMIN_AUTH_TIMEOUT_MS,
+      '用户资料查询超时'
+    );
+
+    return {
+      profile: (profileResult.data as AdminProfile | null) ?? null,
+      profileError: profileResult.error,
+    };
+  } catch (error) {
+    return {
+      profile: null,
+      profileError: {
+        message: error instanceof Error ? error.message : '用户资料查询超时',
+      },
+    };
+  }
+}
+
 export default async function AdminLayout({
   children,
 }: {
   children: ReactNode;
 }) {
   const dbClient = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await dbClient.auth.getUser();
+  let user: SessionUser | null = null;
+  let authError: { message?: string } | null = null;
+
+  try {
+    const authResult = await withTimeout(
+      dbClient.auth.getUser(),
+      ADMIN_AUTH_TIMEOUT_MS,
+      '鉴权服务连接超时'
+    );
+    user = (authResult.data?.user as SessionUser | null) ?? null;
+    authError = authResult.error;
+  } catch (error) {
+    authError = {
+      message: error instanceof Error ? error.message : '鉴权服务连接超时',
+    };
+  }
 
   if (authError && isTransientConnectionError(authError.message || '')) {
-    return renderConnectionErrorPanel('\u9274\u6743\u670d\u52a1\u8fde\u63a5\u8d85\u65f6\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002');
+    return renderConnectionErrorPanel('鉴权服务连接超时，请稍后重试。');
   }
 
   if (!user) {
     redirect('/login?from=%2Fadmin');
   }
 
-  const { data: profile, error: profileError } = await dbClient
-    .from('profiles')
-    .select('role, name, email')
-    .eq('id', user.id)
-    .single();
+  const { profile, profileError } = await loadProfileIfNeeded(dbClient, user);
 
   if (profileError) {
     if (isTransientConnectionError(profileError.message || '')) {
-      return renderConnectionErrorPanel('\u7528\u6237\u8d44\u6599\u67e5\u8be2\u8d85\u65f6\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002');
+      return renderConnectionErrorPanel('用户资料查询超时，请稍后重试。');
     }
-    return renderConnectionErrorPanel('\u7528\u6237\u8d44\u6599\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002');
+    return renderConnectionErrorPanel('用户资料加载失败，请稍后重试。');
   }
 
   if (profile?.role !== 'admin') {
@@ -88,11 +164,11 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="admin-shell min-h-screen bg-[#FFFBF0] [background-image:radial-gradient(circle_at_8%_0%,rgba(255,200,87,0.16),transparent_34%),radial-gradient(circle_at_94%_16%,rgba(255,153,102,0.12),transparent_30%)]" style={{ width: '100%', maxWidth: '100vw', overflow: 'hidden' }}>
-      <div className="relative flex min-h-screen">
-        <AdminSidebar username={profile.name || profile.email || ADMIN_FALLBACK_NAME} />
-        <main className="admin-main relative flex-1 px-4 pb-8 pt-[72px] sm:px-6 md:ml-72 md:px-8 md:pt-6 lg:px-10">
-          <div className="admin-main__inner mx-auto w-full max-w-[1480px]">{children}</div>
+    <div className="admin-shell min-h-screen bg-[#FFFBF0] [background-image:radial-gradient(circle_at_8%_0%,rgba(255,200,87,0.16),transparent_34%),radial-gradient(circle_at_94%_16%,rgba(255,153,102,0.12),transparent_30%)]" style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+      <div className="relative flex min-h-screen min-w-0 w-full overflow-x-hidden">
+        <AdminSidebar username={profile?.name || profile?.email || ADMIN_FALLBACK_NAME} />
+        <main className="admin-main relative min-w-0 w-full flex-1 overflow-x-hidden px-4 pb-8 pt-[72px] sm:px-6 md:ml-72 md:px-8 md:pt-6 lg:px-10">
+          <div className="admin-main__inner mx-auto w-full min-w-0 max-w-[1480px] overflow-x-hidden">{children}</div>
         </main>
       </div>
     </div>

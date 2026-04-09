@@ -115,7 +115,7 @@ export async function DELETE(request: NextRequest) {
 
     const { data: photos, error: photosError } = await adminClient
       .from('album_photos')
-      .select('id, thumbnail_url, preview_url, original_url, url')
+      .select('*')
       .eq('album_id', album.id)
       .in('id', normalizedPhotoIds);
 
@@ -129,10 +129,10 @@ export async function DELETE(request: NextRequest) {
     const targetsToDelete = new Set<string>();
     (photos || []).forEach((photo: any) => {
       const urls = [
+        photo.url,
         photo.thumbnail_url,
         photo.preview_url,
         photo.original_url,
-        photo.url
       ].filter(Boolean) as string[];
 
       urls.forEach((url) => {

@@ -179,7 +179,7 @@ export default function EditProfilePage() {
         <div className="px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+            className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>

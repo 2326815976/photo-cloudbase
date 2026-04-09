@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAuthContextFromRequest } from '@/lib/auth/context';
+import { resolveAuthContextFromRequest } from '@/lib/auth/context';
 import { executeRpc } from '@/lib/cloudbase/rpc-engine';
 import { DbRpcPayload } from '@/lib/cloudbase/query-types';
 import {
@@ -10,28 +10,44 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+function buildTransientResponse() {
+  return NextResponse.json(
+    {
+      data: null,
+      error: {
+        message: TRANSIENT_BACKEND_ERROR_MESSAGE,
+        code: TRANSIENT_BACKEND_ERROR_CODE,
+      },
+    },
+    { status: 503 }
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as DbRpcPayload;
-    const authContext = await getAuthContextFromRequest(request);
-    const result = await executeRpc(payload.functionName, payload.args ?? {}, authContext);
+    const authResolution = await resolveAuthContextFromRequest(request);
+
+    if (authResolution.transientFailure && authResolution.hasToken) {
+      return buildTransientResponse();
+    }
+
+    const result = await executeRpc(payload.functionName, payload.args ?? {}, authResolution.context);
     const status = result.error?.code === TRANSIENT_BACKEND_ERROR_CODE ? 503 : 200;
     return NextResponse.json(result, { status });
   } catch (error) {
-    const isTransient = isRetryableSqlError(error);
+    if (isRetryableSqlError(error)) {
+      return buildTransientResponse();
+    }
+
     return NextResponse.json(
       {
         data: null,
         error: {
-          message: isTransient
-            ? TRANSIENT_BACKEND_ERROR_MESSAGE
-            : error instanceof Error
-              ? error.message
-              : 'RPC 调用失败',
-          code: isTransient ? TRANSIENT_BACKEND_ERROR_CODE : undefined,
+          message: error instanceof Error ? error.message : 'RPC ????',
         },
       },
-      { status: isTransient ? 503 : 500 }
+      { status: 500 }
     );
   }
 }

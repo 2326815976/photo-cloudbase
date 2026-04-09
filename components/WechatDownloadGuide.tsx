@@ -40,9 +40,9 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
               {/* 关闭按钮 */}
               <button
                 onClick={onClose}
-                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-10"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-10"
               >
-                <X className="w-5 h-5 text-[#5D4037]" />
+                <X className="action-icon-svg" />
               </button>
 
               {/* 内容区域 */}

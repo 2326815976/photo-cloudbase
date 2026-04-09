@@ -16,10 +16,10 @@ function collectAlbumAssetTargets(album: any, photos: any[]): string[] {
 
   photos.forEach((photo) => {
     [
+      String(photo?.url ?? '').trim(),
       String(photo?.thumbnail_url ?? '').trim(),
       String(photo?.preview_url ?? '').trim(),
       String(photo?.original_url ?? '').trim(),
-      String(photo?.url ?? '').trim(),
     ]
       .filter(Boolean)
       .forEach((item) => targets.add(item));
@@ -71,7 +71,7 @@ export async function DELETE(
 
     const { data: photos, error: photosError } = await dbClient
       .from('album_photos')
-      .select('thumbnail_url, preview_url, original_url, url')
+      .select('*')
       .eq('album_id', albumId);
 
     if (photosError) {

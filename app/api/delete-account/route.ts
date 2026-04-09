@@ -23,7 +23,7 @@ async function collectUserStorageTargets(userId: string): Promise<string[]> {
   const [profileAssetsResult, photoAssetsResult, albumAssetsResult] = await Promise.all([
     executeSQL(
       `
-        SELECT avatar, payment_qr_code
+        SELECT avatar
         FROM profiles
         WHERE id = {{user_id}}
         LIMIT 1
@@ -32,7 +32,7 @@ async function collectUserStorageTargets(userId: string): Promise<string[]> {
     ),
     executeSQL(
       `
-        SELECT p.thumbnail_url, p.preview_url, p.original_url, p.url
+        SELECT p.thumbnail_url, p.preview_url, p.original_url
         FROM album_photos p
         JOIN albums a ON a.id = p.album_id
         WHERE a.created_by = {{user_id}}
@@ -54,12 +54,11 @@ async function collectUserStorageTargets(userId: string): Promise<string[]> {
     row.thumbnail_url,
     row.preview_url,
     row.original_url,
-    row.url,
   ]);
   const albumTargets = albumAssetsResult.rows.flatMap((row) => [row.cover_url, row.donation_qr_code_url]);
 
   const targets = collectNonEmptyTargets(
-    [profileRow.avatar, profileRow.payment_qr_code],
+    [profileRow.avatar],
     photoTargets,
     albumTargets
   );

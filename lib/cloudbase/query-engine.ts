@@ -35,7 +35,7 @@ function normalizeDbError(error: unknown, fallback: string): { message: string; 
     const maybeErrno = (error as Error & { code?: unknown; errno?: unknown }).errno;
     const message = error.message || fallback;
 
-    // MySQL 重复键：兼容旧调用方对 23505 的判断逻辑。
+    // MySQL 重复键错误统一映射为 23505，便于上层兼容处理
     if (
       maybeCode === 'ER_DUP_ENTRY' ||
       maybeCode === '1062' ||
@@ -146,8 +146,12 @@ const booleanColumnsByTable: Record<string, string[]> = {
   album_photos: ['is_public', 'is_highlight'],
   booking_types: ['is_active'],
   allowed_cities: ['is_active'],
+  miniprogram_runtime_settings: ['legacy_hide_audit', 'is_active'],
   feature_beta_routes: ['is_active'],
   feature_beta_versions: ['is_active'],
+  app_page_registry: ['is_nav_candidate_web', 'is_tab_candidate_miniprogram', 'supports_beta', 'supports_preview', 'is_builtin', 'is_active'],
+  app_page_publish_rules: ['show_in_nav', 'is_home_entry'],
+  app_page_beta_codes: ['is_active'],
   app_releases: ['force_update'],
 };
 
@@ -156,7 +160,7 @@ const storageUrlColumnsByTable: Record<string, string[]> = {
   albums: ['cover_url', 'donation_qr_code_url'],
   album_photos: ['url', 'thumbnail_url', 'preview_url', 'original_url'],
   app_releases: ['download_url'],
-  profiles: ['avatar', 'payment_qr_code'],
+  profiles: ['avatar'],
   about_settings: ['donation_qr_code'],
 };
 
@@ -166,6 +170,76 @@ const ACTIVE_BOOKING_STATUS_SET = new Set(ACTIVE_BOOKING_STATUSES);
 
 function toTrimmedString(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function firstNonEmptyText(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text !== '') {
+      return text;
+    }
+  }
+  return '';
+}
+
+function hasOwnField(row: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(row, key);
+}
+
+function applyAlbumPhotoLegacyWriteCompatibility(row: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...row };
+  const legacyUrl = firstNonEmptyText(next.url);
+  const thumbnailUrl = firstNonEmptyText(next.thumbnail_url);
+  const previewUrl = firstNonEmptyText(next.preview_url);
+  const originalUrl = firstNonEmptyText(next.original_url);
+
+  if (legacyUrl !== '') {
+    if (!hasOwnField(next, 'thumbnail_url') || thumbnailUrl === '') {
+      next.thumbnail_url = legacyUrl;
+    }
+    if (!hasOwnField(next, 'preview_url') || previewUrl === '') {
+      next.preview_url = legacyUrl;
+    }
+    if (!hasOwnField(next, 'original_url') || originalUrl === '') {
+      next.original_url = legacyUrl;
+    }
+  }
+
+  if (!hasOwnField(next, 'url') || legacyUrl === '') {
+    const nextLegacyUrl = firstNonEmptyText(next.original_url, next.preview_url, next.thumbnail_url);
+    if (nextLegacyUrl !== '') {
+      next.url = nextLegacyUrl;
+    }
+  }
+
+  return next;
+}
+
+function applyLegacyWriteCompatibility(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  if (table === 'album_photos') {
+    return applyAlbumPhotoLegacyWriteCompatibility(row);
+  }
+  return { ...row };
+}
+
+function applyAlbumPhotoLegacyReadCompatibility(row: Record<string, any>): void {
+  const legacyUrl = firstNonEmptyText(row.url, row.original_url, row.preview_url, row.thumbnail_url);
+  const thumbnailUrl = firstNonEmptyText(row.thumbnail_url, row.preview_url, row.original_url, row.url);
+  const previewUrl = firstNonEmptyText(row.preview_url, row.original_url, row.thumbnail_url, row.url);
+  const originalUrl = firstNonEmptyText(row.original_url, row.preview_url, row.thumbnail_url, row.url);
+
+  if (firstNonEmptyText(row.url) === '' && legacyUrl !== '') {
+    row.url = legacyUrl;
+  }
+  if (firstNonEmptyText(row.thumbnail_url) === '' && thumbnailUrl !== '') {
+    row.thumbnail_url = thumbnailUrl;
+  }
+  if (firstNonEmptyText(row.preview_url) === '' && previewUrl !== '') {
+    row.preview_url = previewUrl;
+  }
+  if (firstNonEmptyText(row.original_url) === '' && originalUrl !== '') {
+    row.original_url = originalUrl;
+  }
 }
 
 function isValidDateYmd(dateValue: string): boolean {
@@ -184,9 +258,9 @@ function isValidDateYmd(dateValue: string): boolean {
 
 function normalizeCityForMatch(name: string): string {
   return name
-    .replace(/市$/, '')
-    .replace(/自治区$/, '')
-    .replace(/特别行政区$/, '')
+    .replace(/\u5e02$/, '')
+    .replace(/\u81ea\u6cbb\u533a$/, '')
+    .replace(/\u7279\u522b\u884c\u653f\u533a$/, '')
     .trim();
 }
 
@@ -237,37 +311,37 @@ async function validateBookingsBeforeInsert(rows: Array<Record<string, unknown>>
     const rowNumber = index + 1;
     const userId = toTrimmedString(row.user_id);
     if (!userId) {
-      throw new Error(`预约提交失败：第${rowNumber}条缺少用户标识`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条缺少用户标识`);
     }
     row.user_id = userId;
 
     const typeId = Number(row.type_id);
     if (!Number.isInteger(typeId) || typeId <= 0) {
-      throw new Error(`预约提交失败：第${rowNumber}条约拍类型无效`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条拍摄类型无效`);
     }
     row.type_id = typeId;
 
     const bookingDate = toTrimmedString(row.booking_date);
     if (!isValidDateYmd(bookingDate)) {
-      throw new Error(`预约提交失败：第${rowNumber}条预约日期格式不正确`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条预约日期格式不正确`);
     }
     row.booking_date = bookingDate;
 
     const location = toTrimmedString(row.location);
     if (!location) {
-      throw new Error(`预约提交失败：第${rowNumber}条预约地点不能为空`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条预约地点不能为空`);
     }
     row.location = location;
 
     const wechat = toTrimmedString(row.wechat);
     if (!wechat) {
-      throw new Error(`预约提交失败：第${rowNumber}条微信号不能为空`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条微信号不能为空`);
     }
     row.wechat = wechat;
 
     const phone = normalizeChinaMobile(toTrimmedString(row.phone));
     if (!isValidChinaMobile(phone)) {
-      throw new Error(`预约提交失败：第${rowNumber}条手机号格式不正确`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条手机号格式不正确`);
     }
     row.phone = phone;
 
@@ -277,7 +351,7 @@ async function validateBookingsBeforeInsert(rows: Array<Record<string, unknown>>
     const rawStatus = toTrimmedString(row.status);
     const status = rawStatus || 'pending';
     if (!VALID_BOOKING_STATUSES.has(status)) {
-      throw new Error(`预约提交失败：第${rowNumber}条状态无效`);
+      throw new Error(`预约提交失败：第 ${rowNumber} 条状态无效`);
     }
     row.status = status;
 
@@ -301,7 +375,7 @@ async function validateBookingsBeforeInsert(rows: Array<Record<string, unknown>>
 
   activeRows.forEach((row) => {
     if (row.bookingDate < minDate || row.bookingDate > maxDate) {
-      throw new Error('预约日期超出可选范围（最早明天，最晚30天内）');
+      throw new Error('预约日期超出可选范围（最早明天，最晚 30 天内）');
     }
     if (!row.cityName) {
       throw new Error('无法识别城市，请重新选择地点');
@@ -363,7 +437,7 @@ async function validateBookingsBeforeInsert(rows: Array<Record<string, unknown>>
   for (const row of activeRows) {
     const matched = allowedCityNames.some((allowedCityName) => isCityAllowed(row.cityName, allowedCityName));
     if (!matched) {
-      throw new Error(`抱歉，当前仅支持以下城市的预约：${allowedCityNames.join('、')}`);
+      throw new Error(`抱歉，当前仅支持以下城市预约：${allowedCityNames.join('、')}`);
     }
   }
 
@@ -423,7 +497,7 @@ async function hydrateStorageUrls(table: string, rows: Array<Record<string, any>
     return;
   }
 
-  // best-effort：即使 CloudBase 临时 URL 生成失败也不应影响主查询。
+  // best-effort：补全 CloudBase 存储 URL，失败时不阻断查询结果
   try {
     await hydrateCloudBaseTempUrlsInRows(rows, fields);
   } catch {
@@ -460,6 +534,10 @@ function normalizeRow(table: string, row: Record<string, any>): Record<string, a
     }
   }
 
+  if (table === 'album_photos') {
+    applyAlbumPhotoLegacyReadCompatibility(normalized);
+  }
+
   return normalized;
 }
 
@@ -484,7 +562,7 @@ function parseSelectedColumns(table: string, rawColumns: string | undefined): st
       return '*';
     }
 
-    // 跳过关系字段写法（例如 booking_types(name)），这类会在业务层改为显式查询
+    // 跳过函数表达式 token，例如 booking_types(name)
     if (token.includes('(') || token.includes(')')) {
       continue;
     }
@@ -716,9 +794,9 @@ function normalizeWriteRows(payload: DbQueryPayload): Array<Record<string, unkno
     return [];
   }
   if (Array.isArray(payload.values)) {
-    return payload.values.map((row) => ({ ...row }));
+    return payload.values.map((row) => applyLegacyWriteCompatibility(payload.table, row));
   }
-  return [{ ...payload.values }];
+  return [applyLegacyWriteCompatibility(payload.table, payload.values)];
 }
 
 function shouldAutoFillRandKey(value: unknown): boolean {
@@ -1114,6 +1192,8 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
     };
   }
 
+  const normalizedValues = applyLegacyWriteCompatibility(payload.table, payload.values);
+
   const whereBuilder = new SqlValueBuilder();
   const whereClause = buildWhereClause(payload.table, payload.filters, whereBuilder);
   if (!whereClause) {
@@ -1126,7 +1206,7 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
 
   const shouldSyncPoseTagRename =
     payload.table === 'pose_tags' &&
-    Object.prototype.hasOwnProperty.call(payload.values, 'name');
+    Object.prototype.hasOwnProperty.call(normalizedValues, 'name');
   const poseTagNamesBeforeUpdate = shouldSyncPoseTagRename
     ? await fetchPoseTagNamesByWhereClause(whereClause, whereBuilder.build())
     : [];
@@ -1137,7 +1217,7 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
 
   const builder = new SqlValueBuilder();
   const setClauses: string[] = [];
-  Object.entries(payload.values).forEach(([column, value]) => {
+  Object.entries(normalizedValues).forEach(([column, value]) => {
     assertColumnAllowed(payload.table, column);
     const placeholder = builder.add(normalizeWriteValue(value));
     setClauses.push(`${escapeIdentifier(column)} = ${placeholder}`);
@@ -1162,7 +1242,7 @@ async function runUpdate(payload: DbQueryPayload): Promise<DbExecuteResult> {
 
   if (updateResult.affectedRows > 0) {
     if (shouldSyncPoseTagRename) {
-      const nextName = String(payload.values.name ?? '');
+      const nextName = String(normalizedValues.name ?? '');
       for (const oldName of poseTagNamesBeforeUpdate) {
         await replacePoseTagNameInPoses(oldName, nextName);
       }

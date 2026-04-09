@@ -1,7 +1,8 @@
-﻿import type { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { createClient } from '@/lib/cloudbase/server';
+import { executeSQL } from '@/lib/cloudbase/sql-executor';
 import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
-import MaintenanceButton from '../components/MaintenanceButton';
+import StatsClient from './StatsClient';
 
 interface StatCardItem {
   key: string;
@@ -38,6 +39,17 @@ interface LatestVersionInfo {
   createdAtText: string;
 }
 
+type StatsMetaTone = 'fresh' | 'warning' | 'muted';
+
+interface StatsMetaView {
+  generatedAtText: string;
+  snapshotDateText: string;
+  trendCoverageText: string;
+  statusText: string;
+  statusTone: StatsMetaTone;
+  unavailableSourcesText: string;
+}
+
 interface StatsView {
   userCards: StatCardItem[];
   albumCards: StatCardItem[];
@@ -53,6 +65,7 @@ interface StatsView {
   trendNewUsers: TrendItem[];
   trendActiveUsers: TrendItem[];
   trendNewBookings: TrendItem[];
+  meta: StatsMetaView;
 }
 
 function toSafeNumber(value: unknown, fallback = 0): number {
@@ -89,6 +102,17 @@ function formatDateTimeText(value: unknown): string {
   });
 }
 
+function formatDateText(value: unknown): string {
+  const parsed = parseDateTimeUTC8(value);
+  if (!parsed) return '';
+  return parsed.toLocaleDateString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
 function createStatCard(
   key: string,
   title: string,
@@ -99,6 +123,362 @@ function createStatCard(
   subtitle = ''
 ): StatCardItem {
   return { key, title, value, icon, colorStart, colorEnd, subtitle };
+}
+
+const STATS_RETRY_TIMES = 2;
+const STATS_RETRY_DELAY_MS = 1200;
+const STATS_LOAD_TIMEOUT_MS = 10000;
+const STATS_TOTAL_TIMEOUT_MS = 12000;
+
+function withTimeout<T>(promise: PromiseLike<T> | Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    Promise.resolve(promise)
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+function createTransientStatsResult(message: string) {
+  return {
+    data: null,
+    error: {
+      message,
+      code: 'TRANSIENT_BACKEND',
+    },
+  };
+}
+
+async function loadStatsOnce(
+  dbClient: Awaited<ReturnType<typeof createClient>>,
+  timeoutMs: number = STATS_LOAD_TIMEOUT_MS
+) {
+  try {
+    return await withTimeout(
+      dbClient.rpc('get_admin_dashboard_stats'),
+      Math.max(1, timeoutMs),
+      '统计服务连接超时'
+    );
+  } catch (error) {
+    return createTransientStatsResult(
+      error instanceof Error ? error.message : '统计服务连接超时'
+    );
+  }
+}
+
+function isTransientStatsError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = String((error as { code?: unknown }).code ?? '').trim().toUpperCase();
+  return code === 'TRANSIENT_BACKEND';
+}
+
+async function waitForStatsRetry(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function loadStatsWithRetry(dbClient: Awaited<ReturnType<typeof createClient>>) {
+  const deadline = Date.now() + STATS_TOTAL_TIMEOUT_MS;
+  let latestResult = await loadStatsOnce(
+    dbClient,
+    Math.min(STATS_LOAD_TIMEOUT_MS, Math.max(1, deadline - Date.now()))
+  );
+
+  for (let attempt = 0; attempt < STATS_RETRY_TIMES; attempt += 1) {
+    if (!isTransientStatsError(latestResult.error)) {
+      return latestResult;
+    }
+
+    const remainingBeforeWait = deadline - Date.now();
+    if (remainingBeforeWait <= 0) {
+      return latestResult;
+    }
+
+    await waitForStatsRetry(Math.min(STATS_RETRY_DELAY_MS * (attempt + 1), remainingBeforeWait));
+
+    const remainingBeforeRetry = deadline - Date.now();
+    if (remainingBeforeRetry <= 0) {
+      return latestResult;
+    }
+
+    latestResult = await loadStatsOnce(
+      dbClient,
+      Math.min(STATS_LOAD_TIMEOUT_MS, Math.max(1, remainingBeforeRetry))
+    );
+  }
+
+  return latestResult;
+}
+function mapUnavailableSourceLabel(source: string): string {
+  const map: Record<string, string> = {
+    analytics_daily: '趋势快照',
+    app_releases: '版本发布',
+    booking_blackouts: '档期锁定',
+    booking_types: '预约类型',
+    pose_tags: '摆姿标签',
+    allowed_cities: '允许预约城市',
+    photo_comments: '照片评论',
+    user_active_logs: '活跃日志',
+    realtime_stats_fallback: '实时统计已回退到维护快照',
+  };
+  return map[source] || source;
+}
+
+function diffShanghaiCalendarDays(value: unknown): number | null {
+  const parsed = parseDateTimeUTC8(value);
+  if (!parsed) {
+    return null;
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  const latestDateText = formatter.format(parsed);
+  const todayDateText = formatter.format(new Date());
+  const latestDate = new Date(`${latestDateText}T00:00:00+08:00`);
+  const todayDate = new Date(`${todayDateText}T00:00:00+08:00`);
+  const diffMs = todayDate.getTime() - latestDate.getTime();
+
+  return diffMs >= 0 ? Math.floor(diffMs / (24 * 60 * 60 * 1000)) : 0;
+}
+
+async function loadStatsSnapshotFallback(): Promise<Record<string, unknown> | null> {
+  try {
+    const snapshotRows = (
+      await executeSQL(
+        `
+          SELECT
+            date,
+            new_users_count,
+            active_users_count,
+            total_users_count,
+            admin_users_count,
+            total_albums_count,
+            new_albums_count,
+            expired_albums_count,
+            tipping_enabled_albums_count,
+            total_photos_count,
+            new_photos_count,
+            public_photos_count,
+            private_photos_count,
+            total_photo_views,
+            total_photo_likes,
+            total_photo_comments,
+            total_bookings_count,
+            new_bookings_count,
+            pending_bookings_count,
+            confirmed_bookings_count,
+            finished_bookings_count,
+            cancelled_bookings_count,
+            total_poses_count,
+            new_poses_count,
+            total_pose_tags_count,
+            total_pose_views
+          FROM analytics_daily
+          ORDER BY date DESC
+          LIMIT 7
+        `
+      )
+    ).rows;
+
+    if (!Array.isArray(snapshotRows) || snapshotRows.length === 0) {
+      return null;
+    }
+
+    const latestRow = snapshotRows[0] as Record<string, unknown>;
+    const orderedTrendRows = snapshotRows.slice().reverse();
+    const totalUsers = toSafeNumber(latestRow.total_users_count, 0);
+    const adminUsers = toSafeNumber(latestRow.admin_users_count, 0);
+    const pendingBookings = toSafeNumber(latestRow.pending_bookings_count, 0);
+    const confirmedBookings = toSafeNumber(latestRow.confirmed_bookings_count, 0);
+    const snapshotLagDays = diffShanghaiCalendarDays(latestRow.date);
+
+    return {
+      users: {
+        total: totalUsers,
+        admins: adminUsers,
+        regular_users: Math.max(0, totalUsers - adminUsers),
+        new_today: toSafeNumber(latestRow.new_users_count, 0),
+        active_today: toSafeNumber(latestRow.active_users_count, 0),
+      },
+      albums: {
+        total: toSafeNumber(latestRow.total_albums_count, 0),
+        new_today: toSafeNumber(latestRow.new_albums_count, 0),
+        expired: toSafeNumber(latestRow.expired_albums_count, 0),
+        tipping_enabled: toSafeNumber(latestRow.tipping_enabled_albums_count, 0),
+      },
+      photos: {
+        total: toSafeNumber(latestRow.total_photos_count, 0),
+        new_today: toSafeNumber(latestRow.new_photos_count, 0),
+        public: toSafeNumber(latestRow.public_photos_count, 0),
+        private: toSafeNumber(latestRow.private_photos_count, 0),
+        total_views: toSafeNumber(latestRow.total_photo_views, 0),
+        total_likes: toSafeNumber(latestRow.total_photo_likes, 0),
+        total_comments: toSafeNumber(latestRow.total_photo_comments, 0),
+        total_downloads: 0,
+        with_story: 0,
+        highlighted: 0,
+        avg_rating: 0,
+      },
+      bookings: {
+        total: toSafeNumber(latestRow.total_bookings_count, 0),
+        new_today: toSafeNumber(latestRow.new_bookings_count, 0),
+        pending: pendingBookings,
+        confirmed: confirmedBookings,
+        in_progress: 0,
+        finished: toSafeNumber(latestRow.finished_bookings_count, 0),
+        cancelled: toSafeNumber(latestRow.cancelled_bookings_count, 0),
+        upcoming: pendingBookings + confirmedBookings,
+        types: [],
+      },
+      poses: {
+        total: toSafeNumber(latestRow.total_poses_count, 0),
+        new_today: toSafeNumber(latestRow.new_poses_count, 0),
+        total_views: toSafeNumber(latestRow.total_pose_views, 0),
+        total_tags: toSafeNumber(latestRow.total_pose_tags_count, 0),
+        top_tags: [],
+      },
+      system: {
+        total_cities: 0,
+        total_blackout_dates: 0,
+        total_releases: 0,
+        latest_version: null,
+      },
+      trends: {
+        daily_new_users: orderedTrendRows.map((row) => ({
+          date: (row as Record<string, unknown>).date,
+          count: toSafeNumber((row as Record<string, unknown>).new_users_count, 0),
+        })),
+        daily_active_users: orderedTrendRows.map((row) => ({
+          date: (row as Record<string, unknown>).date,
+          count: toSafeNumber((row as Record<string, unknown>).active_users_count, 0),
+        })),
+        daily_new_bookings: orderedTrendRows.map((row) => ({
+          date: (row as Record<string, unknown>).date,
+          count: toSafeNumber((row as Record<string, unknown>).new_bookings_count, 0),
+        })),
+      },
+      meta: {
+        generated_at: new Date().toISOString(),
+        trend_days_expected: 7,
+        trend_days_available: orderedTrendRows.length,
+        snapshot_latest_date: latestRow.date ?? null,
+        snapshot_lag_days: snapshotLagDays,
+        snapshot_status: !latestRow.date
+          ? 'empty'
+          : snapshotLagDays !== null && snapshotLagDays > 0
+            ? 'stale'
+            : 'ready',
+        unavailable_sources: ['realtime_stats_fallback'],
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createEmptyStatsMeta(): StatsMetaView {
+  return {
+    generatedAtText: '',
+    snapshotDateText: '',
+    trendCoverageText: '0/7 天',
+    statusText: '暂无统计快照',
+    statusTone: 'muted',
+    unavailableSourcesText: '',
+  };
+}
+
+function buildStatsMeta(root: Record<string, any>): StatsMetaView {
+  const meta = root.meta && typeof root.meta === 'object' ? root.meta : {};
+  const generatedAtText = formatDateTimeText(meta.generated_at);
+  const snapshotDateText = formatDateText(meta.snapshot_latest_date);
+  const trendDaysExpected = Math.max(0, toSafeNumber(meta.trend_days_expected, 7));
+  const trendDaysAvailable = Math.max(0, toSafeNumber(meta.trend_days_available, 0));
+  const snapshotLagDays = meta.snapshot_lag_days === null || meta.snapshot_lag_days === undefined
+    ? null
+    : Math.max(0, toSafeNumber(meta.snapshot_lag_days, 0));
+  const unavailableSources = Array.isArray(meta.unavailable_sources)
+    ? meta.unavailable_sources.map((item: unknown) => toSafeText(item)).filter(Boolean)
+    : [];
+  const unavailableSourcesText = unavailableSources.map(mapUnavailableSourceLabel).join('、');
+  const snapshotStatus = toSafeText(meta.snapshot_status);
+
+  if (unavailableSourcesText) {
+    return {
+      generatedAtText,
+      snapshotDateText,
+      trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
+      statusText: `部分统计源不可用：${unavailableSourcesText}`,
+      statusTone: 'warning',
+      unavailableSourcesText,
+    };
+  }
+
+  if (snapshotStatus === 'unavailable') {
+    return {
+      generatedAtText,
+      snapshotDateText,
+      trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
+      statusText: '趋势快照表不可用',
+      statusTone: 'warning',
+      unavailableSourcesText,
+    };
+  }
+
+  if (snapshotStatus === 'empty' || trendDaysAvailable <= 0) {
+    return {
+      generatedAtText,
+      snapshotDateText,
+      trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
+      statusText: '暂无趋势快照，建议执行维护任务',
+      statusTone: 'muted',
+      unavailableSourcesText,
+    };
+  }
+
+  if (snapshotLagDays !== null && snapshotLagDays > 0) {
+    return {
+      generatedAtText,
+      snapshotDateText,
+      trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
+      statusText: `趋势快照落后 ${snapshotLagDays} 天，建议执行维护任务`,
+      statusTone: 'warning',
+      unavailableSourcesText,
+    };
+  }
+
+  if (trendDaysExpected > 0 && trendDaysAvailable < trendDaysExpected) {
+    return {
+      generatedAtText,
+      snapshotDateText,
+      trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected} 天`,
+      statusText: `最近 ${trendDaysExpected} 天趋势仅覆盖 ${trendDaysAvailable} 天`,
+      statusTone: 'warning',
+      unavailableSourcesText,
+    };
+  }
+
+  return {
+    generatedAtText,
+    snapshotDateText,
+    trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
+    statusText: '统计数据已同步',
+    statusTone: 'fresh',
+    unavailableSourcesText,
+  };
 }
 
 function createEmptyStatsView(): StatsView {
@@ -117,6 +497,7 @@ function createEmptyStatsView(): StatsView {
     trendNewUsers: [],
     trendActiveUsers: [],
     trendNewBookings: [],
+    meta: createEmptyStatsMeta(),
   };
 }
 
@@ -129,6 +510,7 @@ function buildStatsView(stats: unknown): StatsView {
   const poses = (root.poses && typeof root.poses === 'object' ? root.poses : {}) as Record<string, unknown>;
   const system = (root.system && typeof root.system === 'object' ? root.system : {}) as Record<string, any>;
   const trends = (root.trends && typeof root.trends === 'object' ? root.trends : {}) as Record<string, unknown>;
+  const meta = buildStatsMeta(root);
 
   const bookingTypeStats = Array.isArray(bookings.types)
     ? bookings.types.map((item: any, index: number) => ({
@@ -241,6 +623,7 @@ function buildStatsView(stats: unknown): StatsView {
     trendNewUsers,
     trendActiveUsers,
     trendNewBookings,
+    meta,
   };
 }
 
@@ -338,33 +721,31 @@ function TrendCard({ title, rows, valueClassName }: { title: string; rows: Trend
 
 export default async function StatsPage() {
   const dbClient = await createClient();
-  const { data: stats, error } = await dbClient.rpc('get_admin_dashboard_stats');
+  let { data: stats, error } = await loadStatsWithRetry(dbClient);
+
+  if (error && isTransientStatsError(error)) {
+    const fallbackStats = await loadStatsSnapshotFallback();
+    if (fallbackStats) {
+      stats = fallbackStats;
+      error = null;
+    }
+  }
 
   if (error) {
     const errorMessage = typeof error.message === 'string' && error.message.trim() ? error.message : '未知错误';
     const errorCode = typeof error.code === 'string' && error.code.trim() ? `（${error.code}）` : '';
     console.warn(`获取统计数据失败${errorCode}: ${errorMessage}`);
     return (
-      <div className="admin-mobile-page stats-page">
+      <StatsClient meta={createEmptyStatsMeta()}>
         <ErrorPanel message="获取统计数据失败，请稍后重试。" />
-      </div>
+      </StatsClient>
     );
   }
 
   const statsView = buildStatsView(stats);
 
   return (
-    <div className="admin-mobile-page stats-page">
-      <section className="stats-header">
-        <div className="stats-header__main">
-          <h1 className="stats-header__title" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            数据统计 📊
-          </h1>
-          <p className="stats-header__desc">实时查看平台运营数据</p>
-        </div>
-        <MaintenanceButton variant="stats" />
-      </section>
-
+    <StatsClient meta={statsView.meta}>
       <StatsSection icon="👥" title="用户统计">
         <StatsCardsGrid cards={statsView.userCards} />
       </StatsSection>
@@ -414,13 +795,13 @@ export default async function StatsPage() {
         ) : null}
       </StatsSection>
 
-      <StatsSection icon="📦" title="系统统计">
+      <StatsSection icon="⚙️" title="系统统计">
         <StatsCardsGrid cards={statsView.systemCards} />
         {statsView.latestVersion ? <LatestVersionCard latestVersion={statsView.latestVersion} /> : null}
       </StatsSection>
 
       {statsView.trendNewUsers.length || statsView.trendActiveUsers.length || statsView.trendNewBookings.length ? (
-        <StatsSection icon="📈" title="最近7天趋势">
+        <StatsSection icon="📈" title="最近 7 天趋势">
           <div className="stats-trend-card-grid">
             <TrendCard title="新增用户" rows={statsView.trendNewUsers} valueClassName="text-[#FFC857]" />
             <TrendCard title="活跃用户" rows={statsView.trendActiveUsers} valueClassName="text-[#FFB347]" />
@@ -428,6 +809,6 @@ export default async function StatsPage() {
           </div>
         </StatsSection>
       ) : null}
-    </div>
+    </StatsClient>
   );
 }

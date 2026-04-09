@@ -1,13 +1,14 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart, RotateCw } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import ImagePreview from '@/components/ImagePreview';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
@@ -79,6 +80,13 @@ const ALBUM_FOLDER_GUIDE_AUTO_DISMISS_MS = 15000;
 const ALBUM_FOLDER_WAVE_ROUNDS = 3;
 const ALBUM_FOLDER_WAVE_STEP_DELAY_MS = 380;
 const ALBUM_FOLDER_WAVE_ROUND_GAP_MS = 240;
+const ALBUM_CARD_FLOATING_ICON_STYLE = {
+  width: '30px',
+  height: '30px',
+  minWidth: '30px',
+  minHeight: '30px',
+  padding: 0,
+} as const;
 const ALBUM_FOLDER_BUTTON_VARIANTS = {
   idle: { y: 0, scale: 1 },
   waveA: { y: [0, -4, 0], scale: [1, 1.02, 1] },
@@ -197,6 +205,8 @@ export default function AlbumDetailPage() {
   const [showWelcomeLetter, setShowWelcomeLetter] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
+  const [switchingFolderLoading, setSwitchingFolderLoading] = useState(false);
+  const [folderSwitchSnapshot, setFolderSwitchSnapshot] = useState<Photo[] | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [pageNo, setPageNo] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
@@ -482,7 +492,7 @@ export default function AlbumDetailPage() {
     const dbClient = createClient();
     if (!dbClient) {
       setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
-      return;
+      return false;
     }
 
     if (reset) {
@@ -510,14 +520,14 @@ export default function AlbumDetailPage() {
           setToast({ message: `加载失败：${error.message}`, type: 'error' });
           setTimeout(() => setToast(null), 3000);
         }
-        return;
+        return false;
       }
 
       if (loadToken !== photoLoadTokenRef.current) {
-        return;
+        return false;
       }
       if (selectedFolderRef.current !== normalizedFolderId) {
-        return;
+        return false;
       }
 
       const payload = (data && typeof data === 'object') ? (data as any) : {};
@@ -544,15 +554,20 @@ export default function AlbumDetailPage() {
       setPageNo(nextPageNo);
       setTotalPhotos(normalizedTotal);
       setHasMore(Boolean(computedHasMore));
+      return true;
     } catch (error) {
       if (!(reset && silent)) {
         setToast({ message: '加载失败，请稍后重试', type: 'error' });
         setTimeout(() => setToast(null), 3000);
       }
+      return false;
     } finally {
       if (loadToken === photoLoadTokenRef.current) {
         setLoading(false);
         setLoadingMore(false);
+        if (reset && silent) {
+          setSwitchingFolderLoading(false);
+        }
       }
     }
   };
@@ -714,22 +729,30 @@ export default function AlbumDetailPage() {
     dismissFolderGuide();
     const normalized = String(folderId || 'all');
     if (normalized === selectedFolder) return;
+    const previousFolder = selectedFolder;
 
+    setFolderSwitchSnapshot(resolvedFilteredPhotos);
+    setSwitchingFolderLoading(true);
     setSelectedFolder(normalized);
     selectedFolderRef.current = normalized;
     setFullscreenPhoto(null);
-    setStoryOpenMap({});
     setSelectedPhotos(new Set());
-    setLoadedImages(new Set());
-    setFailedImages(new Set());
-    setPhotos([]);
-    photosRef.current = [];
+    setPreviewPhotoPool(null);
     setHasMore(true);
     setPageNo(0);
     setTotalPhotos(0);
     photoLoadTokenRef.current += 1;
 
-    await loadAlbumPhotoPage(normalized, 1, { reset: true, silent: false });
+    const success = await loadAlbumPhotoPage(normalized, 1, { reset: true, silent: true });
+    if (!success && selectedFolderRef.current === normalized) {
+      setSelectedFolder(previousFolder);
+      selectedFolderRef.current = previousFolder;
+      setToast({ message: '切换分组失败，请稍后重试', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    }
+    if (selectedFolderRef.current === normalized || selectedFolderRef.current === previousFolder) {
+      setFolderSwitchSnapshot(null);
+    }
   };
 
   const filteredPhotos = useMemo(() => {
@@ -740,6 +763,11 @@ export default function AlbumDetailPage() {
   const resolvedFilteredPhotos = useMemo(
     () => resolveAlbumPhotoListRatios(filteredPhotos, photoAspectRatioMap),
     [filteredPhotos, photoAspectRatioMap]
+  );
+
+  const visibleRenderPhotos = useMemo(
+    () => (switchingFolderLoading && folderSwitchSnapshot ? folderSwitchSnapshot : resolvedFilteredPhotos),
+    [folderSwitchSnapshot, resolvedFilteredPhotos, switchingFolderLoading]
   );
 
   const hasLoadedAllVisiblePhotos = !hasMore && (
@@ -771,12 +799,12 @@ export default function AlbumDetailPage() {
   }, [fullscreenPhoto, previewPhotos]);
 
   const loadNextPhotoPage = async () => {
-    if (loading || loadingMore || !hasMore) return;
+    if (loading || loadingMore || switchingFolderLoading || !hasMore) return;
     await loadAlbumPhotoPage(selectedFolder, pageNo + 1, { reset: false, silent: false });
   };
 
   const handlePhotoScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (loading || loadingMore || !hasMore) return;
+    if (loading || loadingMore || switchingFolderLoading || !hasMore) return;
     const target = event.currentTarget;
     const scrollHeight = Number(target.scrollHeight || 0);
     const clientHeight = Number(target.clientHeight || 0);
@@ -815,8 +843,8 @@ export default function AlbumDetailPage() {
   };
 
   const albumMasonryItems = useMemo(
-    () => resolvedFilteredPhotos.map((photo, index) => ({ photo, index })),
-    [resolvedFilteredPhotos]
+    () => visibleRenderPhotos.map((photo, index) => ({ photo, index })),
+    [visibleRenderPhotos]
   );
 
   const { columns: albumColumns } = useStableMasonryColumns({
@@ -961,7 +989,7 @@ export default function AlbumDetailPage() {
   };
 
   const toggleSelectAll = async () => {
-    if (loading || loadingMore || filteredPhotos.length === 0) {
+    if (loading || loadingMore || switchingFolderLoading || filteredPhotos.length === 0) {
       return;
     }
 
@@ -997,6 +1025,10 @@ export default function AlbumDetailPage() {
   };
 
   const handleBatchDownload = async () => {
+    if (switchingFolderLoading) {
+      return;
+    }
+
     // 微信浏览器环境：显示引导弹窗
     if (isWechat) {
       setShowWechatGuide(true);
@@ -1116,51 +1148,16 @@ export default function AlbumDetailPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const loadingTitle = '加载中...';
+  const loadingDescription = '正在为你打开相册';
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="flex flex-col items-center gap-6"
-        >
-          {/* 时光中动画 */}
-          <div className="relative">
-            {/* 外圈旋转 */}
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            {/* 内圈反向旋转 */}
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            {/* 中心图标 */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-[#FFC857]" />
-            </div>
-          </div>
-
-          {/* 加载文字 */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
-          >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
-            </p>
-            <p className="text-sm text-[#5D4037]/60">
-              正在为你打开相册
-            </p>
-          </motion.div>
-        </motion.div>
-      </div>
+      <MiniProgramRecoveryScreen
+        title={loadingTitle}
+        description={loadingDescription}
+        className="h-[100dvh]"
+      />
     );
   }
 
@@ -1169,7 +1166,7 @@ export default function AlbumDetailPage() {
   }
 
   const albumNoticeMessage = buildAlbumExpiryNotice(albumData.album.expires_at);
-  const hasVisiblePhotos = filteredPhotos.length > 0;
+  const hasVisiblePhotos = visibleRenderPhotos.length > 0;
   const batchDownloadLabel = selectedPhotos.size > 0 ? '下载' : '全部下载';
 
   return (
@@ -1190,7 +1187,7 @@ export default function AlbumDetailPage() {
         <div className="px-4 py-2 flex items-center justify-between gap-2">
           <button
             onClick={() => router.push('/album')}
-            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors flex-shrink-0"
+            className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
@@ -1260,7 +1257,7 @@ export default function AlbumDetailPage() {
               </AnimatePresence>
 
               <div className="scrollbar-hidden overflow-x-auto whitespace-nowrap" onScroll={showFolderGuide ? dismissFolderGuide : undefined}>
-                <div className="inline-flex items-center gap-2 px-0 py-0">
+                <div className="album-toolbar__tag-row inline-flex items-center px-0 py-0">
                   {folderTabs.map((folder, index) => {
                     const isWaveActive = showFolderGuide && folderWaveActiveIndex === index;
                     return (
@@ -1273,7 +1270,7 @@ export default function AlbumDetailPage() {
                         animate={isWaveActive ? (folderWaveTick === 1 ? 'waveA' : 'waveB') : 'idle'}
                         variants={ALBUM_FOLDER_BUTTON_VARIANTS}
                         onClick={() => { void handleSelectFolder(folder.id); }}
-                        className={`tag-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border-2 px-2 py-0.5 text-xs font-bold leading-none transition-all duration-200 active:scale-[0.98] md:px-3 md:py-1.5 ${
+                        className={`tag-button album-toolbar-tag inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-200 active:scale-[0.98] ${
                           selectedFolder === folder.id
                             ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0_rgba(93,64,55,0.15)]'
                             : 'border-[#5D4037]/15 bg-white/60 text-[#5D4037]/60 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
@@ -1289,19 +1286,19 @@ export default function AlbumDetailPage() {
             </div>
 
             {hasVisiblePhotos && (
-              <div className="flex shrink-0 items-center gap-[5px]">
+              <div className="album-toolbar__tools flex shrink-0 items-center">
                 <motion.button
                   type="button"
                   whileTap={{ scale: 0.98 }}
                   onClick={() => { void toggleSelectAll(); }}
                   aria-pressed={isSelectAll}
-                  className={`inline-flex min-h-[30px] items-center justify-center gap-[6px] rounded-full px-3 text-[11px] font-bold leading-none transition-all duration-200 ${loading || loadingMore ? 'pointer-events-none opacity-60' : ''} ${
+                  className={`album-toolbar-chip album-toolbar-chip--select inline-flex items-center justify-center transition-all duration-200 ${loading || loadingMore || switchingFolderLoading ? 'pointer-events-none opacity-60' : ''} ${
                     isSelectAll
-                      ? 'border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)]'
-                      : 'border-[1.5px] border-dashed border-[#5D4037]/15 bg-white/60 text-[#5D4037]/70 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
+                      ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)]'
+                      : 'border-[#5D4037]/15 bg-white/60 text-[#5D4037]/70 hover:border-[#5D4037]/30 hover:text-[#5D4037] border-dashed'
                   }`}
                 >
-                  {isSelectAll ? <CheckSquare className="h-[13px] w-[13px]" /> : <Square className="h-[13px] w-[13px]" />}
+                  {isSelectAll ? <CheckSquare className="album-toolbar-chip__icon" /> : <Square className="album-toolbar-chip__icon" />}
                   <span>全选</span>
                 </motion.button>
 
@@ -1309,9 +1306,9 @@ export default function AlbumDetailPage() {
                   type="button"
                   whileTap={{ scale: 0.98 }}
                   onClick={handleBatchDownload}
-                  className={`relative inline-flex h-[30px] items-center justify-center gap-[6px] rounded-full border-[1.5px] border-[#5D4037]/20 bg-[#FFC857] px-3 text-[11px] font-bold leading-none text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'min-w-[62px]' : 'min-w-[76px]'}`}
+                  className={`album-toolbar-chip album-toolbar-chip--primary relative inline-flex items-center justify-center text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore || switchingFolderLoading ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'album-toolbar-chip--primary-selected' : ''}`}
                 >
-                  <Download className="h-[13px] w-[13px]" />
+                  <Download className="album-toolbar-chip__icon" />
                   <span>{batchDownloadLabel}</span>
                   {selectedPhotos.size > 0 && (
                     <span className="absolute -right-[5px] -top-[6px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5D4037] px-1 text-[10px] font-bold leading-none text-white shadow-[0_4px_10px_rgba(93,64,55,0.22)]">
@@ -1327,9 +1324,9 @@ export default function AlbumDetailPage() {
                     animate={{ opacity: 1, scale: 1 }}
                     whileTap={{ scale: 0.96 }}
                     onClick={handleBatchDelete}
-                    className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-full border border-red-400/25 bg-red-500/10 text-red-600 shadow-[0_3px_10px_rgba(239,68,68,0.12)] transition-all duration-200 ${loadingMore ? 'pointer-events-none opacity-60' : ''}`}
+                    className={`icon-button action-icon-btn action-icon-btn--delete h-[30px] w-[30px] ${loadingMore || switchingFolderLoading ? 'pointer-events-none opacity-60' : ''}`}
                   >
-                    <Trash2 className="h-[14px] w-[14px]" />
+                    <Trash2 className="action-icon-svg action-icon-svg--delete" />
                   </motion.button>
                 )}
               </div>
@@ -1341,7 +1338,7 @@ export default function AlbumDetailPage() {
       <div
         ref={photoScrollRef}
         onScroll={handlePhotoScroll}
-        className="flex-1 overflow-y-auto px-2 pt-3 pb-32"
+        className="relative flex-1 overflow-y-auto px-2 pt-3 pb-32"
       >
         <div className="flex items-start gap-2">
           {albumColumns.map((column, columnIndex) => (
@@ -1358,7 +1355,9 @@ export default function AlbumDetailPage() {
               className="min-w-0"
             >
               {/* 瀑布流卡片 */}
-              <div
+              <motion.div
+                layout
+                transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 320, damping: 30, mass: 0.82 }}
                 className={`overflow-hidden rounded-[18px] bg-white transition-all duration-300 ${
                   isHighlighted(photo)
                     ? 'border-[2px] border-[#FFB703] bg-[#FFFDF7] shadow-[0_0_0_1px_rgba(255,229,156,0.92),0_7px_18px_rgba(255,183,3,0.42),0_5px_14px_rgba(93,64,55,0.18)]'
@@ -1375,20 +1374,34 @@ export default function AlbumDetailPage() {
                     void incrementPhotoViewCount(photo.id);
                   }}
                 >
-                  {storyOpenMap[photo.id] && hasStory(photo) ? (
-                    <div className="min-h-[190px] p-2 bg-[linear-gradient(160deg,#FFFDF7_0%,#FFF5DC_52%,#FCEBC5_100%)]">
-                      <div className="relative min-h-[168px] rounded-[12px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[10px] py-[10px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
-                        <span className="mb-[6px] inline-flex h-[17px] items-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
-                          关于此刻
-                        </span>
-                        <p className="whitespace-pre-wrap break-words text-[12.5px] font-semibold leading-[1.78] tracking-[0.02em] text-[#5D4037]/93">
-                          {String(photo.story_text || '').trim()}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div
+                  <AnimatePresence initial={false} mode="wait">
+                    {storyOpenMap[photo.id] && hasStory(photo) ? (
+                      <motion.div
+                        key={`story-${photo.id}`}
+                        initial={shouldReduceMotion ? false : { opacity: 0, y: 12, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, scale: 0.985 }}
+                        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.28, ease: 'easeOut' }}
+                        className="min-h-[214px] bg-[linear-gradient(160deg,#FFFDF7_0%,#FFF5DC_52%,#FCEBC5_100%)] px-[9px] pb-[9px] pt-[42px]"
+                      >
+                        <div className="relative min-h-[162px] rounded-[14px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[12px] pb-[13px] pt-[11px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
+                          <span className="mb-[8px] inline-flex h-[17px] items-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
+                            关于此刻
+                          </span>
+                          <p className="whitespace-pre-wrap break-words text-[12.5px] font-semibold leading-[1.78] tracking-[0.02em] text-[#5D4037]/93">
+                            {String(photo.story_text || '').trim()}
+                          </p>
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key={`photo-${photo.id}`}
+                        initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.992 }}
+                        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.24, ease: 'easeOut' }}
+                      >
+                        <div
                         className="relative w-full overflow-hidden bg-[linear-gradient(135deg,#f8f2e6,#efe5d2)]"
                         style={{ paddingTop: photo.__media_padding_top || `${resolveAlbumPhotoRatio(photo, photoAspectRatioMap) * 100}%` }}
                       >
@@ -1419,7 +1432,7 @@ export default function AlbumDetailPage() {
                         />
                       </div>
 
-                      {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
+                        {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
                         <div
                           className="absolute inset-0 flex flex-col items-center justify-center gap-3"
                           style={{ background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)' }}
@@ -1469,7 +1482,7 @@ export default function AlbumDetailPage() {
                         </div>
                       )}
 
-                      {failedImages.has(photo.id) && (
+                        {failedImages.has(photo.id) && (
                         <div className="absolute inset-0 flex items-center justify-center bg-[#FFFBF0]">
                           <div className="flex flex-col items-center gap-2 px-4 text-center">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
@@ -1491,16 +1504,43 @@ export default function AlbumDetailPage() {
                             </button>
                           </div>
                         </div>
-                      )}
-                    </>
-                  )}
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.9 }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      photo.is_public ? togglePublic(photo.id) : setConfirmPhotoId(photo.id);
+                    }}
+                    className={`absolute right-[40px] top-[5px] z-[4] flex items-center justify-center overflow-hidden rounded-full border p-0 leading-none transition-[transform,background-color,border-color,box-shadow] duration-300 [appearance:none] [-webkit-appearance:none] ${
+                      photo.is_public
+                        ? 'border-[#FFC857]/60 bg-[#FFC857] text-[#5D4037] shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px]'
+                        : 'border-[#5D4037]/15 bg-white/92 text-[#8D6E63] shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px]'
+                    }`}
+                    style={
+                      photo.is_public
+                        ? {
+                            ...ALBUM_CARD_FLOATING_ICON_STYLE,
+                            boxShadow: '0 0 0 1px rgba(255,229,156,0.6), 0 5px 12px rgba(255,183,3,0.42)',
+                          }
+                        : ALBUM_CARD_FLOATING_ICON_STYLE
+                    }
+                    aria-label={photo.is_public ? '取消定格' : '定格到照片墙'}
+                    title={photo.is_public ? '已定格，点击取消' : '定格'}
+                  >
+                    <Sparkles className="h-[15px] w-[15px] shrink-0" strokeWidth={2.35} />
+                  </motion.button>
 
                   {hasStory(photo) && (
-                    <button
+                    <motion.button
+                      type="button"
+                      whileTap={{ scale: 0.9 }}
                       onClick={(event) => toggleStoryCard(photo.id, event)}
-                      className={`absolute z-[3] flex items-center justify-center overflow-hidden rounded-full border transition-all ${
-                        storyOpenMap[photo.id] ? 'bottom-[5px] right-[5px]' : 'left-[5px] top-[5px]'
-                      } ${
+                      className={`icon-button absolute left-[5px] top-[5px] z-[3] flex items-center justify-center overflow-hidden rounded-full border p-0 leading-none [appearance:none] [-webkit-appearance:none] transition-[transform,background-color,border-color,box-shadow] duration-300 ${
                         isHighlighted(photo)
                           ? 'bg-gradient-to-br from-[#FFD76E] to-[#FFC857] border border-[#5D4037]/45 text-[#5D4037] animate-pulse'
                           : 'bg-black/35 border-white/50 text-white'
@@ -1526,57 +1566,79 @@ export default function AlbumDetailPage() {
                       aria-label="查看关于此刻"
                       title="关于此刻"
                     >
-                      <span
-                        className={`font-bold leading-none transition-transform duration-200 ${
-                          storyOpenMap[photo.id] ? 'rotate-180' : ''
-                        } ${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
-                        style={{ fontSize: '16px', lineHeight: 1 }}
+                      <motion.span
+                        animate={shouldReduceMotion ? { rotate: 0, scale: 1 } : { rotate: storyOpenMap[photo.id] ? 180 : 0, scale: storyOpenMap[photo.id] ? 1.06 : 1 }}
+                        transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
+                        className={`${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
                       >
-                        ↗
-                      </span>
-                    </button>
+                        <RotateCw className="h-[15px] w-[15px]" strokeWidth={2.35} />
+                      </motion.span>
+                    </motion.button>
                   )}
 
                   <motion.button
+                    type="button"
                     whileTap={{ scale: 0.9 }}
                     onClick={(event) => {
                       event.stopPropagation();
                       togglePhotoSelection(photo.id);
                     }}
-                    className="absolute right-[7px] top-[7px] z-[4] flex h-[28px] w-[28px] items-center justify-center rounded-full border border-[#5D4037]/15 bg-white/92 shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px] transition-all"
+                    className="absolute right-[5px] top-[5px] z-[4] flex items-center justify-center overflow-hidden rounded-full border border-[#5D4037]/15 bg-white/92 p-0 leading-none shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px] [appearance:none] [-webkit-appearance:none] transition-[transform,background-color,border-color,box-shadow] duration-300"
+                    style={ALBUM_CARD_FLOATING_ICON_STYLE}
                   >
-                    <span
-                      className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border text-[11px] font-black leading-none ${
-                        selectedPhotos.has(photo.id)
-                          ? 'border-[#FFC857] bg-[#FFC857] text-[#5D4037]'
-                          : 'border-[#5D4037]/42 bg-transparent text-transparent'
-                      }`}
-                    >
-                      ✓
-                    </span>
+                    {selectedPhotos.has(photo.id) ? (
+                      <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#FFC857] bg-[#FFC857]">
+                        <span className="block h-[6px] w-[6px] rounded-full bg-[#5D4037]" />
+                      </span>
+                    ) : (
+                      <span className="block h-[18px] w-[18px] rounded-full border border-[#5D4037]/42" />
+                    )}
                   </motion.button>
                 </div>
 
-                <div className="flex items-center justify-center px-[6px] pt-[3px] pb-[5px]">
-                  <motion.button
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => photo.is_public ? togglePublic(photo.id) : setConfirmPhotoId(photo.id)}
-                    className={`inline-flex items-center gap-[5px] rounded-full border px-[10px] py-[4px] text-[11px] font-bold leading-none transition-all ${
-                      photo.is_public
-                        ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037]'
-                        : 'border-[#5D4037]/12 bg-[#5D4037]/10 text-[#5D4037]/65'
-                    }`}
-                  >
-                    <Sparkles className="h-[12px] w-[12px]" />
-                    <span>{photo.is_public ? '已定格' : '定格'}</span>
-                  </motion.button>
-                </div>
-              </div>
+              </motion.div>
             </motion.div>
               ))}
             </div>
           ))}
         </div>
+
+        <AnimatePresence>
+          {switchingFolderLoading && (
+            <motion.div
+              key="album-folder-switch-overlay"
+              initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.99 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.22, ease: 'easeOut' }}
+              className="absolute inset-0 z-20 flex items-center justify-center bg-[rgba(255,251,240,0.82)] backdrop-blur-[3px]"
+            >
+              <div className="flex flex-col items-center gap-3 rounded-[26px] border border-[#A67E52]/18 bg-[linear-gradient(180deg,rgba(255,253,247,0.95)_0%,rgba(255,246,231,0.92)_100%)] px-8 py-7 shadow-[0_16px_42px_rgba(93,64,55,0.16)]">
+                <div className="relative h-[108px] w-[108px]">
+                  <motion.span
+                    aria-hidden="true"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 2.8, repeat: Infinity, ease: 'linear' }}
+                    className="absolute inset-0 rounded-full border-[5px] border-[#FFC857]/28 border-t-[#FFC857]"
+                  />
+                  <motion.span
+                    aria-hidden="true"
+                    animate={{ rotate: -360 }}
+                    transition={{ duration: 2.1, repeat: Infinity, ease: 'linear' }}
+                    className="absolute inset-[16px] rounded-full border-[5px] border-[#5D4037]/18 border-b-[#5D4037]"
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <Sparkles className="h-9 w-9 text-[#D89B2B]" strokeWidth={2.2} />
+                  </span>
+                </div>
+                <div className="space-y-1 text-center">
+                  <p className="text-[15px] font-semibold tracking-[0.08em] text-[#5D4037]">拾光中...</p>
+                  <p className="text-[12px] text-[#5D4037]/62">正在切换当前照片分组</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* 赞赏入口 - 自然且不突兀 */}
         {albumData.album.enable_tipping && albumData.album.donation_qr_code_url && (

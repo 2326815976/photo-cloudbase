@@ -348,7 +348,7 @@ export default function BookingsPage() {
         <div className="px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+            className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
@@ -506,9 +506,9 @@ export default function BookingsPage() {
                 <h3 className="text-lg font-bold text-[#5D4037]">确认删除</h3>
                 <button
                   onClick={() => setShowDeleteConfirm(null)}
-                  className="w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors"
+                  className="icon-button action-icon-btn action-icon-btn--close"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" />
                 </button>
               </div>
               <p className="text-sm text-[#5D4037]/70 mb-6">

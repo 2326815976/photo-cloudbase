@@ -1,22 +1,45 @@
-import { createAdminClient, createClient } from '@/lib/cloudbase/server';
 import { NextResponse } from 'next/server';
+import { createAdminClient, createClient } from '@/lib/cloudbase/server';
+import {
+  isRetryableSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from '@/lib/cloudbase/sql-executor';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 
-export const dynamic = 'force-dynamic'; // 不缓存
+export const dynamic = 'force-dynamic';
 
 type SessionClient = Awaited<ReturnType<typeof createClient>>;
 type AdminCheckResult =
   | { ok: true; userId: string }
   | { ok: false; response: NextResponse };
 
+function buildTransientResponse() {
+  return NextResponse.json(
+    {
+      error: TRANSIENT_BACKEND_ERROR_MESSAGE,
+      code: TRANSIENT_BACKEND_ERROR_CODE,
+    },
+    { status: 503 }
+  );
+}
+
+function buildServerErrorResponse(message: string, status: number = 500) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckResult> {
-  const { data: authData } = await dbClient.auth.getUser();
+  const { data: authData, error: authError } = await dbClient.auth.getUser();
+  if (authError) {
+    if (isRetryableSqlError(authError)) {
+      return { ok: false, response: buildTransientResponse() };
+    }
+    return { ok: false, response: buildServerErrorResponse('????????') };
+  }
+
   const user = authData?.user ?? null;
   if (!user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: '未授权' }, { status: 401 }),
-    };
+    return { ok: false, response: buildServerErrorResponse('???', 401) };
   }
 
   let isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
@@ -28,41 +51,35 @@ async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckRe
       .maybeSingle();
 
     if (profileError) {
-      console.error('Error checking admin profile:', profileError);
-      return {
-        ok: false,
-        response: NextResponse.json({ error: '读取管理员信息失败' }, { status: 500 }),
-      };
+      if (isRetryableSqlError(profileError)) {
+        return { ok: false, response: buildTransientResponse() };
+      }
+      return { ok: false, response: buildServerErrorResponse('?????????') };
     }
 
     isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
   }
 
   if (!isAdmin) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: '需要管理员权限' }, { status: 403 }),
-    };
+    return { ok: false, response: buildServerErrorResponse('???????', 403) };
   }
 
   return { ok: true, userId: String(user.id || '') };
 }
 
 async function cleanupExpiredBlockedDates(dbClient: ReturnType<typeof createAdminClient>, today: string) {
-  try {
-    const { error } = await dbClient
-      .from('booking_blackouts')
-      .delete()
-      .lt('date', today);
-    if (error) {
-      console.error('Error cleaning expired blocked dates:', error);
-    }
-  } catch (error) {
-    console.error('Unexpected cleanup error:', error);
+  const { error } = await dbClient.from('booking_blackouts').delete().lt('date', today);
+  if (!error) {
+    return;
   }
+
+  if (isRetryableSqlError(error)) {
+    throw error;
+  }
+
+  console.error('Error cleaning expired blocked dates:', error);
 }
 
-// 获取所有锁定日期（管理端）
 export async function GET() {
   try {
     const sessionClient = await createClient();
@@ -70,13 +87,11 @@ export async function GET() {
     if (!adminCheck.ok) {
       return adminCheck.response;
     }
-    const adminDbClient = createAdminClient();
 
-    // 使用UTC时间获取今天的日期，只查询今天及以后的锁定日期
+    const adminDbClient = createAdminClient();
     const today = getTodayUTC8();
     await cleanupExpiredBlockedDates(adminDbClient, today);
 
-    // 查询所有锁定日期(只选择需要的字段)
     const { data, error } = await adminDbClient
       .from('booking_blackouts')
       .select('id, date, reason, created_at')
@@ -84,18 +99,24 @@ export async function GET() {
       .order('date', { ascending: false });
 
     if (error) {
+      if (isRetryableSqlError(error)) {
+        return buildTransientResponse();
+      }
       console.error('Error fetching blocked dates:', error);
-      return NextResponse.json({ error: '查询失败' }, { status: 500 });
+      return buildServerErrorResponse('????');
     }
 
     return NextResponse.json({ data });
   } catch (error) {
+    if (isRetryableSqlError(error)) {
+      return buildTransientResponse();
+    }
+
     console.error('Unexpected error:', error);
-    return NextResponse.json({ error: '服务器错误' }, { status: 500 });
+    return buildServerErrorResponse('?????');
   }
 }
 
-// 添加锁定日期
 export async function POST(request: Request) {
   try {
     const sessionClient = await createClient();
@@ -103,34 +124,29 @@ export async function POST(request: Request) {
     if (!adminCheck.ok) {
       return adminCheck.response;
     }
+
     const adminDbClient = createAdminClient();
-
-    // 解析请求体
     const body = await request.json();
-    const { date, reason } = body;
+    const date = String(body?.date ?? '').trim();
+    const reason = String(body?.reason ?? '').trim();
 
-    // 输入验证
     if (!date) {
-      return NextResponse.json({ error: '日期不能为空' }, { status: 400 });
+      return buildServerErrorResponse('??????', 400);
     }
 
-    // 验证日期格式 (YYYY-MM-DD)
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(date)) {
-      return NextResponse.json({ error: '日期格式错误，应为 YYYY-MM-DD' }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return buildServerErrorResponse('????????? YYYY-MM-DD', 400);
     }
 
-    // 验证日期是否有效
-    const dateObj = new Date(date + 'T00:00:00Z');
-    if (isNaN(dateObj.getTime())) {
-      return NextResponse.json({ error: '无效的日期' }, { status: 400 });
+    const dateObj = new Date(`${date}T00:00:00Z`);
+    if (Number.isNaN(dateObj.getTime())) {
+      return buildServerErrorResponse('?????', 400);
     }
 
-    // 验证日期不能是过去的日期
     const today = getTodayUTC8();
     await cleanupExpiredBlockedDates(adminDbClient, today);
     if (date < today) {
-      return NextResponse.json({ error: '不能锁定过去的日期' }, { status: 400 });
+      return buildServerErrorResponse('?????????', 400);
     }
 
     const { data: existingRow, error: existingError } = await adminDbClient
@@ -142,14 +158,17 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (existingError) {
+      if (isRetryableSqlError(existingError)) {
+        return buildTransientResponse();
+      }
       console.error('Error checking existing blocked date:', existingError);
-      return NextResponse.json({ error: '校验锁定日期失败，请稍后重试' }, { status: 500 });
-    }
-    if (existingRow) {
-      return NextResponse.json({ error: '该日期已被锁定' }, { status: 409 });
+      return buildServerErrorResponse('??????????????');
     }
 
-    // 插入锁定日期
+    if (existingRow) {
+      return buildServerErrorResponse('???????', 409);
+    }
+
     const { data, error } = await adminDbClient
       .from('booking_blackouts')
       .insert({ date, reason: reason || null })
@@ -163,14 +182,16 @@ export async function POST(request: Request) {
         errorCode === '23505' ||
         errorCode === '1062' ||
         /duplicate entry/i.test(errorMessage)
-      ) { // 唯一约束冲突
-        return NextResponse.json({ error: '该日期已被锁定' }, { status: 409 });
+      ) {
+        return buildServerErrorResponse('???????', 409);
       }
+
+      if (isRetryableSqlError(error)) {
+        return buildTransientResponse();
+      }
+
       console.error('Error inserting blocked date:', error);
-      return NextResponse.json(
-        { error: `添加失败：${String(errorMessage || errorCode || '未知错误')}` },
-        { status: 500 }
-      );
+      return buildServerErrorResponse(`?????${String(errorMessage || errorCode || '????')}`);
     }
 
     if (!data) {
@@ -181,18 +202,25 @@ export async function POST(request: Request) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
       if (fallbackError) {
+        if (isRetryableSqlError(fallbackError)) {
+          return buildTransientResponse();
+        }
         console.error('Error reading inserted blocked date:', fallbackError);
-        return NextResponse.json({ error: '添加成功但读取结果失败，请刷新重试' }, { status: 500 });
+        return buildServerErrorResponse('?????????????????');
       }
+
       return NextResponse.json({ success: true, data: fallback ?? null });
     }
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isRetryableSqlError(error)) {
+      return buildTransientResponse();
+    }
+
     console.error('Unexpected error:', error);
-    return NextResponse.json({ error: '服务器错误' }, { status: 500 });
+    return buildServerErrorResponse('?????');
   }
 }
-
-

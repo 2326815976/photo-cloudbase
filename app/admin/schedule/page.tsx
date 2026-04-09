@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { createClient } from '@/lib/cloudbase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, AlertCircle, CheckCircle, X } from 'lucide-react';
-import { formatDateUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
+import { formatDateUTC8, getDateAfterDaysUTC8, getTodayUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
 
 interface Blackout {
   id: number;
@@ -31,81 +30,277 @@ function formatScheduleWeekdayLabel(dateText: string): string {
   });
 }
 
+function formatScheduleShortLabel(dateText: string): string {
+  const date = parseDateUTC8(dateText);
+  return date.toLocaleDateString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    timeZone: 'Asia/Shanghai',
+  });
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message ?? '').trim();
+    if (message) {
+      return message;
+    }
+  }
+  return '未知错误';
+}
+
+type ScheduleToastType = 'success' | 'error' | 'warning';
+
+interface LoadBlackoutsOptions {
+  showNotice?: boolean;
+  throwOnError?: boolean;
+}
+
+interface LoadBlackoutsResult {
+  ok: boolean;
+  message: string;
+}
+
+type AdminBlockedDateRow = {
+  id?: number | string | null;
+  date?: string | null;
+  blocked_date?: string | null;
+  day?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
+};
+
+function extractApiMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== 'object') {
+    return fallback;
+  }
+
+  const directMessage = String((payload as { error?: unknown; message?: unknown }).error ?? (payload as { message?: unknown }).message ?? '').trim();
+  if (directMessage) {
+    return directMessage;
+  }
+
+  const nestedData = (payload as { data?: unknown }).data;
+  if (nestedData && typeof nestedData === 'object') {
+    const nestedMessage = extractApiMessage(nestedData, '');
+    if (nestedMessage) {
+      return nestedMessage;
+    }
+  }
+
+  return fallback;
+}
+
+function normalizeBlackoutRow(input: AdminBlockedDateRow): Blackout | null {
+  const id = Number(input?.id);
+  const date = String(input?.date ?? input?.blocked_date ?? input?.day ?? '').trim();
+  if (!Number.isInteger(id) || id <= 0 || !date) {
+    return null;
+  }
+
+  return {
+    id,
+    date,
+    reason: String(input?.reason ?? '').trim(),
+    created_at: String(input?.created_at ?? '').trim(),
+  };
+}
+
+async function readAdminBlockedDatesResponse(): Promise<Blackout[]> {
+  const response = await fetch('/api/admin/blocked-dates', {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'same-origin',
+  });
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(extractApiMessage(payload, '加载档期锁定失败'));
+  }
+
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray((payload as { data?: unknown } | null)?.data)
+      ? (payload as { data: AdminBlockedDateRow[] }).data
+      : [];
+
+  return rows
+    .map((item) => normalizeBlackoutRow((item ?? {}) as AdminBlockedDateRow))
+    .filter((item): item is Blackout => Boolean(item))
+    .sort((left, right) => String(left.date).localeCompare(String(right.date), 'zh-CN'));
+}
+
+async function createBlockedDateByApi(date: string, reason: string): Promise<void> {
+  const response = await fetch('/api/admin/blocked-dates', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      date,
+      reason: reason.trim() || null,
+    }),
+  });
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const error = new Error(extractApiMessage(payload, '新增锁档日期失败')) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
+  }
+}
+
+async function deleteBlockedDateByApi(id: number): Promise<void> {
+  const response = await fetch(`/api/admin/blocked-dates/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(extractApiMessage(payload, '删除锁档日期失败'));
+  }
+}
+
+function isDuplicateBlackoutError(error: unknown): boolean {
+  const status = Number((error as { status?: unknown } | null)?.status ?? 0);
+  const message = formatErrorMessage(error).toLowerCase();
+  return status === 409 || message.includes('已被锁定') || message.includes('duplicate entry');
+}
+
 export default function SchedulePage() {
   const [blackouts, setBlackouts] = useState<Blackout[]>([]);
   const [loading, setLoading] = useState(true);
+  const [blackoutsRefreshing, setBlackoutsRefreshing] = useState(false);
+  const [blackoutsError, setBlackoutsError] = useState('');
+  const [blackoutsReady, setBlackoutsReady] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({ startDate: '', endDate: '', reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const [showToast, setShowToast] = useState<{ message: string; type: ScheduleToastType } | null>(null);
   const [deletingBlackout, setDeletingBlackout] = useState<Blackout | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const blackoutsLoadTokenRef = useRef(0);
 
+  const showTransientToast = (message: string, type: ScheduleToastType) => {
+    setShowToast({ message, type });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
+  const loadBlackouts = async (options: LoadBlackoutsOptions = {}): Promise<LoadBlackoutsResult> => {
+    const config = options && typeof options === 'object' ? options : {};
+    const shouldThrow = config.throwOnError !== false;
+    const shouldShowNotice = Boolean(config.showNotice);
+    const hasReadyBlackouts = blackoutsReady;
+    const isFirstLoad = !hasReadyBlackouts;
+    const loadToken = blackoutsLoadTokenRef.current + 1;
+    blackoutsLoadTokenRef.current = loadToken;
+
+    setLoading(isFirstLoad);
+    setBlackoutsRefreshing(!isFirstLoad);
+    setBlackoutsError('');
+
+    try {
+      const rows = await readAdminBlockedDatesResponse();
+
+      if (loadToken !== blackoutsLoadTokenRef.current) {
+        return { ok: false, message: '请求已失效' };
+      }
+
+      setBlackouts(rows);
+      setLoading(false);
+      setBlackoutsRefreshing(false);
+      setBlackoutsError('');
+      setBlackoutsReady(true);
+      return { ok: true, message: '' };
+    } catch (error) {
+      const message = `加载档期锁定失败：${formatErrorMessage(error)}`;
+      if (loadToken === blackoutsLoadTokenRef.current) {
+        setLoading(false);
+        setBlackoutsRefreshing(false);
+        setBlackoutsError(message);
+        setBlackoutsReady(hasReadyBlackouts);
+        if (!hasReadyBlackouts) {
+          setBlackouts([]);
+        }
+      }
+      if (shouldShowNotice) {
+        showTransientToast(message, 'error');
+      }
+      if (shouldThrow) {
+        throw error;
+      }
+      return { ok: false, message };
+    }
+  };
+
+  const refreshSchedulePanel = async ({ silent = false }: { silent?: boolean } = {}) => {
+    const result = await loadBlackouts({ throwOnError: false, showNotice: false });
+    if (result.ok) {
+      if (!silent) {
+        showTransientToast('档期列表已刷新', 'success');
+      }
+      return result;
+    }
+
+    if (!silent) {
+      showTransientToast(result.message || '刷新失败，请稍后重试', blackoutsReady ? 'warning' : 'error');
+    }
+    return result;
+  };
+
   useEffect(() => {
-    void loadBlackouts();
+    void loadBlackouts({ throwOnError: false });
 
     return () => {
       blackoutsLoadTokenRef.current += 1;
     };
   }, []);
 
-  const loadBlackouts = async () => {
-    const loadToken = blackoutsLoadTokenRef.current + 1;
-    blackoutsLoadTokenRef.current = loadToken;
-
-    setLoading(true);
-    const dbClient = createClient();
-    if (!dbClient) {
-      setLoading(false);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-
-    const { data, error } = await dbClient
-      .from('booking_blackouts')
-      .select('*')
-      .order('date', { ascending: true });
-
-    if (loadToken !== blackoutsLoadTokenRef.current) {
-      return;
-    }
-
-    if (!error && data) {
-      setBlackouts(data);
-    }
-    if (loadToken === blackoutsLoadTokenRef.current) {
-      setLoading(false);
-    }
-  };
-
   const handleAdd = async () => {
     if (!formData.startDate) {
-      setShowToast({ message: '请选择开始日期', type: 'warning' });
-      setTimeout(() => setShowToast(null), 3000);
+      showTransientToast('请选择开始日期', 'warning');
+      return;
+    }
+
+    if (formData.startDate < getTodayUTC8()) {
+      showTransientToast('不能锁定今天之前的日期', 'warning');
       return;
     }
 
     setSubmitting(true);
-    const dbClient = createClient();
-    if (!dbClient) {
-      setSubmitting(false);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
 
     const dates: string[] = [];
     const start = parseDateUTC8(formData.startDate);
     const end = formData.endDate ? parseDateUTC8(formData.endDate) : start;
 
     if (end < start) {
-      setShowToast({ message: '结束日期不能早于开始日期', type: 'warning' });
-      setTimeout(() => setShowToast(null), 3000);
+      showTransientToast('结束日期不能早于开始日期', 'warning');
       setSubmitting(false);
       return;
     }
@@ -116,65 +311,44 @@ export default function SchedulePage() {
       current.setUTCDate(current.getUTCDate() + 1);
     }
 
-    const records = dates.map(date => ({
-      date,
-      reason: formData.reason || '管理员锁定',
-    }));
+    const normalizedReason = formData.reason.trim();
 
     try {
-      const { data: existingRows, error: existingError } = await dbClient
-        .from('booking_blackouts')
-        .select('date')
-        .in('date', dates);
-
-      if (existingError) {
-        throw existingError;
-      }
-
-      const existingSet = new Set(
-        (existingRows || []).map((row: any) => String(row.date ?? '').trim()).filter(Boolean)
-      );
-
-      const newRecords = records.filter((record) => !existingSet.has(record.date));
-      if (newRecords.length === 0) {
-        setShowToast({ message: '所选日期均已锁定，无需重复添加', type: 'warning' });
-        setTimeout(() => setShowToast(null), 3000);
-        setSubmitting(false);
-        return;
-      }
-
-      const { error } = await dbClient
-        .from('booking_blackouts')
-        .insert(newRecords);
-
-      if (error) {
-        const code = String((error as any)?.code ?? '').trim();
-        const message = String(error.message ?? '').toLowerCase();
-        if (code === '23505' || code === '1062' || message.includes('duplicate entry')) {
-          setShowToast({ message: '部分日期已被其他管理员锁定，请刷新后重试', type: 'warning' });
-        } else {
-          setShowToast({ message: `添加失败：${error.message}`, type: 'error' });
+      let createdCount = 0;
+      let duplicatedCount = 0;
+      for (const date of dates) {
+        try {
+          await createBlockedDateByApi(date, normalizedReason);
+          createdCount += 1;
+        } catch (error) {
+          if (isDuplicateBlackoutError(error)) {
+            duplicatedCount += 1;
+            continue;
+          }
+          throw error;
         }
-        setTimeout(() => setShowToast(null), 3000);
-        setSubmitting(false);
-        await loadBlackouts();
-        return;
       }
 
-      setShowAddModal(false);
-      setFormData({ startDate: '', endDate: '', reason: '' });
-      await loadBlackouts();
+      if (createdCount > 0) {
+        setShowAddModal(false);
+        setFormData({ startDate: '', endDate: '', reason: '' });
+      }
 
-      const skippedCount = records.length - newRecords.length;
-      if (skippedCount > 0) {
-        setShowToast({ message: `已锁定 ${newRecords.length} 天，跳过 ${skippedCount} 个已存在日期`, type: 'success' });
+      const refreshResult = await loadBlackouts({ throwOnError: false, showNotice: false });
+      const suffix = refreshResult.ok ? '' : `；列表刷新失败：${refreshResult.message}`;
+      const feedbackType: ScheduleToastType = refreshResult.ok ? (createdCount > 0 ? 'success' : 'warning') : blackoutsReady ? 'warning' : 'error';
+
+      if (createdCount > 0 && duplicatedCount > 0) {
+        showTransientToast(`已锁定 ${createdCount} 天，跳过 ${duplicatedCount} 个已存在日期${suffix}`, feedbackType);
+      } else if (createdCount > 0) {
+        showTransientToast(`档期已锁定${suffix}`, feedbackType);
+      } else if (duplicatedCount > 0) {
+        showTransientToast(`所选日期均已锁定，无需重复添加${suffix}`, feedbackType);
       } else {
-        setShowToast({ message: '档期已锁定', type: 'success' });
+        showTransientToast(`添加失败：未生成有效锁档记录${suffix}`, 'error');
       }
-      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
-      setShowToast({ message: `添加失败：${error?.message || '未知错误'}`, type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
+      showTransientToast(`添加失败：${error?.message || '未知错误'}`, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -191,68 +365,25 @@ export default function SchedulePage() {
     if (!deletingBlackout) return;
 
     setActionLoading(true);
-    const dbClient = createClient();
-    if (!dbClient) {
-      setActionLoading(false);
-      setDeletingBlackout(null);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
     try {
-      const { data: snapshotRow, error: snapshotError } = await dbClient
-        .from('booking_blackouts')
-        .select('id')
-        .eq('id', deletingBlackout.id)
-        .maybeSingle();
-      if (snapshotError) {
-        throw snapshotError;
-      }
-      if (!snapshotRow) {
-        setActionLoading(false);
-        setDeletingBlackout(null);
-        setShowToast({ message: '档期不存在或已删除，请刷新后重试', type: 'warning' });
-        setTimeout(() => setShowToast(null), 3000);
-        return;
-      }
+      await deleteBlockedDateByApi(deletingBlackout.id);
 
-      const { error: deleteError } = await dbClient
-        .from('booking_blackouts')
-        .delete()
-        .eq('id', deletingBlackout.id);
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      const { data: remainingRow, error: verifyError } = await dbClient
-        .from('booking_blackouts')
-        .select('id')
-        .eq('id', deletingBlackout.id)
-        .maybeSingle();
-      if (verifyError) {
-        throw verifyError;
-      }
-      if (remainingRow) {
-        throw new Error('删除失败，请稍后重试');
-      }
-
-      setActionLoading(false);
       setDeletingBlackout(null);
-      loadBlackouts();
-      setShowToast({ message: '档期锁定已删除', type: 'success' });
-      setTimeout(() => setShowToast(null), 3000);
+      const refreshResult = await loadBlackouts({ throwOnError: false, showNotice: false });
+      const suffix = refreshResult.ok ? '' : `；列表刷新失败：${refreshResult.message}`;
+      const feedbackType: ScheduleToastType = refreshResult.ok ? 'success' : blackoutsReady ? 'warning' : 'error';
+      showTransientToast(`档期锁定已删除${suffix}`, feedbackType);
     } catch (error: any) {
-      setActionLoading(false);
       setDeletingBlackout(null);
-      setShowToast({ message: `删除失败：${error?.message || '未知错误'}`, type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
+      showTransientToast(`删除失败：${error?.message || '未知错误'}`, 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleBatchDelete = async () => {
     if (selectedIds.length === 0) {
-      setShowToast({ message: '请先选择要删除的档期', type: 'warning' });
-      setTimeout(() => setShowToast(null), 3000);
+      showTransientToast('请先选择要删除的档期', 'warning');
       return;
     }
 
@@ -262,77 +393,38 @@ export default function SchedulePage() {
   const confirmBatchDelete = async () => {
     setShowBatchDeleteConfirm(false);
     setActionLoading(true);
-
-    const dbClient = createClient();
-    if (!dbClient) {
-      setActionLoading(false);
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
     try {
-      const { data: selectedRows, error: snapshotError } = await dbClient
-        .from('booking_blackouts')
-        .select('id')
-        .in('id', selectedIds);
-      if (snapshotError) {
-        throw snapshotError;
+      let deletedCount = 0;
+      let failedCount = 0;
+      for (const id of selectedIds) {
+        try {
+          await deleteBlockedDateByApi(id);
+          deletedCount += 1;
+        } catch {
+          failedCount += 1;
+        }
       }
 
-      const rows = Array.isArray(selectedRows) ? selectedRows : [];
-      const missingCount = Math.max(0, selectedIds.length - rows.length);
-      if (rows.length === 0) {
-        setActionLoading(false);
-        setShowToast({ message: '未找到可删除档期，请刷新后重试', type: 'warning' });
-        setTimeout(() => setShowToast(null), 3000);
-        return;
-      }
-
-      const targetIds = rows.map((row: any) => Number(row.id));
-      const { error: deleteError } = await dbClient
-        .from('booking_blackouts')
-        .delete()
-        .in('id', targetIds);
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      const { data: remainingRows, error: verifyError } = await dbClient
-        .from('booking_blackouts')
-        .select('id')
-        .in('id', targetIds);
-      if (verifyError) {
-        throw verifyError;
-      }
-
-      const remainingIdSet = new Set((remainingRows || []).map((row: any) => Number(row.id)));
-      const deletedCount = targetIds.filter((id) => !remainingIdSet.has(id)).length;
       if (deletedCount === 0) {
         throw new Error('批量删除失败，请稍后重试');
       }
 
-      setActionLoading(false);
       setSelectedIds([]);
       setIsSelectionMode(false);
-      loadBlackouts();
 
-      if (remainingIdSet.size > 0) {
-        setShowToast({
-          message: missingCount > 0
-            ? `成功删除 ${deletedCount} 个档期锁定，${remainingIdSet.size} 个删除失败，${missingCount} 个已不存在`
-            : `成功删除 ${deletedCount} 个档期锁定，${remainingIdSet.size} 个删除失败`,
-          type: 'warning',
-        });
-      } else if (missingCount > 0) {
-        setShowToast({ message: `成功删除 ${deletedCount} 个档期锁定（${missingCount} 个已不存在）`, type: 'success' });
+      const refreshResult = await loadBlackouts({ throwOnError: false, showNotice: false });
+      const suffix = refreshResult.ok ? '' : `；列表刷新失败：${refreshResult.message}`;
+      const feedbackType: ScheduleToastType = refreshResult.ok ? (failedCount > 0 ? 'warning' : 'success') : blackoutsReady ? 'warning' : 'error';
+
+      if (failedCount > 0) {
+        showTransientToast(`成功删除 ${deletedCount} 个档期锁定，${failedCount} 个删除失败${suffix}`, feedbackType);
       } else {
-        setShowToast({ message: `成功删除 ${deletedCount} 个档期锁定`, type: 'success' });
+        showTransientToast(`成功删除 ${deletedCount} 个档期锁定${suffix}`, feedbackType);
       }
-      setTimeout(() => setShowToast(null), 3000);
     } catch (error: any) {
+      showTransientToast(`批量删除失败：${error?.message || '未知错误'}`, 'error');
+    } finally {
       setActionLoading(false);
-      setShowToast({ message: `批量删除失败：${error?.message || '未知错误'}`, type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
     }
   };
 
@@ -417,12 +509,20 @@ export default function SchedulePage() {
       <div className="booking-panel schedule-panel">
         <div className="booking-toolbar schedule-toolbar">
           {!isSelectionMode && (
-            <div className="booking-toolbar-actions booking-toolbar-actions--right">
+            <div className="booking-toolbar-actions booking-toolbar-actions--right schedule-toolbar-actions">
+              <button
+                type="button"
+                className="booking-pill-btn booking-pill-btn--ghost"
+                onClick={() => void refreshSchedulePanel()}
+                disabled={loading || blackoutsRefreshing || submitting || actionLoading}
+              >
+                {blackoutsRefreshing ? '刷新中...' : '刷新'}
+              </button>
               <button
                 type="button"
                 className="booking-pill-btn booking-pill-btn--ghost"
                 onClick={() => setIsSelectionMode(true)}
-                disabled={loading || scheduleTotalCount === 0}
+                disabled={loading || blackoutsRefreshing || actionLoading || scheduleTotalCount === 0}
               >
                 批量删除
               </button>
@@ -430,7 +530,7 @@ export default function SchedulePage() {
                 type="button"
                 className="booking-pill-btn booking-pill-btn--primary"
                 onClick={() => setShowAddModal(true)}
-                disabled={loading}
+                disabled={loading || blackoutsRefreshing || actionLoading}
               >
                 + 锁定档期
               </button>
@@ -443,7 +543,7 @@ export default function SchedulePage() {
                 type="button"
                 className="booking-pill-btn booking-pill-btn--ghost booking-pill-btn--compact"
                 onClick={selectAll}
-                disabled={actionLoading}
+                disabled={actionLoading || blackoutsRefreshing}
               >
                 {scheduleAllSelected ? '取消全选' : '全选'} ({scheduleSelectedCount}/{scheduleTotalCount})
               </button>
@@ -451,7 +551,7 @@ export default function SchedulePage() {
                 type="button"
                 className="booking-pill-btn booking-pill-btn--danger booking-pill-btn--compact"
                 onClick={handleBatchDelete}
-                disabled={actionLoading || scheduleSelectedCount === 0}
+                disabled={actionLoading || blackoutsRefreshing || scheduleSelectedCount === 0}
               >
                 删除 ({scheduleSelectedCount})
               </button>
@@ -459,7 +559,7 @@ export default function SchedulePage() {
                 type="button"
                 className="booking-pill-btn booking-pill-btn--ghost booking-pill-btn--compact"
                 onClick={clearSelection}
-                disabled={actionLoading}
+                disabled={actionLoading || blackoutsRefreshing}
               >
                 取消
               </button>
@@ -467,15 +567,67 @@ export default function SchedulePage() {
           )}
         </div>
 
-        {loading ? (
-          <div className="py-10 text-center">
-            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#FFC857] border-t-transparent"></div>
-            <p className="text-sm text-[#5D4037]/60">加载中...</p>
+        {blackoutsError && blackoutsReady ? (
+          <div className="schedule-inline-error">
+            <p className="schedule-inline-error__text">{blackoutsError}</p>
+          </div>
+        ) : null}
+
+        {loading && !blackoutsReady ? (
+          <div className="schedule-state-card schedule-state-card--loading">
+            <div className="schedule-state-card__top">
+              <div className="schedule-state-card__badge schedule-state-card__badge--loading">
+                <div className="h-6 w-6 animate-spin rounded-full border-[3px] border-[#FFC857] border-t-transparent"></div>
+              </div>
+              <div className="schedule-state-card__copy">
+                <p className="schedule-state-card__title">正在加载档期列表</p>
+                <p className="schedule-state-card__desc">请稍候，正在同步最新锁定档期</p>
+              </div>
+            </div>
+          </div>
+        ) : !blackoutsReady ? (
+          <div className="schedule-state-card schedule-state-card--error">
+            <div className="schedule-state-card__top">
+              <div className="schedule-state-card__badge schedule-state-card__badge--error">
+                <AlertCircle className="schedule-state-card__icon" />
+              </div>
+              <div className="schedule-state-card__copy">
+                <p className="schedule-state-card__title">档期列表加载失败</p>
+                <p className="schedule-state-card__desc">{blackoutsError || '请稍后重试或手动刷新档期列表'}</p>
+              </div>
+            </div>
+            <div className="schedule-state-card__footer">
+              <button
+                type="button"
+                className="schedule-state-card__action"
+                onClick={() => void refreshSchedulePanel()}
+                disabled={loading || blackoutsRefreshing}
+              >
+                {loading || blackoutsRefreshing ? '重新加载中...' : '重新加载'}
+              </button>
+            </div>
           </div>
         ) : scheduleRows.length === 0 ? (
-          <div className="booking-empty-card schedule-empty-card text-center">
-            <span className="booking-empty-card__icon">📅</span>
-            <p className="text-sm text-[#5D4037]/60">暂无锁定档期</p>
+          <div className="schedule-state-card schedule-state-card--empty">
+            <div className="schedule-state-card__top">
+              <div className="schedule-state-card__badge schedule-state-card__badge--success">
+                <CheckCircle className="schedule-state-card__icon" />
+              </div>
+              <div className="schedule-state-card__copy">
+                <p className="schedule-state-card__title">暂无锁定档期</p>
+                <p className="schedule-state-card__desc">当前没有未来锁定日期，可随时新增或刷新列表</p>
+              </div>
+            </div>
+            <div className="schedule-state-card__footer">
+              <button
+                type="button"
+                className="schedule-state-card__action"
+                onClick={() => void refreshSchedulePanel()}
+                disabled={loading || blackoutsRefreshing}
+              >
+                {blackoutsRefreshing ? '刷新中...' : '刷新列表'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="schedule-cards">

@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Calendar, Info, LayoutDashboard, Lock, LogOut, User } from 'lucide-react';
 import LogoutConfirmModal from '@/components/LogoutConfirmModal';
+import PageTopHeader from '@/components/PageTopHeader';
+import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
 import { logoutWithCleanup } from '@/lib/auth/logout-client';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 function isTransientConnectionError(message: string): boolean {
   const normalized = String(message ?? '').toLowerCase();
@@ -22,6 +25,11 @@ function isTransientConnectionError(message: string): boolean {
 
 export default function ProfilePage() {
   const router = useRouter();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'profile',
+    '我的小天地',
+    '📒 管理你的拾光小秘密 📒'
+  );
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
@@ -153,16 +161,11 @@ export default function ProfilePage() {
           animate={{ opacity: 1, y: 0 }}
           className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
         >
-          <div className="px-4 py-3 flex items-center justify-between gap-2">
-            <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>我的小天地</h1>
-            <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-              <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📒 管理你的拾光小秘密 📒</p>
-            </div>
-          </div>
+          <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
         </motion.div>
 
         {/* 未登录态 */}
-        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-20">
+        <PreviewAwareScrollArea className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -193,7 +196,7 @@ export default function ProfilePage() {
               </motion.button>
             </div>
           </motion.div>
-        </div>
+        </PreviewAwareScrollArea>
       </div>
     );
   }
@@ -223,16 +226,11 @@ export default function ProfilePage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>我的小天地</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📒 管理你的拾光小秘密 📒</p>
-          </div>
-        </div>
+        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+      <PreviewAwareScrollArea className="flex-1 overflow-y-auto px-6 pt-6">
         {/* 身份卡片 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -385,7 +383,7 @@ export default function ProfilePage() {
             </div>
           </motion.button>
         </div>
-      </div>
+      </PreviewAwareScrollArea>
 
       <LogoutConfirmModal
         isOpen={showLogoutConfirm}

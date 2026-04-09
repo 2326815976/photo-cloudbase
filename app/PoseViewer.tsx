@@ -8,7 +8,10 @@ import SimpleImage from '@/components/ui/SimpleImage';
 import ToggleSwitch from '@/components/ui/ToggleSwitch';
 import SkeletonPose from '@/components/ui/SkeletonPose';
 import SkeletonTags from '@/components/ui/SkeletonTags';
+import PageTopHeader from '@/components/PageTopHeader';
+import { usePageShellBottomStyle } from '@/components/PreviewAwareScrollArea';
 import { SplashScreen } from '@capacitor/splash-screen';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 const journalColors = [
   'bg-[#FFE5E5] text-[#8B4545] border-[#D4A5A5]',
@@ -127,6 +130,12 @@ const writePoseMemoryCache = (pose: Pose | null) => {
 
 export default function PoseViewer({ initialTags, initialPose, initialPoses }: PoseViewerProps) {
   const memoryPose = initialPose ?? readPoseMemoryCache();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'pose',
+    '拾光谣',
+    '✨ 定格美好瞬间 ✨'
+  );
+  const actionAreaBottomStyle = usePageShellBottomStyle('compact');
   const [tags, setTags] = useState<PoseTag[]>(initialTags);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [currentPose, setCurrentPose] = useState<Pose | null>(memoryPose);
@@ -746,12 +755,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>拾光谣</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 定格美好瞬间 ✨</p>
-          </div>
-        </div>
+        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
       </motion.div>
 
       <div
@@ -855,7 +859,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           </AnimatePresence>
         )}
 
-        <div className="flex-none pb-14">
+        <div className="flex-none" style={actionAreaBottomStyle}>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -922,9 +926,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
 
                 <button
                   onClick={() => setShowPreview(false)}
-                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
+                  className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" />
                 </button>
 
                 <div className="p-4 pb-3">
@@ -1041,9 +1045,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   setScale(1);
                   setPosition({ x: 0, y: 0 });
                 }}
-                className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4 z-10"
               >
-                <X className="w-6 h-6 text-white" />
+                <X className="action-icon-svg" />
               </button>
 
               <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-10">
@@ -1126,15 +1130,15 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   <h3 className="text-lg font-bold text-[#5D4037]">选择标签</h3>
                   <button
                     onClick={() => setShowTagSelector(false)}
-                    className="w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors"
+                    className="icon-button action-icon-btn action-icon-btn--close"
                     style={{ transform: 'translateZ(0)' }}
                   >
-                    <X className="w-5 h-5 text-[#5D4037]" />
+                    <X className="action-icon-svg" />
                   </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4" style={{ contain: 'layout style paint', willChange: 'scroll-position' }}>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {tags.map((tag) => (
                       <button
                         key={tag.id}
@@ -1196,5 +1200,3 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
     </div>
   );
 }
-
-

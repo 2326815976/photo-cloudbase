@@ -26,6 +26,7 @@ type MaintenancePayload = {
 
 interface MaintenanceButtonProps {
   variant?: 'default' | 'stats';
+  onSuccess?: () => void | Promise<void>;
 }
 
 const TASK_LABELS: Record<string, string> = {
@@ -41,6 +42,8 @@ const RUNNING_TEXT = '\u6267\u884c\u4e2d...';
 const RUN_TEXT = '\u7acb\u5373\u7ef4\u62a4';
 const STATS_RUN_TEXT = '\u7ef4\u62a4\u4efb\u52a1';
 const UNKNOWN_ERROR = '\u672a\u77e5\u9519\u8bef';
+const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_TEXT = '\u7ef4\u62a4\u8bf7\u6c42\u8d85\u65f6\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5';
 
 function readCount(value: unknown): number {
   const parsed = Number(value);
@@ -109,7 +112,7 @@ function buildMaintenanceMessage(payload: MaintenancePayload): string {
   return `\u7ef4\u62a4\u4efb\u52a1\u6267\u884c\u5b8c\u6210\uff1a${summaryParts.join('\uff0c')}${extras.length > 0 ? `\uff1b${extras.join('\uff1b')}` : ''}`;
 }
 
-export default function MaintenanceButton({ variant = 'default' }: MaintenanceButtonProps) {
+export default function MaintenanceButton({ variant = 'default', onSuccess }: MaintenanceButtonProps) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const isStatsVariant = variant === 'stats';
@@ -117,14 +120,19 @@ export default function MaintenanceButton({ variant = 'default' }: MaintenanceBu
   const runMaintenance = async () => {
     setRunning(true);
     setResult(null);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
 
     try {
       const response = await fetch('/api/maintenance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
 
       if (response.ok) {
         const payload = (data?.result ?? {}) as MaintenancePayload;
@@ -132,6 +140,13 @@ export default function MaintenanceButton({ variant = 'default' }: MaintenanceBu
           success: true,
           message: buildMaintenanceMessage(payload),
         });
+        if (typeof onSuccess === 'function') {
+          try {
+            await onSuccess();
+          } catch {
+            // ignore refresh callback errors
+          }
+        }
       } else {
         setResult({
           success: false,
@@ -139,11 +154,15 @@ export default function MaintenanceButton({ variant = 'default' }: MaintenanceBu
         });
       }
     } catch (error) {
+      const isAbortError = error instanceof DOMException && error.name === 'AbortError';
       setResult({
         success: false,
-        message: `\u7ef4\u62a4\u5931\u8d25\uff1a${error instanceof Error ? error.message : UNKNOWN_ERROR}`,
+        message: `\u7ef4\u62a4\u5931\u8d25\uff1a${
+          isAbortError ? REQUEST_TIMEOUT_TEXT : error instanceof Error ? error.message : UNKNOWN_ERROR
+        }`,
       });
     } finally {
+      window.clearTimeout(timeoutId);
       setRunning(false);
       window.setTimeout(() => setResult(null), 5000);
     }

@@ -1,3 +1,8 @@
+/// <reference lib="webworker" />
+
+/** @type {ServiceWorkerGlobalScope} */
+const sw = self;
+
 // Service Worker - 优化Android端性能
 const CACHE_VERSION = 'slogan-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
@@ -26,7 +31,7 @@ const STATIC_ASSETS = [
 ];
 
 // 安装阶段：预缓存字体和静态资源
-self.addEventListener('install', (event) => {
+sw.addEventListener('install', /** @param {ExtendableEvent} event */ (event) => {
   console.log('[SW] 安装中...');
   event.waitUntil(
     Promise.all([
@@ -40,7 +45,7 @@ self.addEventListener('install', (event) => {
 });
 
 // 激活阶段：清理旧缓存
-self.addEventListener('activate', (event) => {
+sw.addEventListener('activate', /** @param {ExtendableEvent} event */ (event) => {
   console.log('[SW] 激活中...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -52,21 +57,21 @@ self.addEventListener('activate', (event) => {
             return caches.delete(name);
           })
       );
-    }).then(() => self.clients.claim())
+    }).then(() => sw.clients.claim())
   );
 });
 
-self.addEventListener('message', (event) => {
+sw.addEventListener('message', /** @param {ExtendableMessageEvent} event */ (event) => {
   if (event?.data?.type === 'SKIP_WAITING') {
-    self.skipWaiting();
+    sw.skipWaiting();
   }
 });
 
 // 请求拦截：实施缓存策略
-self.addEventListener('fetch', (event) => {
+sw.addEventListener('fetch', /** @param {FetchEvent} event */ (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  const isSameOrigin = url.origin === self.location.origin;
+  const isSameOrigin = url.origin === sw.location.origin;
 
   // 只处理GET请求
   if (request.method !== 'GET') return;

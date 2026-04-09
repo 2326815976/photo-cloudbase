@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -20,6 +20,12 @@ interface AdminNavItem {
   icon: string;
 }
 
+interface AdminNavSection {
+  key: string;
+  label: string;
+  items: AdminNavItem[];
+}
+
 const BRAND_TITLE = '拾光谣管理';
 const BRAND_SUBTITLE = '后台功能导航';
 const CURRENT_ADMIN_TEXT = '当前管理员';
@@ -30,16 +36,35 @@ const LOGOUT_TEXT = '退出登录';
 const LOGOUT_TITLE = '确认退出管理后台？';
 const LOGOUT_DESCRIPTION = '退出后将清理当前登录会话，需要重新登录才能继续管理内容。';
 
-const navItems: AdminNavItem[] = [
-  { href: '/admin/stats', label: '数据统计', desc: '运营概览', icon: '📊' },
-  { href: '/admin/poses', label: '摆姿管理', desc: '姿势与标签', icon: '📷' },
-  { href: '/admin/bookings', label: '预约管理', desc: '预约与城市', icon: '📮' },
-  { href: '/admin/schedule', label: '档期管理', desc: '锁档日期', icon: '🗓️' },
-  { href: '/admin/gallery', label: '照片墙管理', desc: '公开图集', icon: '🖼️' },
-  { href: '/admin/albums', label: '专属空间管理', desc: '返图空间', icon: '💐' },
-  { href: '/admin/about', label: '关于设置', desc: '作者信息', icon: 'ℹ️' },
-  { href: '/admin/releases', label: '发布版本', desc: '安装包发布', icon: '📦' },
-  { href: '/admin/beta', label: '内测版本', desc: '功能灰度', icon: '🧪' },
+const navSections: AdminNavSection[] = [
+  {
+    key: 'overview',
+    label: '概览',
+    items: [
+      { href: '/admin/stats', label: '数据统计', desc: '运营概览', icon: '📊' },
+    ],
+  },
+  {
+    key: 'content',
+    label: '内容与服务',
+    items: [
+      { href: '/admin/poses', label: '摆姿管理', desc: '姿势与标签', icon: '📷' },
+      { href: '/admin/bookings', label: '预约管理', desc: '预约与城市', icon: '📮' },
+      { href: '/admin/schedule', label: '档期管理', desc: '锁档日期', icon: '🗓️' },
+      { href: '/admin/gallery', label: '照片墙管理', desc: '公开图集', icon: '🖼️' },
+      { href: '/admin/albums', label: '专属空间管理', desc: '返图空间', icon: '💐' },
+      { href: '/admin/about', label: '关于设置', desc: '作者信息', icon: 'ℹ️' },
+    ],
+  },
+  {
+    key: 'publish',
+    label: '发布与配置',
+    items: [
+      { href: '/admin/web-pages', label: 'Web 页面管理', desc: 'Web 内测 / 上线 / 下线 / 查看', icon: '🧭' },
+      { href: '/admin/miniprogram-pages', label: '小程序页面管理', desc: '小程序 内测 / 上线 / 下线 / 查看', icon: '📱' },
+      { href: '/admin/releases', label: '发布版本', desc: '安装包发布', icon: '📦' },
+    ],
+  },
 ];
 
 function isNavItemActive(pathname: string, href: string) {
@@ -82,6 +107,38 @@ function NavItemLink({
         <span className="admin-sidebar-link__desc mt-1 block truncate text-xs text-[#5D4037]/60">{item.desc}</span>
       </span>
     </Link>
+  );
+}
+
+function NavSectionList({
+  sections,
+  pathname,
+  onItemClick,
+}: {
+  sections: AdminNavSection[];
+  pathname: string;
+  onItemClick?: () => void;
+}) {
+  return (
+    <div className="space-y-5">
+      {sections.map((section) => (
+        <section key={section.key}>
+          <p className="px-4 pb-2 text-[11px] font-semibold tracking-[0.18em] text-[#5D4037]/50">
+            {section.label}
+          </p>
+          <div className="space-y-1.5">
+            {section.items.map((item) => (
+              <NavItemLink
+                key={item.href}
+                item={item}
+                pathname={pathname}
+                onClick={onItemClick}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -227,9 +284,7 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {navItems.map((item) => (
-            <NavItemLink key={item.href} item={item} pathname={pathname} />
-          ))}
+          <NavSectionList sections={navSections} pathname={pathname} />
         </nav>
 
         <SidebarFooter username={username} onRequestLogout={handleRequestLogout} />
@@ -257,14 +312,11 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
               className="admin-mobile-drawer fixed bottom-0 left-0 top-16 z-50 flex w-[320px] max-w-[82vw] flex-col border-r border-[#5D4037]/12 bg-[#FFFBF0] shadow-[18px_0_40px_rgba(15,23,42,0.2)] md:hidden"
             >
               <nav className="flex-1 overflow-y-auto px-3 py-4">
-                {navItems.map((item) => (
-                  <NavItemLink
-                    key={item.href}
-                    item={item}
-                    pathname={pathname}
-                    onClick={() => setMobileMenuOpen(false)}
-                  />
-                ))}
+                <NavSectionList
+                  sections={navSections}
+                  pathname={pathname}
+                  onItemClick={() => setMobileMenuOpen(false)}
+                />
               </nav>
 
               <SidebarFooter
@@ -288,3 +340,4 @@ export default function AdminSidebar({ username }: AdminSidebarProps) {
     </>
   );
 }
+

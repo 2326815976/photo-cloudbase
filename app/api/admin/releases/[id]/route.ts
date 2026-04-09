@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/cloudbase/server';
 import { deleteCloudBaseFiles, deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
+import { getReleaseByIdWithCompat } from '@/lib/releases/release-compat';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,14 +13,14 @@ export async function DELETE(
     const { id } = await params;
     const releaseId = Number(id);
     if (!Number.isFinite(releaseId) || releaseId <= 0) {
-      return NextResponse.json({ error: '版本 ID 非法' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid release id' }, { status: 400 });
     }
 
     const dbClient = await createClient();
 
     const { data: authUser } = await dbClient.auth.getUser();
     if (!authUser?.user) {
-      return NextResponse.json({ error: '未授权' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { data: profile } = await dbClient
@@ -29,21 +30,24 @@ export async function DELETE(
       .single();
 
     if (profile?.role !== 'admin') {
-      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 });
+      return NextResponse.json({ error: 'Admin role required' }, { status: 403 });
     }
 
-    const { data: release, error: fetchError } = await dbClient
-      .from('app_releases')
-      .select('id, download_url, storage_file_id')
-      .eq('id', releaseId)
-      .single();
+    const { data: release, error: fetchError } = await getReleaseByIdWithCompat(
+      dbClient,
+      releaseId,
+      'Load release failed'
+    );
 
-    if (fetchError || !release) {
-      return NextResponse.json({ error: '版本不存在' }, { status: 404 });
+    if (fetchError) {
+      return NextResponse.json({ error: fetchError.message }, { status: 500 });
+    }
+    if (!release || release.id <= 0) {
+      return NextResponse.json({ error: 'Release not found' }, { status: 404 });
     }
 
-    const storageFileId = String((release as any).storage_file_id ?? '').trim();
-    const downloadUrl = String((release as any).download_url ?? '').trim();
+    const storageFileId = String(release.storage_file_id || '').trim();
+    const downloadUrl = String(release.download_url || '').trim();
 
     const { data: deletedRelease, error: deleteError } = await dbClient
       .from('app_releases')
@@ -53,10 +57,10 @@ export async function DELETE(
       .maybeSingle();
 
     if (deleteError) {
-      return NextResponse.json({ error: `删除版本记录失败：${deleteError.message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Delete release failed: ' + deleteError.message }, { status: 500 });
     }
     if (!deletedRelease) {
-      return NextResponse.json({ error: '版本不存在或已被删除，请刷新后重试' }, { status: 409 });
+      return NextResponse.json({ error: 'Release was removed already, please refresh and retry' }, { status: 409 });
     }
 
     const { data: remainingRelease, error: verifyError } = await dbClient
@@ -66,10 +70,10 @@ export async function DELETE(
       .maybeSingle();
 
     if (verifyError) {
-      return NextResponse.json({ error: `删除结果校验失败：${verifyError.message}` }, { status: 500 });
+      return NextResponse.json({ error: 'Delete verification failed: ' + verifyError.message }, { status: 500 });
     }
     if (remainingRelease) {
-      return NextResponse.json({ error: '删除版本记录失败，请稍后重试' }, { status: 500 });
+      return NextResponse.json({ error: 'Delete release failed, please retry later' }, { status: 500 });
     }
 
     let storageCleanupFailed = false;
@@ -83,8 +87,8 @@ export async function DELETE(
       }
     } catch (error) {
       storageCleanupFailed = true;
-      warning = `版本记录已删除，但安装包清理失败：${error instanceof Error ? error.message : '未知错误'}`;
-      console.error('删除版本后清理云存储失败:', error);
+      warning = 'Release row deleted, but storage cleanup failed: ' + (error instanceof Error ? error.message : 'unknown error');
+      console.error('Delete release storage cleanup failed:', error);
     }
 
     return NextResponse.json({
@@ -93,11 +97,10 @@ export async function DELETE(
       warning,
     });
   } catch (error) {
-    console.error('删除版本失败:', error);
+    console.error('Delete release failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : '删除版本失败' },
+      { error: error instanceof Error ? error.message : 'Delete release failed' },
       { status: 500 }
     );
   }
 }
-

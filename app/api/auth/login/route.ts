@@ -2,29 +2,13 @@ import { NextResponse } from 'next/server';
 import { signInWithPassword } from '@/lib/auth/service';
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
 import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
+import {
+  isRetryableSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from '@/lib/cloudbase/sql-executor';
 
 export const dynamic = 'force-dynamic';
-
-function isConnectTimeoutError(error: unknown): boolean {
-  const message = (() => {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (error && typeof error === 'object') {
-      const value = (error as { message?: unknown }).message;
-      return typeof value === 'string' ? value : '';
-    }
-    return String(error ?? '');
-  })().toLowerCase();
-
-  return (
-    message.includes('connect timeout') ||
-    message.includes('request timeout') ||
-    message.includes('timed out') ||
-    message.includes('etimedout') ||
-    message.includes('esockettimedout')
-  );
-}
 
 function getClientIp(request: Request): string | undefined {
   const forwarded = request.headers.get('x-forwarded-for');
@@ -62,7 +46,6 @@ export async function POST(request: Request) {
 
     const userAgent = request.headers.get('user-agent') ?? undefined;
     const ipAddress = getClientIp(request);
-
     const result = await signInWithPassword(phone, password, userAgent, ipAddress);
 
     if (result.error || !result.user || !result.sessionToken) {
@@ -79,16 +62,16 @@ export async function POST(request: Request) {
       data: { user: result.user },
       error: null,
     });
-
     response.cookies.set(SESSION_COOKIE_NAME, result.sessionToken, getSessionCookieOptions());
     return response;
   } catch (error) {
-    if (isConnectTimeoutError(error)) {
+    if (isRetryableSqlError(error)) {
       return NextResponse.json(
         {
           data: { user: null },
           error: {
-            message: '服务连接超时，请稍后重试',
+            message: TRANSIENT_BACKEND_ERROR_MESSAGE,
+            code: TRANSIENT_BACKEND_ERROR_CODE,
           },
         },
         { status: 503 }

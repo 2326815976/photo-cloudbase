@@ -12,7 +12,7 @@ import {
   uploadFileToCloudBase,
 } from '@/lib/cloudbase/storage';
 import { buildCompatClient } from '@/lib/cloudbase/compat/core';
-import { getAuthContextFromServerCookies } from '@/lib/auth/context';
+import { AuthContextResolution, resolveAuthContextFromServerCookies } from '@/lib/auth/context';
 import { SESSION_COOKIE_NAME, getSessionCookieOptions } from '@/lib/auth/cookie';
 import { AuthContext, AuthUser } from '@/lib/auth/types';
 import {
@@ -120,12 +120,20 @@ function getClientIp(headerStore: HeaderStore): string | undefined {
 
 function buildAuthClient(
   cookieStore: CookieStore,
-  contextResolver: () => Promise<AuthContext>
+  contextResolver: () => Promise<AuthContextResolution>
 ) {
+  const resolveContext = async (): Promise<AuthContext> => {
+    const resolution = await contextResolver();
+    if (resolution.transientFailure && resolution.error) {
+      throw resolution.error;
+    }
+    return resolution.context;
+  };
+
   return {
     getUser: async () => {
       try {
-        const context = await contextResolver();
+        const context = await resolveContext();
         return {
           data: {
             user: toCompatAuthUser(context.user),
@@ -141,7 +149,7 @@ function buildAuthClient(
     },
     getSession: async () => {
       try {
-        const context = await contextResolver();
+        const context = await resolveContext();
         return {
           data: {
             session: context.user ? { user: toCompatAuthUser(context.user)! } : null,
@@ -217,7 +225,7 @@ function buildAuthClient(
     },
     updateUser: async (params: { password?: string }) => {
       try {
-        const context = await contextResolver();
+        const context = await resolveContext();
         if (!context.user) {
           return {
             data: { user: null },
@@ -416,8 +424,24 @@ function buildCompatServerClient(
 
 export async function createClient(): Promise<CompatClient> {
   const cookieStore = await cookies();
-  const contextResolver = async () => getAuthContextFromServerCookies();
-  const authClient = buildAuthClient(cookieStore, contextResolver);
+  let authResolutionPromise: Promise<AuthContextResolution> | null = null;
+
+  const authResolutionResolver = async (): Promise<AuthContextResolution> => {
+    if (!authResolutionPromise) {
+      authResolutionPromise = resolveAuthContextFromServerCookies();
+    }
+    return authResolutionPromise;
+  };
+
+  const contextResolver = async (): Promise<AuthContext> => {
+    const resolution = await authResolutionResolver();
+    if (resolution.transientFailure && resolution.error) {
+      throw resolution.error;
+    }
+    return resolution.context;
+  };
+
+  const authClient = buildAuthClient(cookieStore, authResolutionResolver);
   return buildCompatServerClient(contextResolver, authClient);
 }
 

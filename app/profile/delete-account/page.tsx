@@ -92,7 +92,7 @@ export default function DeleteAccountPage() {
       <div className="flex-none px-4 sm:px-6 md:px-8 pt-8 sm:pt-12">
         <button
           onClick={() => router.back()}
-          className="absolute left-4 sm:left-6 top-4 sm:top-6 w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+          className="icon-button action-icon-btn action-icon-btn--back absolute left-4 sm:left-6 top-4 sm:top-6"
         >
           <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
         </button>

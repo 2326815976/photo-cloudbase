@@ -10,9 +10,12 @@ import { useRouter } from 'next/navigation';
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
+import PageTopHeader from '@/components/PageTopHeader';
+import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
 import { getDateAfterDaysUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 interface BookingType {
   id: number;
@@ -140,6 +143,11 @@ export default function BookingPage() {
   const [error, setError] = useState('');
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'booking',
+    activeBooking ? '我的预约' : '约拍邀请',
+    '📝 写下你的约拍便利贴 📝'
+  );
 
   const checkLoginStatus = async () => {
     const dbClient = createClient();
@@ -594,16 +602,11 @@ export default function BookingPage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
       >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
-          </div>
-        </div>
+        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
       </motion.div>
 
       {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-6 pt-4 pb-20 [&::-webkit-scrollbar]:hidden">
+      <PreviewAwareScrollArea className="flex-1 overflow-y-auto px-6 pt-4 [&::-webkit-scrollbar]:hidden">
         {/* 场景 A: 有活跃订单 - 显示票据 */}
         {activeBooking && (
           <ActiveBookingTicket
@@ -822,7 +825,7 @@ export default function BookingPage() {
             )}
           </motion.div>
         )}
-      </div>
+      </PreviewAwareScrollArea>
 
       {/* 地图选择器弹窗 */}
       <AnimatePresence>

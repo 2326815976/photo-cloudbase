@@ -70,9 +70,9 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
             {/* 关闭按钮 */}
             <button
               onClick={onClose}
-              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20 active:scale-90"
+              className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
             >
-              <X className="w-5 h-5 text-[#5D4037]" />
+              <X className="action-icon-svg" />
             </button>
 
             {/* 内容区域 */}
@@ -101,7 +101,7 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
               {/* 保存按钮 */}
               <button
                 onClick={handleDownload}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-lg active:scale-95 transition-all"
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#FFC857] px-5 text-[15px] font-semibold leading-none text-[#5D4037] shadow-[0_10px_24px_rgba(255,200,87,0.24)] hover:shadow-[0_12px_28px_rgba(255,200,87,0.3)] active:scale-[0.98] transition-all"
               >
                 <Download className="w-5 h-5" />
                 保存赞赏码
@@ -153,9 +153,9 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
               {/* 关闭按钮 */}
               <button
                 onClick={onClose}
-                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-20"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
               >
-                <X className="w-5 h-5 text-[#5D4037]" />
+                <X className="action-icon-svg" />
               </button>
 
               {/* 内容区域 */}
@@ -185,7 +185,7 @@ export default function DonationModal({ isOpen, onClose, qrCodeUrl }: DonationMo
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={handleDownload}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-lg active:scale-95 transition-all"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#FFC857] px-5 text-[15px] font-semibold leading-none text-[#5D4037] shadow-[0_10px_24px_rgba(255,200,87,0.24)] hover:shadow-[0_12px_28px_rgba(255,200,87,0.3)] active:scale-[0.98] transition-all"
                 >
                   <Download className="w-5 h-5" />
                   保存赞赏码

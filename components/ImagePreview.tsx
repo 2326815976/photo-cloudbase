@@ -529,9 +529,9 @@ export default function ImagePreview({
         {/* 关闭按钮 */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors z-10"
+          className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4 z-10"
         >
-          <X className="w-6 h-6 text-white" />
+          <X className="action-icon-svg" />
         </button>
 
         {/* 操作提示 */}
