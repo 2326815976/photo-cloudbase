@@ -80,6 +80,8 @@ const ALBUM_FOLDER_GUIDE_AUTO_DISMISS_MS = 15000;
 const ALBUM_FOLDER_WAVE_ROUNDS = 3;
 const ALBUM_FOLDER_WAVE_STEP_DELAY_MS = 380;
 const ALBUM_FOLDER_WAVE_ROUND_GAP_MS = 240;
+const ALBUM_SWITCH_OVERLAY_TRACK_COUNT = 6;
+const ALBUM_SWITCH_OVERLAY_TIMEOUT_MS = 8500;
 const ALBUM_CARD_FLOATING_ICON_STYLE = {
   width: '30px',
   height: '30px',
@@ -219,6 +221,7 @@ export default function AlbumDetailPage() {
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
+  const [pendingFolderPhotoIds, setPendingFolderPhotoIds] = useState<string[]>([]);
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const [showFolderGuide, setShowFolderGuide] = useState(false);
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
@@ -249,6 +252,21 @@ export default function AlbumDetailPage() {
       { revalidate: false }
     );
   };
+
+  const markPendingFolderPhotoSettled = useCallback((photoId: string) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId) {
+      return;
+    }
+
+    setPendingFolderPhotoIds((prev) => {
+      if (!prev.includes(normalizedPhotoId)) {
+        return prev;
+      }
+
+      return prev.filter((currentPhotoId) => currentPhotoId !== normalizedPhotoId);
+    });
+  }, []);
 
   const folderTabs = useMemo<Folder[]>(() => {
     return [{ id: 'all', name: '原图' }, ...(albumData?.folders ?? [])];
@@ -495,6 +513,8 @@ export default function AlbumDetailPage() {
       return false;
     }
 
+    let nextPendingFolderPhotoIds: string[] | null = null;
+
     if (reset) {
       if (!silent) {
         setLoading(true);
@@ -554,8 +574,28 @@ export default function AlbumDetailPage() {
       setPageNo(nextPageNo);
       setTotalPhotos(normalizedTotal);
       setHasMore(Boolean(computedHasMore));
+      if (reset) {
+        if (silent) {
+          nextPendingFolderPhotoIds = Array.from(
+            new Set(
+              mergedRows
+                .slice(0, ALBUM_SWITCH_OVERLAY_TRACK_COUNT)
+                .map((photo) => String(photo.id || '').trim())
+                .filter((photoId) => photoId && !loadedImages.has(photoId) && !failedImages.has(photoId))
+            )
+          );
+          setPendingFolderPhotoIds(nextPendingFolderPhotoIds);
+        } else {
+          nextPendingFolderPhotoIds = [];
+          setPendingFolderPhotoIds([]);
+        }
+      }
       return true;
     } catch (error) {
+      if (reset && silent) {
+        nextPendingFolderPhotoIds = [];
+        setPendingFolderPhotoIds([]);
+      }
       if (!(reset && silent)) {
         setToast({ message: '加载失败，请稍后重试', type: 'error' });
         setTimeout(() => setToast(null), 3000);
@@ -566,7 +606,7 @@ export default function AlbumDetailPage() {
         setLoading(false);
         setLoadingMore(false);
         if (reset && silent) {
-          setSwitchingFolderLoading(false);
+          setSwitchingFolderLoading(Boolean(nextPendingFolderPhotoIds && nextPendingFolderPhotoIds.length > 0));
         }
       }
     }
@@ -648,6 +688,7 @@ export default function AlbumDetailPage() {
     setSelectedPhotos(new Set());
     setLoadedImages(new Set());
     setFailedImages(new Set());
+    setPendingFolderPhotoIds([]);
     setPhotoAspectRatioMap({});
     setStoryOpenMap({});
     setFullscreenPhoto(null);
@@ -733,6 +774,7 @@ export default function AlbumDetailPage() {
 
     setFolderSwitchSnapshot(resolvedFilteredPhotos);
     setSwitchingFolderLoading(true);
+    setPendingFolderPhotoIds([]);
     setSelectedFolder(normalized);
     selectedFolderRef.current = normalized;
     setFullscreenPhoto(null);
@@ -771,6 +813,8 @@ export default function AlbumDetailPage() {
     [folderSwitchSnapshot, resolvedFilteredPhotos, switchingFolderLoading]
   );
 
+  const isFolderSwitchOverlayLoading = switchingFolderLoading || pendingFolderPhotoIds.length > 0;
+
   const hasLoadedAllVisiblePhotos = !hasMore && (
     totalPhotos === 0 ? filteredPhotos.length > 0 : filteredPhotos.length >= totalPhotos
   );
@@ -799,13 +843,27 @@ export default function AlbumDetailPage() {
     return targetIndex >= 0 ? targetIndex : 0;
   }, [fullscreenPhoto, previewPhotos]);
 
+  useEffect(() => {
+    if (!isFolderSwitchOverlayLoading) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setSwitchingFolderLoading(false);
+      setPendingFolderPhotoIds([]);
+      setFolderSwitchSnapshot(null);
+    }, ALBUM_SWITCH_OVERLAY_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [isFolderSwitchOverlayLoading]);
+
   const loadNextPhotoPage = async () => {
-    if (loading || loadingMore || switchingFolderLoading || !hasMore) return;
+    if (loading || loadingMore || isFolderSwitchOverlayLoading || !hasMore) return;
     await loadAlbumPhotoPage(selectedFolder, pageNo + 1, { reset: false, silent: false });
   };
 
   const handlePhotoScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (loading || loadingMore || switchingFolderLoading || !hasMore) return;
+    if (loading || loadingMore || isFolderSwitchOverlayLoading || !hasMore) return;
     const target = event.currentTarget;
     const scrollHeight = Number(target.scrollHeight || 0);
     const clientHeight = Number(target.clientHeight || 0);
@@ -823,6 +881,19 @@ export default function AlbumDetailPage() {
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
     const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 4 / 3);
+    const currentPhoto = photosRef.current.find((photo) => photo.id === photoId);
+    const hasStableStoredRatio = Boolean(
+      currentPhoto
+      && (
+        Number(currentPhoto.__ratio || 0) > 0
+        || (Number(currentPhoto.width || 0) > 0 && Number(currentPhoto.height || 0) > 0)
+      )
+    );
+
+    if (hasStableStoredRatio) {
+      return;
+    }
+
     setPhotoAspectRatioMap((prev) => {
       const currentRatio = Number(prev[photoId] || 0);
       if (currentRatio > 0 && Math.abs(currentRatio - nextRatio) < 0.01) {
@@ -990,7 +1061,7 @@ export default function AlbumDetailPage() {
   };
 
   const toggleSelectAll = async () => {
-    if (loading || loadingMore || switchingFolderLoading || filteredPhotos.length === 0) {
+    if (loading || loadingMore || isFolderSwitchOverlayLoading || filteredPhotos.length === 0) {
       return;
     }
 
@@ -1026,7 +1097,7 @@ export default function AlbumDetailPage() {
   };
 
   const handleBatchDownload = async () => {
-    if (switchingFolderLoading) {
+    if (isFolderSwitchOverlayLoading) {
       return;
     }
 
@@ -1267,11 +1338,14 @@ export default function AlbumDetailPage() {
                         type="button"
                         ref={setFolderButtonRef(String(folder.id))}
                         whileTap={{ scale: 0.98 }}
+                        disabled={isFolderSwitchOverlayLoading}
                         initial={false}
                         animate={isWaveActive ? (folderWaveTick === 1 ? 'waveA' : 'waveB') : 'idle'}
                         variants={ALBUM_FOLDER_BUTTON_VARIANTS}
                         onClick={() => { void handleSelectFolder(folder.id); }}
-                        className={`tag-button album-toolbar-tag inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-200 active:scale-[0.98] ${
+                        className={`tag-button album-toolbar-tag inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-200 ${
+                          isFolderSwitchOverlayLoading ? 'pointer-events-none opacity-60' : 'active:scale-[0.98]'
+                        } ${
                           selectedFolder === folder.id
                             ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[2px_2px_0_rgba(93,64,55,0.15)]'
                             : 'border-[#5D4037]/15 bg-white/60 text-[#5D4037]/60 hover:border-[#5D4037]/30 hover:text-[#5D4037]'
@@ -1293,7 +1367,7 @@ export default function AlbumDetailPage() {
                   whileTap={{ scale: 0.98 }}
                   onClick={() => { void toggleSelectAll(); }}
                   aria-pressed={isSelectAll}
-                  className={`album-toolbar-chip album-toolbar-chip--select inline-flex items-center justify-center transition-all duration-200 ${loading || loadingMore || switchingFolderLoading ? 'pointer-events-none opacity-60' : ''} ${
+                  className={`album-toolbar-chip album-toolbar-chip--select inline-flex items-center justify-center transition-all duration-200 ${loading || loadingMore || isFolderSwitchOverlayLoading ? 'pointer-events-none opacity-60' : ''} ${
                     isSelectAll
                       ? 'border-[#5D4037]/20 bg-[#FFC857] text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)]'
                       : 'border-[#5D4037]/15 bg-white/60 text-[#5D4037]/70 hover:border-[#5D4037]/30 hover:text-[#5D4037] border-dashed'
@@ -1307,7 +1381,7 @@ export default function AlbumDetailPage() {
                   type="button"
                   whileTap={{ scale: 0.98 }}
                   onClick={handleBatchDownload}
-                  className={`album-toolbar-chip album-toolbar-chip--primary relative inline-flex items-center justify-center text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore || switchingFolderLoading ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'album-toolbar-chip--primary-selected' : ''}`}
+                  className={`album-toolbar-chip album-toolbar-chip--primary relative inline-flex items-center justify-center text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore || isFolderSwitchOverlayLoading ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'album-toolbar-chip--primary-selected' : ''}`}
                 >
                   <Download className="album-toolbar-chip__icon" />
                   <span>{batchDownloadLabel}</span>
@@ -1325,7 +1399,7 @@ export default function AlbumDetailPage() {
                     animate={{ opacity: 1, scale: 1 }}
                     whileTap={{ scale: 0.96 }}
                     onClick={handleBatchDelete}
-                    className={`icon-button action-icon-btn action-icon-btn--delete h-[30px] w-[30px] ${loadingMore || switchingFolderLoading ? 'pointer-events-none opacity-60' : ''}`}
+                    className={`icon-button action-icon-btn action-icon-btn--delete h-[30px] w-[30px] ${loadingMore || isFolderSwitchOverlayLoading ? 'pointer-events-none opacity-60' : ''}`}
                   >
                     <Trash2 className="action-icon-svg action-icon-svg--delete" />
                   </motion.button>
@@ -1339,7 +1413,7 @@ export default function AlbumDetailPage() {
       <div
         ref={photoScrollRef}
         onScroll={handlePhotoScroll}
-        className="relative flex-1 overflow-y-auto px-2 pt-3 pb-32"
+        className={`relative flex-1 px-2 pt-3 pb-32 ${isFolderSwitchOverlayLoading ? 'overflow-hidden overscroll-none' : 'overflow-y-auto'}`}
       >
         <div className="flex items-start gap-2">
           {albumColumns.map((column, columnIndex) => (
@@ -1428,8 +1502,12 @@ export default function AlbumDetailPage() {
                               width: target.naturalWidth,
                               height: target.naturalHeight,
                             });
+                            markPendingFolderPhotoSettled(photo.id);
                           }}
-                          onError={() => setFailedImages((prev) => new Set([...prev, photo.id]))}
+                          onError={() => {
+                            setFailedImages((prev) => new Set([...prev, photo.id]));
+                            markPendingFolderPhotoSettled(photo.id);
+                          }}
                         />
                       </div>
 
@@ -1605,7 +1683,7 @@ export default function AlbumDetailPage() {
         </div>
 
         <AnimatePresence>
-          {switchingFolderLoading && (
+          {isFolderSwitchOverlayLoading && (
             <motion.div
               key="album-folder-switch-overlay"
               initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0 }}

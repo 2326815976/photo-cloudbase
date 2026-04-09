@@ -77,6 +77,8 @@ const GALLERY_LOAD_SENTINEL_THRESHOLD = 0.01;
 const TAG_WAVE_ROUNDS = 3;
 const TAG_WAVE_STEP_DELAY_MS = 380;
 const TAG_WAVE_ROUND_GAP_MS = 240;
+const GALLERY_SWITCH_OVERLAY_TRACK_COUNT = 6;
+const GALLERY_SWITCH_OVERLAY_TIMEOUT_MS = 8500;
 const GALLERY_STORY_PANEL_MIN_HEIGHT = 146;
 const GALLERY_STORY_PAPER_MIN_HEIGHT = 129;
 const GALLERY_STORY_BASE_TEXT_HEIGHT = 92;
@@ -92,6 +94,19 @@ const TAG_WAVE_BUTTON_VARIANTS = {
 const GALLERY_LAYOUT_RATIO_MIN = 0.72;
 const GALLERY_LAYOUT_RATIO_MAX = 2.6;
 const GALLERY_RUNTIME_RATIO_MIN = 0.3;
+
+function normalizeGalleryFolderId(folderId: string | null | undefined) {
+  const rawFolderId = String(folderId ?? '').trim();
+  const normalizedLower = rawFolderId.toLowerCase();
+  if (!rawFolderId || rawFolderId === ROOT_GALLERY_FOLDER_ID || normalizedLower === 'root') {
+    return ROOT_GALLERY_FOLDER_ID;
+  }
+  return rawFolderId;
+}
+
+function doesGalleryPhotoBelongToFolder(photo: Photo, folderId: string) {
+  return normalizeGalleryFolderId(photo.folder_id) === normalizeGalleryFolderId(folderId);
+}
 
 
 
@@ -403,6 +418,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const [isSwitchingTag, setIsSwitchingTag] = useState(false);
+  const [isSilentTagLoadPending, setIsSilentTagLoadPending] = useState(false);
+  const [pendingTagPhotoIds, setPendingTagPhotoIds] = useState<string[]>([]);
   const [viewportWidth, setViewportWidth] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const paginationSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -443,6 +460,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const allPhotosRef = useRef<Photo[]>(hydratedInitialPhotos);
   const pageRef = useRef(hydratedInitialPage);
   const selectedFolderIdRef = useRef(selectedFolderId);
+  const resolvedFirstPageFolderIdRef = useRef<string | null>(null);
   const paginationZoneArmedRef = useRef(true);
   const autoFillRemainingRef = useRef(GALLERY_INITIAL_AUTOFILL_MAX_BATCHES);
   const pageSize = 20;
@@ -456,6 +474,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const normalizedFilterDateEnd = normalizeDateOnlyText(filterDateEnd);
   const photos = useMemo(() => {
     let viewRows = Array.isArray(allPhotos) ? allPhotos.slice() : [];
+
+    viewRows = viewRows.filter((photo) => doesGalleryPhotoBelongToFolder(photo, selectedFolderId));
 
     if (normalizedFilterDateStart || normalizedFilterDateEnd) {
       viewRows = viewRows.filter((photo) => {
@@ -482,7 +502,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
       return String(photoB.created_at || '').localeCompare(String(photoA.created_at || ''), 'zh-CN');
     });
-  }, [allPhotos, filterMode, normalizedFilterDateEnd, normalizedFilterDateStart, sortMode]);
+  }, [allPhotos, filterMode, normalizedFilterDateEnd, normalizedFilterDateStart, selectedFolderId, sortMode]);
 
   useEffect(() => {
     allPhotosRef.current = allPhotos;
@@ -523,6 +543,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       loadRequestTokenRef.current = requestToken;
 
       if (isFirstPage) {
+        setIsSilentTagLoadPending(silent);
         if (!silent) {
           setIsLoading(true);
         }
@@ -550,7 +571,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         }
 
         if (requestToken !== loadRequestTokenRef.current) {
-          return;
+          return false;
         }
 
         const payload = data ?? {};
@@ -580,6 +601,25 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         pageRef.current = pageNo;
         setPage(pageNo);
         setHasMore(nextHasMore);
+        if (isFirstPage) {
+          resolvedFirstPageFolderIdRef.current = targetFolderId;
+        }
+        if (isFirstPage) {
+          if (silent) {
+            setPendingTagPhotoIds(
+              Array.from(
+                new Set(
+                  mergedPhotos
+                    .slice(0, GALLERY_SWITCH_OVERLAY_TRACK_COUNT)
+                    .map((photo) => String(photo.id || '').trim())
+                    .filter(Boolean)
+                )
+              )
+            );
+          } else {
+            setPendingTagPhotoIds([]);
+          }
+        }
         setIsSwitchingTag(false);
 
         if (targetFolderId === ROOT_GALLERY_FOLDER_ID && isFirstPage) {
@@ -603,31 +643,35 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             // 忽略缓存写入失败
           }
         }
+        return true;
       } catch (loadError) {
         if (requestToken !== loadRequestTokenRef.current) {
-          return;
+          return false;
         }
 
         console.warn('load public gallery page failed:', loadError);
+        setPendingTagPhotoIds([]);
         setIsSwitchingTag(false);
+        return false;
       } finally {
         if (requestToken !== loadRequestTokenRef.current) {
           return;
         }
 
         if (isFirstPage) {
+          setIsSilentTagLoadPending(false);
           setIsLoading(false);
         }
         isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
       }
     },
-    [folders, pageSize, rootFolderName, selectedFolderId]
+    [folders, pageSize, rootFolderName]
   );
 
   const refreshGallery = useCallback(
     async (options?: { silent?: boolean; folderId?: string }) => {
-      await loadGalleryPage(1, options);
+      return loadGalleryPage(1, options);
     },
     [loadGalleryPage]
   );
@@ -673,6 +717,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setTotal(cachedTotal);
       setPage(1);
       setHasMore(cachedPhotos.length < cachedTotal);
+      resolvedFirstPageFolderIdRef.current = ROOT_GALLERY_FOLDER_ID;
     } catch {
       // 忽略缓存解析失败
     }
@@ -973,6 +1018,21 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setShowTagGuide(false);
   }, [clearTagWaveTimer]);
 
+  const markTagSwitchPhotoSettled = useCallback((photoId: string) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId) {
+      return;
+    }
+
+    setPendingTagPhotoIds((prev) => {
+      if (!prev.includes(normalizedPhotoId)) {
+        return prev;
+      }
+
+      return prev.filter((currentPhotoId) => currentPhotoId !== normalizedPhotoId);
+    });
+  }, []);
+
   const handleSwitchFolder = useCallback(
     (folderId: string) => {
       dismissTagGuide();
@@ -984,9 +1044,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       loadRequestTokenRef.current += 1;
       isLoadingMoreRef.current = false;
       hasClientInitialFetchStartedRef.current = false;
+      resolvedFirstPageFolderIdRef.current = null;
       pageRef.current = 1;
       selectedFolderIdRef.current = nextFolderId;
       setIsSwitchingTag(true);
+      setPendingTagPhotoIds([]);
       setPage(1);
       setHasMore(true);
       setIsLoadingMore(false);
@@ -996,7 +1058,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setFullscreenPhoto(null);
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
       setSelectedFolderId(nextFolderId);
-      void refreshGallery({ folderId: nextFolderId });
+      void refreshGallery({ folderId: nextFolderId, silent: true });
     },
     [dismissTagGuide, refreshGallery, selectedFolderId]
   );
@@ -1145,13 +1207,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     [photoAspectRatioMap]
   );
 
-  
+  const isTagOverlayLoading = isSwitchingTag || isSilentTagLoadPending || pendingTagPhotoIds.length > 0;
+  const loadingTitle = isTagOverlayLoading ? '拾光中...' : '加载中...';
+  const loadingDescription = isTagOverlayLoading ? '正在切换照片标签' : '正在加载照片墙';
 
-  const loadingTitle = isSwitchingTag ? '拾光中...' : '加载中...';
-  const loadingDescription = isSwitchingTag ? '正在切换照片标签' : '正在加载照片墙';
-
-  const showInitialPageLoading = isLoading && allPhotos.length === 0;
-  const showContentOverlayLoading = isSwitchingTag;
+  const showInitialPageLoading = isLoading && allPhotos.length === 0 && !isTagOverlayLoading;
+  const showContentOverlayLoading = isTagOverlayLoading;
 
   const galleryColumnCount = 2;
   const galleryColumnGapClassName = 'gap-2';
@@ -1187,43 +1248,49 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     if (pathname !== '/gallery') {
       loadRequestTokenRef.current += 1;
       hasClientInitialFetchStartedRef.current = false;
+      resolvedFirstPageFolderIdRef.current = null;
       isLoadingMoreRef.current = false;
       setIsLoading(false);
       setIsLoadingMore(false);
       setIsSwitchingTag(false);
+      setIsSilentTagLoadPending(false);
+      setPendingTagPhotoIds([]);
       return;
     }
 
+    const hasResolvedCurrentFolderFirstPage = resolvedFirstPageFolderIdRef.current === selectedFolderId;
     const shouldSkipInitialRefresh =
-      allPhotos.length > 0
-      && (selectedFolderId !== ROOT_GALLERY_FOLDER_ID || folders.length > 1);
+      hasResolvedCurrentFolderFirstPage
+      || selectedFolderId !== ROOT_GALLERY_FOLDER_ID
+      || (allPhotos.length > 0 && folders.length > 1);
 
-    if (hasClientInitialFetchStartedRef.current || shouldSkipInitialRefresh || isLoading || backendState.backendReconnecting) {
+    if (
+      hasClientInitialFetchStartedRef.current
+      || shouldSkipInitialRefresh
+      || isLoading
+      || isSwitchingTag
+      || isSilentTagLoadPending
+      || backendState.backendReconnecting
+    ) {
       return;
     }
 
     hasClientInitialFetchStartedRef.current = true;
-    if (isSwitchingTag) {
-      setIsSwitchingTag(false);
-    }
     void refreshGallery();
-  }, [allPhotos.length, backendState.backendReconnecting, folders.length, isLoading, isSwitchingTag, pathname, refreshGallery, selectedFolderId]);
+  }, [allPhotos.length, backendState.backendReconnecting, folders.length, isLoading, isSilentTagLoadPending, isSwitchingTag, pathname, refreshGallery, selectedFolderId]);
 
   useEffect(() => {
-    if (!isSwitchingTag || pathname !== '/gallery') {
+    if (!isTagOverlayLoading || pathname !== '/gallery') {
       return;
     }
 
     const timer = window.setTimeout(() => {
       setIsSwitchingTag(false);
-      if (!backendState.backendReconnecting && allPhotos.length === 0 && !isLoading) {
-        hasClientInitialFetchStartedRef.current = false;
-        void refreshGallery();
-      }
-    }, 8500);
+      setPendingTagPhotoIds([]);
+    }, GALLERY_SWITCH_OVERLAY_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [allPhotos.length, backendState.backendReconnecting, isLoading, isSwitchingTag, pathname, refreshGallery]);
+  }, [isTagOverlayLoading, pathname]);
 
   if (showInitialPageLoading) {
     return (
@@ -1248,9 +1315,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       {/* 滚动区域 */}
       <PreviewAwareScrollArea
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto gallery-scroll-container"
+        className={`relative flex-1 gallery-scroll-container ${showContentOverlayLoading ? 'overflow-hidden overscroll-none' : 'overflow-y-auto'}`}
       >
-        <div className="sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0]">
+        <div className={`sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0] ${showContentOverlayLoading ? 'pointer-events-none' : ''}`}>
           <div className="px-[3px] py-0">
             <div className={`flex min-h-[46px] gap-1 ${showTagGuide ? 'items-start' : 'items-center'}`}>
               <div className={`relative min-w-0 flex-1 border-x border-[#FFFBF0] bg-[#FFFBF0] ${showTagGuide ? 'pt-[36px]' : ''}`}>
@@ -1304,7 +1371,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                   onClick={openFolderSelector}
                   aria-haspopup="dialog"
                   aria-expanded={showFolderSelector}
-                  className="tag-button inline-flex shrink-0 items-center justify-center rounded-full border-2 border-[#5D4037] bg-[#5D4037] px-2 py-0.5 text-xs font-bold leading-none text-white transition-all duration-200 hover:bg-[#6A4B41] active:scale-[0.98] active:opacity-92 md:px-3 md:py-1.5"
+                  disabled={showContentOverlayLoading}
+                  className={`tag-button inline-flex shrink-0 items-center justify-center rounded-full border-2 border-[#5D4037] bg-[#5D4037] px-2 py-0.5 text-xs font-bold leading-none text-white transition-all duration-200 md:px-3 md:py-1.5 ${
+                    showContentOverlayLoading
+                      ? 'pointer-events-none opacity-60'
+                      : 'hover:bg-[#6A4B41] active:scale-[0.98] active:opacity-92'
+                  }`}
                 >
                   全部
                 </button>
@@ -1312,16 +1384,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
           </div>
         </div>
 
-
-        <div className="relative min-h-[60vh] px-3 pt-3">
-          {showContentOverlayLoading && (
+        {showContentOverlayLoading && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[46px] z-[15]">
             <MiniProgramRecoveryScreen
               title={loadingTitle}
               description={loadingDescription}
-              className="absolute inset-0 z-20 min-h-0 bg-[#FFFBF0]/78 px-4 backdrop-blur-[4px]"
+              className="h-full min-h-0 bg-[#FFFBF0]/82 px-4 backdrop-blur-[6px]"
               contentClassName="gap-3"
             />
-          )}
+          </div>
+        )}
+
+        <div className="relative min-h-[60vh] px-3 pt-3">
         {photos.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -1380,6 +1454,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                             src={photo.thumbnail_url}
                             alt="照片"
                             aspectRatio={resolvePhotoAspectRatio(photo)}
+                            onLoad={() => markTagSwitchPhotoSettled(photo.id)}
+                            onError={() => markTagSwitchPhotoSettled(photo.id)}
                             onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
                             className="gallery-card-image w-full"
                           />

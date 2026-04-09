@@ -1,16 +1,6 @@
-/**
- * 简化版图片组件 - 原生img标签
- *
- * 特性：
- * - 浏览器原生懒加载
- * - 治愈系加载动画
- * - 加载时间显示
- * - 零Vercel额度消耗
- */
-
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -20,6 +10,7 @@ interface SimpleImageProps {
   priority?: boolean;
   onClick?: () => void;
   onLoad?: () => void;
+  onError?: () => void;
   onLoadDimensions?: (dimensions: { width: number; height: number }) => void;
   aspectRatio?: number;
 }
@@ -31,21 +22,35 @@ export default function SimpleImage({
   priority = false,
   onClick,
   onLoad,
+  onError,
   onLoadDimensions,
   aspectRatio,
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
   const loadingAnimationDelayTimerRef = useRef<number | null>(null);
+  const onLoadRef = useRef(onLoad);
+  const onErrorRef = useRef(onError);
+  const onLoadDimensionsRef = useRef(onLoadDimensions);
+
   const [displaySrc, setDisplaySrc] = useState(src);
   const [hasRetriedOriginal, setHasRetriedOriginal] = useState(false);
-
-  // 统一初始状态避免 hydration 错误
   const [isLoading, setIsLoading] = useState(true);
-
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
+
+  useEffect(() => {
+    onLoadRef.current = onLoad;
+  }, [onLoad]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onLoadDimensionsRef.current = onLoadDimensions;
+  }, [onLoadDimensions]);
 
   const clearLoadingAnimationDelayTimer = () => {
     if (loadingAnimationDelayTimerRef.current !== null) {
@@ -84,49 +89,11 @@ export default function SimpleImage({
     return `${originalSrc}${separator}imageMogr2/format/webp/rquality/80/rwidth/750`;
   };
 
-  // 检查图片是否已缓存 - 使用 useLayoutEffect 避免已缓存图片闪烁加载动画
   useLayoutEffect(() => {
     const optimizedSrc = getOptimizedSrc(src);
-    setDisplaySrc(optimizedSrc);
     setHasRetriedOriginal(false);
-    setHasError(false);
-    setIsLoading(true);
-    setShowLoadingAnimation(false);
-    setLoadingTime(0);
-    scheduleLoadingAnimation();
-
-    const img = imgRef.current;
-    if (img && img.complete && img.naturalHeight !== 0) {
-      clearLoadingAnimationDelayTimer();
-      setIsLoading(false);
-      setShowLoadingAnimation(false);
-      notifyDimensionsReady(img);
-      onLoad?.();
-    }
-
-    // 记录加载开始时间
-    loadStartTimeRef.current = performance.now();
-
-    return () => {
-      clearLoadingAnimationDelayTimer();
-    };
-  }, [src, onLoad]);
-
-  useEffect(() => {
-    if (!isLoading) return;
-
-    const startTime = Date.now();
-    const timer = setInterval(() => {
-      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isLoading]);
-
-  const normalizedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
-    ? Number(aspectRatio)
-    : 0;
-  const hasFixedAspectRatio = normalizedAspectRatio > 0;
+    setDisplaySrc((currentSrc) => (currentSrc === optimizedSrc ? currentSrc : optimizedSrc));
+  }, [src]);
 
   const notifyDimensionsReady = (imgElement?: HTMLImageElement | null) => {
     const target = imgElement ?? imgRef.current;
@@ -137,9 +104,48 @@ export default function SimpleImage({
     const width = Number(target.naturalWidth || 0);
     const height = Number(target.naturalHeight || 0);
     if (width > 0 && height > 0) {
-      onLoadDimensions?.({ width, height });
+      onLoadDimensionsRef.current?.({ width, height });
     }
   };
+
+  useLayoutEffect(() => {
+    setHasError(false);
+    setIsLoading(true);
+    setShowLoadingAnimation(false);
+    setLoadingTime(0);
+    scheduleLoadingAnimation();
+    loadStartTimeRef.current = performance.now();
+
+    const img = imgRef.current;
+    const domSrc = img?.getAttribute('src') ?? '';
+    if (img && domSrc === displaySrc && img.complete && img.naturalHeight !== 0) {
+      clearLoadingAnimationDelayTimer();
+      setIsLoading(false);
+      setShowLoadingAnimation(false);
+      notifyDimensionsReady(img);
+      onLoadRef.current?.();
+    }
+
+    return () => {
+      clearLoadingAnimationDelayTimer();
+    };
+  }, [displaySrc]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+
+    const startTime = Date.now();
+    const timer = window.setInterval(() => {
+      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isLoading]);
+
+  const normalizedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
+    ? Number(aspectRatio)
+    : 0;
+  const hasFixedAspectRatio = normalizedAspectRatio > 0;
 
   return (
     <div
@@ -147,7 +153,6 @@ export default function SimpleImage({
       onClick={onClick}
       style={hasFixedAspectRatio ? { aspectRatio: String(1 / normalizedAspectRatio) } : undefined}
     >
-      {/* 加载占位符 - 优化版 */}
       <AnimatePresence>
         {showLoadingAnimation && isLoading && !hasError && (
           <motion.div
@@ -156,54 +161,51 @@ export default function SimpleImage({
             transition={{ duration: 0.4 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-3"
             style={{
-              background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)'
+              background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)',
             }}
           >
-            {/* 主动画 - 拍立得相机 */}
             <motion.div
               animate={{
                 rotate: [-2, 2, -2],
-                scale: [1, 1.05, 1]
+                scale: [1, 1.05, 1],
               }}
               transition={{
                 duration: 2,
                 repeat: Infinity,
-                ease: 'easeInOut'
+                ease: 'easeInOut',
               }}
               className="relative"
             >
               <motion.div
                 className="text-4xl"
                 animate={{
-                  filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)']
+                  filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)'],
                 }}
                 transition={{
                   duration: 1.5,
                   repeat: Infinity,
-                  ease: 'easeInOut'
+                  ease: 'easeInOut',
                 }}
               >
                 📷
               </motion.div>
 
-              {/* 闪光效果 */}
               <motion.div
                 className="absolute -top-1 -right-1 text-xl"
                 animate={{
                   opacity: [0, 1, 0],
-                  scale: [0.5, 1.2, 0.5]
+                  scale: [0.5, 1.2, 0.5],
                 }}
                 transition={{
                   duration: 2,
                   repeat: Infinity,
-                  ease: 'easeOut'
+                  ease: 'easeOut',
                 }}
               >
                 ✨
               </motion.div>
             </motion.div>
 
-            {/* 加载文字 */}
             <motion.div
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -213,18 +215,17 @@ export default function SimpleImage({
               <motion.p
                 className="text-xs text-[#5D4037]/60 font-medium"
                 animate={{
-                  opacity: [0.6, 1, 0.6]
+                  opacity: [0.6, 1, 0.6],
                 }}
                 transition={{
                   duration: 1.5,
                   repeat: Infinity,
-                  ease: 'easeInOut'
+                  ease: 'easeInOut',
                 }}
               >
                 拾光中...
               </motion.p>
 
-              {/* 加载时间提示 */}
               {loadingTime > 3 && (
                 <motion.p
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -236,18 +237,17 @@ export default function SimpleImage({
               )}
             </motion.div>
 
-            {/* 装饰性元素 - 飘动的光点 */}
             <motion.div
               className="absolute top-1/4 left-1/4 text-sm opacity-30"
               animate={{
                 y: [-10, 10, -10],
                 x: [-5, 5, -5],
-                rotate: [0, 360]
+                rotate: [0, 360],
               }}
               transition={{
                 duration: 4,
                 repeat: Infinity,
-                ease: 'easeInOut'
+                ease: 'easeInOut',
               }}
             >
               ✨
@@ -257,13 +257,13 @@ export default function SimpleImage({
               animate={{
                 y: [10, -10, 10],
                 x: [5, -5, 5],
-                rotate: [360, 0]
+                rotate: [360, 0],
               }}
               transition={{
                 duration: 3.5,
                 repeat: Infinity,
                 ease: 'easeInOut',
-                delay: 0.5
+                delay: 0.5,
               }}
             >
               💫
@@ -272,27 +272,26 @@ export default function SimpleImage({
         )}
       </AnimatePresence>
 
-      {/* 错误占位符 */}
       {hasError && (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-2"
           style={{ backgroundColor: '#FFFBF0' }}
         >
-          <span className="text-4xl">📸</span>
+          <span className="text-4xl">🖼️</span>
           <p className="text-xs text-[#5D4037]/60 font-medium">照片去旅行了~</p>
         </div>
       )}
 
-      {/* 原生img标签 - 零额度消耗 */}
       {!hasError && (
         <img
+          key={displaySrc}
           ref={imgRef}
           src={displaySrc}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
           fetchPriority={priority ? 'high' : 'low'}
-          className={`${hasFixedAspectRatio ? 'absolute inset-0 w-full h-full' : 'w-full h-auto'} transition-opacity duration-300 ${
+          className={`${hasFixedAspectRatio ? 'absolute inset-0 h-full w-full' : 'h-auto w-full'} transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
           style={{ objectFit: 'cover' }}
@@ -305,7 +304,7 @@ export default function SimpleImage({
             setIsLoading(false);
             setShowLoadingAnimation(false);
             notifyDimensionsReady(event.currentTarget);
-            onLoad?.();
+            onLoadRef.current?.();
           }}
           onError={() => {
             if (!hasRetriedOriginal && displaySrc !== src) {
@@ -323,6 +322,7 @@ export default function SimpleImage({
             setIsLoading(false);
             setShowLoadingAnimation(false);
             setHasError(true);
+            onErrorRef.current?.();
           }}
         />
       )}

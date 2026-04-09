@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Clipboard, Lock, Plus, Sparkles, Unlink2 } from 'lucide-react';
+import { ArrowRight, Clipboard, Lock, Plus, Sparkles, Trash2, Unlink2 } from 'lucide-react';
 import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
@@ -348,18 +348,13 @@ export default function AlbumLoginPage() {
                           </div>
                         )}
 
-                        <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            <h3 className="truncate text-[16px] font-black leading-tight text-[#5D4037]">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-4">
+                            <h3 className="min-w-0 flex-1 truncate text-[18px] font-black leading-tight text-[#5D4037]">
                               {albumTitle}
                             </h3>
-                            <p className="mt-2 truncate text-[12px] font-medium text-[#8D6E63]">
-                              {formatAlbumDate(album.created_at)}
-                            </p>
-                          </div>
 
-                          <div className="flex flex-none flex-col items-end gap-2">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-none items-center gap-2">
                               <motion.button
                                 type="button"
                                 whileTap={{ scale: 0.95 }}
@@ -370,15 +365,12 @@ export default function AlbumLoginPage() {
                                 }}
                                 aria-label={unbindingAlbumId === album.id ? COPY.unbinding : COPY.unbind}
                                 title={unbindingAlbumId === album.id ? COPY.unbinding : COPY.unbind}
-                                className="icon-button inline-flex h-9 items-center justify-center rounded-full border border-red-200 bg-white px-3 text-[12px] font-medium text-red-500 transition-all hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                                className="icon-button action-icon-btn action-icon-btn--delete"
                               >
                                 {unbindingAlbumId === album.id ? (
-                                  <span className="leading-none">解绑中</span>
+                                  <span className="text-sm leading-none text-red-500">…</span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 leading-none">
-                                    <Unlink2 className="h-[13px] w-[13px] flex-shrink-0" />
-                                    <span>解绑</span>
-                                  </span>
+                                  <Trash2 className="action-icon-svg action-icon-svg--delete" />
                                 )}
                               </motion.button>
 
@@ -391,14 +383,20 @@ export default function AlbumLoginPage() {
                                 }}
                                 aria-label={COPY.enterAlbum}
                                 title={COPY.enterAlbum}
-                                className="icon-button inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#F2D28E] bg-[#FFF4D8] text-[#9F6818] shadow-[0_4px_10px_rgba(255,200,87,0.14)] transition-all hover:bg-[#FFECC5] hover:text-[#8A5813]"
+                                className="icon-button action-icon-btn action-icon-btn--edit"
                               >
-                                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+                                <ArrowRight className="action-icon-svg action-icon-svg--edit transition-transform duration-200" />
                               </motion.button>
                             </div>
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between gap-4">
+                            <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-[#8D6E63]">
+                              {formatAlbumDate(album.created_at)}
+                            </p>
 
                             <span
-                              className={`inline-flex min-w-[82px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold leading-none ${
+                              className={`inline-flex min-w-[82px] flex-none justify-center rounded-full border px-3 py-1 text-[11px] font-semibold leading-none ${
                                 isExpired
                                   ? 'border-red-200 bg-red-50 text-red-500'
                                   : 'border-[#E8DCCA] bg-[#F8F1E4] text-[#6D544A]'
