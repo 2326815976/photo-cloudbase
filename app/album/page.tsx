@@ -1,9 +1,9 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Calendar, Clipboard, Lock, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, Clipboard, Lock, Plus, Sparkles, Unlink2 } from 'lucide-react';
 import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
@@ -27,43 +27,43 @@ interface BoundAlbum {
 const COPY = {
   fallbackTitle: '专属返图空间',
   fallbackBadge: '✨ 趁照片消失前，把美好定格 ✨',
-  loadingTitle: '\u52A0\u8F7D\u4E2D...',
-  loadingDesc: '\u6B63\u5728\u4E3A\u4F60\u6253\u5F00\u7A7A\u95F4\u5165\u53E3',
-  serviceInitError: '\u670D\u52A1\u521D\u59CB\u5316\u5931\u8D25\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5',
-  authTimeout: '\u7F51\u7EDC\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5',
-  authFailedPrefix: '\u767B\u5F55\u72B6\u6001\u6821\u9A8C\u5931\u8D25\uFF1A',
-  listTimeout: '\u7A7A\u95F4\u5217\u8868\u52A0\u8F7D\u8D85\u65F6\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5',
-  listFailedPrefix: '\u7A7A\u95F4\u5217\u8868\u52A0\u8F7D\u5931\u8D25\uFF1A',
-  needAccessKey: '\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u7A7A\u95F4\u5BC6\u94A5',
-  bindTimeout: '\u7ED1\u5B9A\u7A7A\u95F4\u8D85\u65F6\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5',
-  enterFailedPrefix: '\u8FDB\u5165\u5931\u8D25\uFF1A',
-  clipboardEmpty: '\u526A\u8D34\u677F\u91CC\u6CA1\u6709\u53EF\u7528\u7684\u7A7A\u95F4\u5BC6\u94A5',
-  clipboardReadFailed: '\u8BFB\u53D6\u526A\u8D34\u677F\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u7C98\u8D34\u5BC6\u94A5',
-  inputTitle: '\u8F93\u5165\u7A7A\u95F4\u5BC6\u94A5',
-  inputPlaceholder: '\u8BF7\u8F93\u5165\u7A7A\u95F4\u5BC6\u94A5',
-  pasteKey: '\u7C98\u8D34\u5BC6\u94A5',
-  entering: '\u8FDB\u5165\u4E2D...',
-  enterSpace: '\u8FDB\u5165\u7A7A\u95F4',
-  addOtherSpace: '\u7ED1\u5B9A / \u8BBF\u95EE\u5176\u4ED6\u7A7A\u95F4',
-  backToBoundSpaces: '\u8FD4\u56DE\u5DF2\u7ED1\u5B9A\u7A7A\u95F4',
-  unnamedSpace: '\u672A\u547D\u540D\u7A7A\u95F4',
-  expired: '\u5DF2\u8FC7\u671F',
-  remainPrefix: '\u5269\u4F59 ',
-  remainSuffix: ' \u5929',
-  unbinding: '\u89E3\u9664\u7ED1\u5B9A\u4E2D',
-  unbind: '\u89E3\u9664\u7ED1\u5B9A',
-  enterAlbum: '\u8FDB\u5165\u7A7A\u95F4',
-  unbindTimeout: '\u89E3\u9664\u7ED1\u5B9A\u8D85\u65F6\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5',
-  unbindFailedPrefix: '\u89E3\u9664\u7ED1\u5B9A\u5931\u8D25\uFF1A',
-  unbindSuccessPrefix: '\u5DF2\u89E3\u9664\u7ED1\u5B9A\u300C',
-  unbindSuccessSuffix: '\u300D',
-  unbindModalTitle: '\u89E3\u9664\u7A7A\u95F4\u7ED1\u5B9A\uFF1F',
-  currentSpace: '\u5F53\u524D\u7A7A\u95F4\uFF1A',
-  unbindModalDesc: '\u89E3\u9664\u540E\u4E0D\u4F1A\u5220\u9664\u7A7A\u95F4\u5185\u5BB9\uFF0C\u4F60\u4ECD\u53EF\u901A\u8FC7\u5BC6\u94A5\u91CD\u65B0\u8FDB\u5165\u5E76\u518D\u6B21\u7ED1\u5B9A\u3002',
-  cancel: '\u53D6\u6D88',
-  confirmUnbind: '\u786E\u8BA4\u89E3\u9664',
-  noLoginTip: '\u8F93\u5165\u5BC6\u94A5\u5373\u53EF\u76F4\u63A5\u8FDB\u5165\u7A7A\u95F4\uFF1B\u767B\u5F55\u540E\u8FD8\u53EF\u81EA\u52A8\u4FDD\u5B58\u7ED1\u5B9A\u8BB0\u5F55\u3002',
-  noBoundTip: '\u4F60\u8FD8\u6CA1\u6709\u5DF2\u7ED1\u5B9A\u7684\u7A7A\u95F4\uFF0C\u8F93\u5165\u5BC6\u94A5\u5373\u53EF\u8FDB\u5165\u5E76\u81EA\u52A8\u7ED1\u5B9A\u3002',
+  loadingTitle: '加载中...',
+  loadingDesc: '正在为你打开空间入口',
+  serviceInitError: '服务初始化失败，请刷新页面后重试',
+  authTimeout: '网络连接超时，请稍后重试',
+  authFailedPrefix: '登录状态校验失败：',
+  listTimeout: '空间列表加载超时，请稍后重试',
+  listFailedPrefix: '空间列表加载失败：',
+  needAccessKey: '请输入正确的空间密钥',
+  bindTimeout: '绑定空间超时，请稍后重试',
+  enterFailedPrefix: '进入失败：',
+  clipboardEmpty: '剪贴板里没有可用的空间密钥',
+  clipboardReadFailed: '读取剪贴板失败，请手动粘贴密钥',
+  inputTitle: '输入空间密钥',
+  inputPlaceholder: '请输入空间密钥',
+  pasteKey: '粘贴密钥',
+  entering: '进入中...',
+  enterSpace: '进入空间',
+  addOtherSpace: '绑定 / 访问其他空间',
+  backToBoundSpaces: '返回已绑定空间',
+  unnamedSpace: '未命名空间',
+  expired: '已过期',
+  remainPrefix: '剩余 ',
+  remainSuffix: ' 天',
+  unbinding: '解除绑定中',
+  unbind: '解除绑定',
+  enterAlbum: '进入空间',
+  unbindTimeout: '解除绑定超时，请稍后重试',
+  unbindFailedPrefix: '解除绑定失败：',
+  unbindSuccessPrefix: '已解除绑定「',
+  unbindSuccessSuffix: '」',
+  unbindModalTitle: '解除空间绑定？',
+  currentSpace: '当前空间：',
+  unbindModalDesc: '解除后不会删除空间内容，你仍可通过密钥重新进入并再次绑定。',
+  cancel: '取消',
+  confirmUnbind: '确认解除',
+  noLoginTip: '输入密钥即可直接进入空间；登录后还可自动保存绑定记录。',
+  noBoundTip: '你还没有已绑定的空间，输入密钥即可进入并自动绑定。',
 };
 
 function isTransientConnectionError(message: string): boolean {
@@ -107,7 +107,7 @@ export default function AlbumLoginPage() {
   const [error, setError] = useState('');
   const [listNotice, setListNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const hasBindings = boundAlbums.length > 0;
+  const hasBindings = isLoggedIn && boundAlbums.length > 0;
   const loadingTitle = COPY.loadingTitle;
   const loadingDescription = COPY.loadingDesc;
 
@@ -232,6 +232,11 @@ export default function AlbumLoginPage() {
     setListNotice(null);
   };
 
+  const handleCancelUnbindAlbum = () => {
+    if (unbindingAlbumId) return;
+    setUnbindTargetAlbum(null);
+  };
+
   const handleConfirmUnbindAlbum = async () => {
     if (!unbindTargetAlbum || unbindingAlbumId) return;
 
@@ -255,6 +260,7 @@ export default function AlbumLoginPage() {
             ? COPY.unbindTimeout
             : `${COPY.unbindFailedPrefix}${unbindError.message || 'Unknown error'}`,
         });
+        setUnbindTargetAlbum(null);
         return;
       }
 
@@ -281,12 +287,12 @@ export default function AlbumLoginPage() {
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-[#FFFBF0]">
-      <div className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
+      <div className="flex-none border-b-2 border-dashed border-[#5D4037]/10 bg-[#FFFBF0]/96 shadow-[0_2px_12px_rgba(93,64,55,0.08)] backdrop-blur-md">
         <PageTopHeader title={COPY.fallbackTitle} badge={COPY.fallbackBadge} />
       </div>
 
-      <PreviewAwareScrollArea className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-8" bottomPaddingMode="scroll">
-        <div className="mx-auto w-full max-w-md space-y-4 pb-4">
+      <PreviewAwareScrollArea className="min-h-0 flex-1 overflow-y-auto pb-20" bottomPaddingMode="scroll">
+        <div className="mx-auto w-full max-w-[560px] px-6 pt-6">
           <AnimatePresence initial={false}>
             {listNotice ? (
               <motion.div
@@ -294,10 +300,10 @@ export default function AlbumLoginPage() {
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
-                className={`rounded-2xl px-4 py-3 text-sm font-semibold shadow-sm ${
+                className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
                   listNotice.type === 'success'
-                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : 'border border-red-200 bg-red-50 text-red-600'
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-red-200 bg-red-50 text-red-700'
                 }`}
               >
                 {listNotice.message}
@@ -314,77 +320,93 @@ export default function AlbumLoginPage() {
                   const expiryText = isExpired
                     ? COPY.expired
                     : `${COPY.remainPrefix}${daysRemaining}${COPY.remainSuffix}`;
+                  const albumTitle = album.title || COPY.unnamedSpace;
 
                   return (
                     <motion.div
                       key={album.id}
-                      initial={{ opacity: 0, y: 16 }}
+                      initial={{ opacity: 0, y: 18 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.06 }}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
+                      transition={{ delay: index * 0.08 }}
+                      whileHover={{ y: -2 }}
+                      whileTap={{ scale: 0.995 }}
                       onClick={() => handleAlbumClick(album.access_key)}
-                      className="cursor-pointer overflow-hidden rounded-[28px] border border-[#EADFC8] bg-white px-4 py-4 shadow-[0_10px_26px_rgba(93,64,55,0.08)] transition-shadow duration-300 hover:shadow-[0_14px_30px_rgba(93,64,55,0.12)]"
+                      className="group cursor-pointer rounded-[22px] border border-[#E6D8C5] bg-white/95 px-4 py-4 shadow-[0_10px_24px_rgba(93,64,55,0.08)] transition-[transform,box-shadow] duration-300 hover:shadow-[0_14px_28px_rgba(93,64,55,0.12)]"
                     >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="h-20 w-20 flex-none overflow-hidden rounded-[22px] bg-[#F8F2E6]">
-                          {album.cover_url ? (
-                            <img
-                              src={album.cover_url}
-                              alt={album.title || COPY.unnamedSpace}
-                              loading="lazy"
-                              decoding="async"
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-[#5D4037]/22">
-                              <Sparkles className="h-8 w-8" />
+                      <div className="flex min-w-0 items-center gap-4">
+                        {album.cover_url ? (
+                          <img
+                            src={album.cover_url}
+                            alt={albumTitle}
+                            loading="lazy"
+                            decoding="async"
+                            className="h-[82px] w-[82px] flex-none rounded-[20px] object-cover shadow-[0_8px_18px_rgba(93,64,55,0.12)]"
+                          />
+                        ) : (
+                          <div className="flex h-[82px] w-[82px] flex-none items-center justify-center rounded-[20px] bg-[#F6EFE3] text-[#5D4037]/20 shadow-[0_8px_18px_rgba(93,64,55,0.08)]">
+                            <Sparkles className="h-5 w-5" />
+                          </div>
+                        )}
+
+                        <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="truncate text-[16px] font-black leading-tight text-[#5D4037]">
+                              {albumTitle}
+                            </h3>
+                            <p className="mt-2 truncate text-[12px] font-medium text-[#8D6E63]">
+                              {formatAlbumDate(album.created_at)}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-none flex-col items-end gap-2">
+                            <div className="flex items-center gap-2">
+                              <motion.button
+                                type="button"
+                                whileTap={{ scale: 0.95 }}
+                                disabled={unbindingAlbumId === album.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRequestUnbindAlbum(album);
+                                }}
+                                aria-label={unbindingAlbumId === album.id ? COPY.unbinding : COPY.unbind}
+                                title={unbindingAlbumId === album.id ? COPY.unbinding : COPY.unbind}
+                                className="icon-button inline-flex h-9 items-center justify-center rounded-full border border-red-200 bg-white px-3 text-[12px] font-medium text-red-500 transition-all hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                              >
+                                {unbindingAlbumId === album.id ? (
+                                  <span className="leading-none">解绑中</span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 leading-none">
+                                    <Unlink2 className="h-[13px] w-[13px] flex-shrink-0" />
+                                    <span>解绑</span>
+                                  </span>
+                                )}
+                              </motion.button>
+
+                              <motion.button
+                                type="button"
+                                whileTap={{ scale: 0.96 }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleAlbumClick(album.access_key);
+                                }}
+                                aria-label={COPY.enterAlbum}
+                                title={COPY.enterAlbum}
+                                className="icon-button inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#F2D28E] bg-[#FFF4D8] text-[#9F6818] shadow-[0_4px_10px_rgba(255,200,87,0.14)] transition-all hover:bg-[#FFECC5] hover:text-[#8A5813]"
+                              >
+                                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+                              </motion.button>
                             </div>
-                          )}
-                        </div>
 
-                        <div className="min-w-0 flex-1">
-                          <h3 className="truncate text-[15px] font-black text-[#5D4037]">
-                            {album.title || COPY.unnamedSpace}
-                          </h3>
-                          <div className="mt-1 flex items-center gap-1.5 text-[12px] text-[#8D6E63]">
-                            <Calendar className="h-[13px] w-[13px] flex-none" />
-                            <span className="truncate">{formatAlbumDate(album.created_at)}</span>
+                            <span
+                              className={`inline-flex min-w-[82px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold leading-none ${
+                                isExpired
+                                  ? 'border-red-200 bg-red-50 text-red-500'
+                                  : 'border-[#E8DCCA] bg-[#F8F1E4] text-[#6D544A]'
+                              }`}
+                            >
+                              {expiryText}
+                            </span>
                           </div>
-                          <div className={`mt-1 text-[12px] font-medium ${isExpired ? 'text-red-500' : daysRemaining <= 3 ? 'text-orange-500' : 'text-[#8D6E63]'}`}>
-                            {'\u2728 '}{expiryText}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-none items-center gap-2 self-center">
-                          <motion.button
-                            type="button"
-                            whileTap={{ scale: 0.92 }}
-                            disabled={unbindingAlbumId === album.id}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleRequestUnbindAlbum(album);
-                            }}
-                            aria-label={unbindingAlbumId === album.id ? COPY.unbinding : COPY.unbind}
-                            title={unbindingAlbumId === album.id ? COPY.unbinding : COPY.unbind}
-                            className="icon-button action-icon-btn action-icon-btn--delete"
-                          >
-                            <Trash2 className={`action-icon-svg action-icon-svg--delete ${unbindingAlbumId === album.id ? 'animate-pulse' : ''}`} />
-                          </motion.button>
-
-                          <motion.button
-                            type="button"
-                            whileTap={{ scale: 0.98 }}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleAlbumClick(album.access_key);
-                            }}
-                            aria-label={COPY.enterAlbum}
-                            title={COPY.enterAlbum}
-                            className="icon-button inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[#F3D08A] bg-[#FFF7E2] text-[#B7791F] shadow-[0_4px_12px_rgba(255,200,87,0.16)] transition-all hover:bg-[#FFF1CC] hover:text-[#9F6312]"
-                          >
-                            <ArrowRight className="h-4 w-4 translate-x-[0.5px]" />
-                          </motion.button>
                         </div>
                       </div>
                     </motion.div>
@@ -394,109 +416,140 @@ export default function AlbumLoginPage() {
 
               <motion.button
                 type="button"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => {
                   setShowKeyInput(true);
                   setError('');
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-[28px] border-2 border-dashed border-[#5D4037]/24 bg-transparent px-5 py-5 text-[15px] font-bold text-[#5D4037]/72 transition-colors hover:border-[#5D4037]/40 hover:text-[#5D4037]"
+                className="flex w-full items-center justify-center gap-2 rounded-[26px] border-2 border-dashed border-[#5D4037]/28 bg-transparent px-5 py-4 text-[#5D4037]/65 transition-all hover:border-[#5D4037]/50 hover:text-[#5D4037]"
               >
                 <Plus className="h-4 w-4" />
-                <span>{COPY.addOtherSpace}</span>
+                <span className="font-medium">{COPY.addOtherSpace}</span>
               </motion.button>
             </div>
           ) : (
-            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-              <div className="rounded-[30px] border border-[#EADFC8] bg-white px-5 py-6 shadow-[0_10px_26px_rgba(93,64,55,0.08)]">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#FFC857]/18 text-[#C7891E]">
-                    <Lock className="h-9 w-9" />
-                  </div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mx-auto w-full max-w-md"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', delay: 0.1 }}
+                className="mb-6 flex justify-center"
+              >
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#FFC857]/20">
+                  <Lock className="h-10 w-10 text-[#FFC857]" />
                 </div>
+              </motion.div>
 
-                <div className="mb-5 text-center">
-                  <h2 className="text-xl font-black text-[#5D4037]">{COPY.inputTitle}</h2>
-                  <p className="mt-2 text-sm leading-6 text-[#8D6E63]">{emptyTip}</p>
-                </div>
+              <div className="relative overflow-hidden rounded-2xl border border-[#5D4037]/10 bg-white p-[14px] shadow-sm">
+                <div className="absolute right-0 top-0 -z-10 h-32 w-32 rounded-full bg-[#FFC857]/10 blur-3xl" />
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder={COPY.inputPlaceholder}
-                      value={accessKey}
-                      onChange={(event) => setAccessKey(normalizeAccessKey(event.target.value))}
-                      disabled={isLoading}
-                      className={`h-[52px] w-full rounded-2xl border-[1.5px] bg-[#FFFCF4] px-4 pr-12 text-center text-[16px] font-bold tracking-[0.08em] text-[#5D4037] outline-none transition-colors ${
-                        error ? 'border-red-300 focus:border-red-400' : 'border-[#5D4037]/16 focus:border-[#FFC857]'
-                      } ${isLoading ? 'opacity-60' : ''}`}
-                      style={{ fontFamily: "'ZQKNNY', 'YouYuan', 'Microsoft YaHei', sans-serif" }}
-                    />
-
-                    {!isWechat ? (
-                      <motion.button
-                        type="button"
-                        whileTap={{ scale: 0.94 }}
-                        onClick={async () => {
-                          try {
-                            const text = await getClipboardText();
-                            const normalized = normalizeAccessKey(text || '');
-                            if (!normalized) {
-                              setError(COPY.clipboardEmpty);
-                              return;
-                            }
-                            setAccessKey(normalized);
-                            setError('');
-                          } catch {
-                            setError(COPY.clipboardReadFailed);
-                          }
-                        }}
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div>
+                    <div className="relative rounded-[18px] border border-[#FFC857]/34 bg-gradient-to-b from-[#FFC857]/20 to-[#FFC857]/10 p-[3px] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.9)]">
+                      <input
+                        type="text"
+                        placeholder="输入神秘密钥..."
+                        value={accessKey}
+                        onChange={(event) => setAccessKey(normalizeAccessKey(event.target.value))}
                         disabled={isLoading}
-                        className="compact-button absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#5D4037]/12 bg-[#FFE8B0] text-[#5D4037] shadow-[0_3px_8px_rgba(93,64,55,0.12)] transition-colors hover:bg-[#FFD989] disabled:opacity-60"
-                        aria-label={COPY.pasteKey}
-                        title={COPY.pasteKey}
+                        className={`h-[50px] w-full rounded-2xl border-[1.5px] border-[#5D4037]/20 bg-[#FFFCF4] px-[15px] text-center text-[16px] font-bold tracking-[0.08em] transition-all focus:border-[#FFC857] focus:outline-none disabled:opacity-50 ${
+                          !isWechat ? 'pr-[50px]' : ''
+                        }`}
+                        style={{ fontFamily: "'ZQKNNY', 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif" }}
+                      />
+                      {!isWechat ? (
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.94 }}
+                          onClick={async () => {
+                            try {
+                              const text = await getClipboardText();
+                              if (text) {
+                                setAccessKey(normalizeAccessKey(text));
+                                setError('');
+                              } else {
+                                setError('💡 提示：您也可以直接在输入框中长按粘贴');
+                              }
+                            } catch {
+                              setError('📋 无法读取剪贴板，请手动粘贴或授权剪贴板权限');
+                            }
+                          }}
+                          disabled={isLoading}
+                          className="compact-button absolute right-[8px] top-1/2 z-10 flex h-[34px] w-[34px] -translate-y-1/2 items-center justify-center rounded-full border border-[#5D4037]/14 bg-[#FFE8B0] shadow-[0_3px_6px_rgba(93,64,55,0.12)] transition-colors hover:bg-[#FFD989] disabled:opacity-50"
+                          title="粘贴"
+                          aria-label="粘贴密钥"
+                        >
+                          <Clipboard className="h-[15px] w-[15px] text-[#5D4037] opacity-90" strokeWidth={2.2} />
+                        </motion.button>
+                      ) : null}
+                    </div>
+                    {error ? (
+                      <motion.p
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-2 break-words text-center text-sm text-red-500"
                       >
-                        <Clipboard className="h-4 w-4" strokeWidth={2.2} />
-                      </motion.button>
+                        {error}
+                      </motion.p>
                     ) : null}
                   </div>
 
-                  {error ? <p className="text-center text-sm text-red-500">{error}</p> : null}
-
                   <motion.button
                     type="submit"
-                    whileTap={{ scale: 0.98 }}
                     disabled={isLoading}
-                    className="mx-auto flex h-[52px] w-[74%] min-w-[200px] max-w-[280px] items-center justify-center gap-2 rounded-2xl border-2 border-[#5D4037] bg-gradient-to-b from-[#FFD86A] to-[#FFC857] text-[15px] font-black text-[#5D4037] shadow-[0_5px_0_#704D3B] transition-all active:translate-y-[3px] active:shadow-[0_2px_0_#704D3B] disabled:opacity-60"
+                    whileTap={{ scale: 0.98 }}
+                    className="mx-auto flex h-[51px] w-[74%] min-w-[180px] max-w-[250px] items-center justify-center gap-2 rounded-2xl border-2 border-[#5D4037] bg-gradient-to-b from-[#FFD86A] to-[#FFC857] text-[15px] font-black text-[#5D4037] shadow-[0_5px_0_#704D3B] transition-all active:translate-y-[3px] active:shadow-[0_2px_0_#704D3B] disabled:opacity-60"
                   >
                     {isLoading ? (
                       <>
-                        <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
-                          <Sparkles className="h-4 w-4" />
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        >
+                          <Sparkles className="h-[17px] w-[17px]" />
                         </motion.div>
-                        <span>{COPY.entering}</span>
+                        <span>验证中...</span>
                       </>
                     ) : (
                       <>
-                        <Sparkles className="h-4 w-4" />
-                        <span>{COPY.enterSpace}</span>
+                        <Sparkles className="h-[17px] w-[17px]" />
+                        <span>解锁相册</span>
                       </>
                     )}
                   </motion.button>
                 </form>
+
+                <div className="mt-[11px] flex flex-col gap-[5px] border-t border-[#5D4037]/10 pt-[9px]">
+                  <p className="text-center text-[11px] text-[#5D4037]/50">
+                    💡 提示：输入密钥后即可进入临时相册空间
+                  </p>
+                  <p className="text-center text-[11px] text-[#5D4037]/50">
+                    密钥由管理员提供，到期后空间将自动销毁
+                  </p>
+                </div>
               </div>
 
               {hasBindings ? (
                 <motion.button
                   type="button"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.24 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
                     setShowKeyInput(false);
                     setError('');
                   }}
-                  className="mx-auto inline-flex items-center justify-center rounded-full border border-[#5D4037]/14 bg-white px-5 py-2.5 text-sm font-semibold text-[#5D4037]/72 shadow-sm transition-colors hover:text-[#5D4037]"
+                  className="mt-4 w-full text-sm text-[#5D4037]/60 transition-colors hover:text-[#5D4037]"
                 >
-                  {COPY.backToBoundSpaces}
+                  ← 返回我的相册
                 </motion.button>
               ) : null}
             </motion.div>
@@ -510,48 +563,47 @@ export default function AlbumLoginPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/42 p-4"
-            onClick={() => {
-              if (!unbindingAlbumId) {
-                setUnbindTargetAlbum(null);
-              }
-            }}
+            onClick={handleCancelUnbindAlbum}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
           >
             <motion.div
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
               onClick={(event) => event.stopPropagation()}
-              className="w-full max-w-sm rounded-[28px] bg-white p-6 shadow-[0_22px_60px_rgba(93,64,55,0.24)]"
+              className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
             >
-              <div className="mb-5 text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-500">
-                  <Trash2 className="h-6 w-6" />
+              <div className="mb-6 text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#FFC857]/20 text-[#C98A18]">
+                  <Unlink2 className="h-8 w-8" />
                 </div>
-                <h3 className="text-xl font-black text-[#5D4037]">{COPY.unbindModalTitle}</h3>
-                <p className="mt-3 text-sm leading-6 text-[#8D6E63]">
-                  {COPY.currentSpace}<span className="font-semibold text-[#5D4037]">{unbindTargetAlbum.title || COPY.unnamedSpace}</span>
+                <h3 className="mb-3 text-xl font-bold text-[#5D4037]">{COPY.unbindModalTitle}</h3>
+                <p className="mb-2 text-sm leading-relaxed text-[#5D4037]/70">{COPY.unbindModalDesc}</p>
+                <p className="text-xs text-[#5D4037]/50">
+                  {COPY.currentSpace}
+                  {unbindTargetAlbum.title || COPY.unnamedSpace}
                 </p>
-                <p className="mt-2 text-sm leading-6 text-[#8D6E63]">{COPY.unbindModalDesc}</p>
               </div>
 
               <div className="flex gap-3">
-                <button
+                <motion.button
                   type="button"
+                  whileTap={{ scale: 0.95 }}
                   disabled={Boolean(unbindingAlbumId)}
-                  onClick={() => setUnbindTargetAlbum(null)}
-                  className="flex-1 rounded-full bg-[#5D4037]/10 px-4 py-3 text-sm font-semibold text-[#5D4037] transition-colors hover:bg-[#5D4037]/16 disabled:opacity-60"
+                  onClick={handleCancelUnbindAlbum}
+                  className="flex-1 rounded-full bg-[#5D4037]/10 px-4 py-3 text-sm font-medium text-[#5D4037] transition-colors hover:bg-[#5D4037]/20 disabled:opacity-60"
                 >
-                  {COPY.cancel}
-                </button>
-                <button
+                  再想想
+                </motion.button>
+                <motion.button
                   type="button"
+                  whileTap={{ scale: 0.95 }}
                   disabled={Boolean(unbindingAlbumId)}
                   onClick={() => void handleConfirmUnbindAlbum()}
-                  className="flex-1 rounded-full bg-red-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_18px_rgba(239,68,68,0.24)] transition-colors hover:bg-red-600 disabled:opacity-60"
+                  className="flex-1 rounded-full bg-[#FFC857] px-4 py-3 text-sm font-medium text-[#5D4037] shadow-md transition-all hover:shadow-lg disabled:opacity-60"
                 >
                   {unbindingAlbumId ? COPY.unbinding : COPY.confirmUnbind}
-                </button>
+                </motion.button>
               </div>
             </motion.div>
           </motion.div>
@@ -560,4 +612,3 @@ export default function AlbumLoginPage() {
     </div>
   );
 }
-

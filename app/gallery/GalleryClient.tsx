@@ -1318,8 +1318,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             <MiniProgramRecoveryScreen
               title={loadingTitle}
               description={loadingDescription}
-              className="absolute inset-0 z-20 min-h-0 bg-[#FFFBF0]/92 px-4 backdrop-blur-[2px]"
-              contentClassName="gap-3 scale-[0.92]"
+              className="absolute inset-0 z-20 min-h-0 bg-[#FFFBF0]/78 px-4 backdrop-blur-[4px]"
+              contentClassName="gap-3"
             />
           )}
         {photos.length === 0 ? (

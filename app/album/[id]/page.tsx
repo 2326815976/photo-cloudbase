@@ -742,6 +742,7 @@ export default function AlbumDetailPage() {
     setPageNo(0);
     setTotalPhotos(0);
     photoLoadTokenRef.current += 1;
+    photoScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
 
     const success = await loadAlbumPhotoPage(normalized, 1, { reset: true, silent: true });
     if (!success && selectedFolderRef.current === normalized) {
@@ -1607,35 +1608,18 @@ export default function AlbumDetailPage() {
           {switchingFolderLoading && (
             <motion.div
               key="album-folder-switch-overlay"
-              initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.99 }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.22, ease: 'easeOut' }}
-              className="absolute inset-0 z-20 flex items-center justify-center bg-[rgba(255,251,240,0.82)] backdrop-blur-[3px]"
+              initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 z-20"
             >
-              <div className="flex flex-col items-center gap-3 rounded-[26px] border border-[#A67E52]/18 bg-[linear-gradient(180deg,rgba(255,253,247,0.95)_0%,rgba(255,246,231,0.92)_100%)] px-8 py-7 shadow-[0_16px_42px_rgba(93,64,55,0.16)]">
-                <div className="relative h-[108px] w-[108px]">
-                  <motion.span
-                    aria-hidden="true"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 2.8, repeat: Infinity, ease: 'linear' }}
-                    className="absolute inset-0 rounded-full border-[5px] border-[#FFC857]/28 border-t-[#FFC857]"
-                  />
-                  <motion.span
-                    aria-hidden="true"
-                    animate={{ rotate: -360 }}
-                    transition={{ duration: 2.1, repeat: Infinity, ease: 'linear' }}
-                    className="absolute inset-[16px] rounded-full border-[5px] border-[#5D4037]/18 border-b-[#5D4037]"
-                  />
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <Sparkles className="h-9 w-9 text-[#D89B2B]" strokeWidth={2.2} />
-                  </span>
-                </div>
-                <div className="space-y-1 text-center">
-                  <p className="text-[15px] font-semibold tracking-[0.08em] text-[#5D4037]">拾光中...</p>
-                  <p className="text-[12px] text-[#5D4037]/62">正在切换当前照片分组</p>
-                </div>
-              </div>
+              <MiniProgramRecoveryScreen
+                title="拾光中..."
+                description="正在切换照片标签"
+                className="h-full min-h-0 bg-[#FFFBF0]/78 px-4 backdrop-blur-[4px]"
+                contentClassName="gap-3"
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -1845,5 +1829,3 @@ export default function AlbumDetailPage() {
     </div>
   );
 }
-
-

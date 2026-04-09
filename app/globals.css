@@ -3,16 +3,16 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* 鍙埍娌绘剤椋庨厤鑹?- 浜壊妯″紡 */
-  --background: #FFFBF0; /* 鏆栫櫧/濂舵补鑹?*/
-  --foreground: #5D4037; /* 娣卞挅鑹?*/
+  /* 可爱治愈配色 - 亮色模式 */
+  --background: #FFFBF0; /* 暖白/奶油色 */
+  --foreground: #5D4037; /* 深咖色 */
   --card: #FFFFFF;
   --card-foreground: #5D4037;
-  --primary: #FFC857; /* 钀芥棩榛?*/
+  --primary: #FFC857; /* 落日黄 */
   --primary-foreground: #5D4037;
-  --secondary: #A0C4FF; /* 椹崱榫欒摑 */
+  --secondary: #A0C4FF; /* 马卡龙蓝 */
   --secondary-foreground: #5D4037;
-  --accent: #FFADAD; /* 娣＄矇鑹?*/
+  --accent: #FFADAD; /* 淡粉色 */
   --accent-foreground: #5D4037;
   --border: #5D4037;
   --border-light: #E5E7EB;
@@ -22,16 +22,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* 鏆楄壊妯″紡閰嶈壊 - 涓?Android 淇濇寔涓€鑷?*/
-    --background: #2C2416; /* 娣辨鑹茶儗鏅?*/
-    --foreground: #FFFFFF; /* 鐧借壊鏂囧瓧 */
+    /* 深色模式配色 - 与 Android 保持一致 */
+    --background: #2C2416; /* 深棕色背景 */
+    --foreground: #FFFFFF; /* 白色文字 */
     --card: #333333;
     --card-foreground: #FFFFFF;
-    --primary: #FFD580; /* 绋嶄寒鐨勯粍鑹?*/
+    --primary: #FFD580; /* 稍亮的黄色 */
     --primary-foreground: #333333;
-    --secondary: #A0C4FF; /* 椹崱榫欒摑淇濇寔涓嶅彉 */
+    --secondary: #A0C4FF; /* 马卡龙蓝保持不变 */
     --secondary-foreground: #333333;
-    --accent: #FFADAD; /* 娣＄矇鑹蹭繚鎸佷笉鍙?*/
+    --accent: #FFADAD; /* 淡粉色保持不变 */
     --accent-foreground: #333333;
     --border: #666666;
     --border-light: #444444;
@@ -71,7 +71,7 @@
     outline-offset: 2px;
   }
 
-  /* 寮哄埗杈撳叆妗嗘枃瀛楅鑹?- 淇Android鏆楄壊妯″紡闂 */
+  /* 强制输入框文字颜色 - 修复 Android 深色模式问题 */
   input,
   textarea,
   select {
@@ -85,7 +85,7 @@
     -webkit-text-fill-color: rgba(93, 64, 55, 0.4) !important;
   }
 
-  /* 闅愯棌鎵€鏈夋粴鍔ㄦ潯 */
+  /* 隐藏所有滚动条 */
   * {
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -105,8 +105,8 @@
   }
 }
 
-/* Android WebView 浼樺寲 - 绂佺敤闀挎寜鑿滃崟 */
-/* 浠呭鐓х墖澧欑殑鍥剧墖绂佺敤闀挎寜锛屼繚鐣欒繑鍥剧┖闂寸殑闀挎寜淇濆瓨鍔熻兘 */
+/* Android WebView 优化 - 禁用长按菜单 */
+/* 仅对照片墙的图片禁用长按，保留返图空间的长按保存功能 */
 .gallery-scroll-container img {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -114,12 +114,12 @@
   pointer-events: auto;
 }
 
-/* WebView 缂╂斁淇 - 闃叉椤甸潰鑷姩鏀惧ぇ */
+/* WebView 缩放修复 - 防止页面自动放大 */
 html {
   -webkit-text-size-adjust: 100%;
   -ms-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  /* 绂佺敤鍙屾寚缂╂斁 */
+  /* 禁用双指缩放 */
   touch-action: pan-y pan-x;
 }
 
@@ -127,19 +127,19 @@ body {
   width: 100%;
   max-width: 100vw;
   overflow-x: hidden;
-  /* 鏀寔瀹夊叏鍖哄煙 */
+  /* 适配安全区域 */
   padding-bottom: env(safe-area-inset-bottom);
-  /* 绂佺敤鍙屾寚缂╂斁 */
+  /* 禁用双指缩放 */
   touch-action: pan-y pan-x;
 }
 
-/* 鍏佽鍏ㄥ睆鏌ョ湅鍣ㄤ腑鐨勫浘鐗囩缉鏀?*/
+/* 允许全屏查看器中的图片缩放 */
 .fullscreen-viewer,
 .fullscreen-viewer * {
   touch-action: auto !important;
 }
 
-/* 閫氱敤绂佺敤閫夋嫨绫?*/
+/* 通用禁用选择类 */
 .no-select {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -149,24 +149,24 @@ body {
   user-select: none;
 }
 
-/* 瀛椾綋宸ュ叿绫?*/
+/* 字体工具类 */
 .font-youyuan {
-  font-family: 'YouYuan', '骞煎渾', 'Microsoft YaHei', sans-serif;
+  font-family: 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif;
 }
 
-/* 榛樿瀛椾綋 - ZQKNNY锛堢敤浜庢墍鏈夐潪涔︿俊鍐呭锛?*/
+/* 默认字体 - ZQKNNY（用于所有非书信内容） */
 .font-default {
-  font-family: 'ZQKNNY', 'YouYuan', '骞煎渾', 'Microsoft YaHei', sans-serif;
+  font-family: 'ZQKNNY', 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif;
 }
 
-/* 涔︿俊涓撶敤瀛椾綋 - 鏄庡ぉ浼氭湁濂戒簨鍙戠敓 */
+/* 书信专用字体 - 明天会有好事发生 */
 .font-letter {
-  font-family: 'Letter Font', 'YouYuan', '骞煎渾', cursive, sans-serif;
+  font-family: 'Letter Font', 'YouYuan', '幼圆', cursive, sans-serif;
 }
 
-/* 鍏煎鏃т唬鐮佺殑鎵嬪啓浣撶被 - 缁熶竴浣跨敤ZQKNNY */
+/* 兼容旧代码的手写体类 - 统一使用 ZQKNNY */
 .font-handwriting {
-  font-family: 'ZQKNNY', 'YouYuan', '骞煎渾', sans-serif;
+  font-family: 'ZQKNNY', 'YouYuan', '幼圆', sans-serif;
 }
 
 button.icon-button,
@@ -284,21 +284,21 @@ a.icon-button > svg {
   transform: translateY(-0.5px);
 }
 
-/* 绉诲姩绔Е鎽镐紭鍖?*/
+/* 移动端触摸优化 */
 @media (hover: none) and (pointer: coarse) {
-  /* 绉诲姩璁惧锛氬澶у彲鐐瑰嚮鍖哄煙 */
+  /* 移动设备：增大可点击区域 */
   button:not(.tag-button):not(.compact-button):not(.album-toolbar-chip):not(.icon-button),
   a:not(.tag-button):not(.album-toolbar-chip):not(.icon-button) {
     padding: 0.75rem 1rem;
   }
 
-  /* 绉婚櫎hover鏁堟灉浠ユ彁鍗囨€ц兘 */
+  /* 移除 hover 效果以提升性能 */
   *:hover {
     transition: none !important;
   }
 }
 
-/* 鍙嶅悜鏃嬭浆鍔ㄧ敾 */
+/* 反向旋转动画 */
 @keyframes spin-reverse {
   from {
     transform: rotate(360deg);
@@ -312,16 +312,16 @@ a.icon-button > svg {
   animation: spin-reverse 2s linear infinite;
 }
 
-/* 妯睆浼樺寲 */
+/* 横屏优化 */
 @media (orientation: landscape) and (max-height: 500px) {
-  /* 妯睆鏃跺噺灏忓瀭鐩撮棿璺?*/
+  /* 横屏时减少垂直间距 */
   .py-8 {
     padding-top: 1rem;
     padding-bottom: 1rem;
   }
 }
 
-/* 楂樺埛鏂扮巼灞忓箷浼樺寲 */
+/* 高刷新率屏幕优化 */
 @media (prefers-reduced-motion: no-preference) {
   * {
     scroll-behavior: smooth;
@@ -3551,7 +3551,7 @@ a.icon-button > svg {
   line-height: 1.2;
   font-weight: 700;
   color: #5d4037;
-  font-family: 'ZQKNNY', 'YouYuan', '骞煎渾', 'Microsoft YaHei', sans-serif;
+  font-family: 'ZQKNNY', 'YouYuan', '幼圆', 'Microsoft YaHei', sans-serif;
 }
 
 .release-header__title {
