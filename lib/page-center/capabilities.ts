@@ -1,4 +1,5 @@
 import type { AppChannel, AppPageRegistryItem } from '@/lib/page-center/config';
+import { isProfileSecondaryPageKey } from '@/lib/page-center/config';
 
 export const MAX_WEB_NAV_ITEMS = 5;
 export const MAX_MINIPROGRAM_NAV_ITEMS = 5;
@@ -6,10 +7,14 @@ export const MIN_NAV_ITEMS_PER_CHANNEL = 1;
 
 type PageNavCapabilitySource = Pick<
   AppPageRegistryItem,
-  'iconKey' | 'tabKey' | 'isNavCandidateWeb' | 'isTabCandidateMiniProgram'
+  'pageKey' | 'iconKey' | 'tabKey' | 'isNavCandidateWeb' | 'isTabCandidateMiniProgram'
 >;
 
 export function canPageShowInNav(page: PageNavCapabilitySource, channel: AppChannel): boolean {
+  if (isProfileSecondaryPageKey(page.pageKey)) {
+    return false;
+  }
+
   if (channel === 'web') {
     return Boolean(page.isNavCandidateWeb);
   }

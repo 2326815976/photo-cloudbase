@@ -33,12 +33,12 @@ async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckRe
     if (isRetryableSqlError(authError)) {
       return { ok: false, response: buildTransientResponse() };
     }
-    return { ok: false, response: buildServerErrorResponse('????????') };
+    return { ok: false, response: buildServerErrorResponse('管理员身份校验失败') };
   }
 
   const user = authData?.user ?? null;
   if (!user) {
-    return { ok: false, response: buildServerErrorResponse('???', 401) };
+    return { ok: false, response: buildServerErrorResponse('未登录', 401) };
   }
 
   let isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
@@ -53,14 +53,14 @@ async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckRe
       if (isRetryableSqlError(profileError)) {
         return { ok: false, response: buildTransientResponse() };
       }
-      return { ok: false, response: buildServerErrorResponse('?????????') };
+      return { ok: false, response: buildServerErrorResponse('管理员权限校验失败') };
     }
 
     isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
   }
 
   if (!isAdmin) {
-    return { ok: false, response: buildServerErrorResponse('???????', 403) };
+    return { ok: false, response: buildServerErrorResponse('无权访问', 403) };
   }
 
   return { ok: true };
@@ -114,7 +114,7 @@ export async function DELETE(
     const { id } = await params;
     const blockedDateId = Number(id);
     if (!Number.isInteger(blockedDateId) || blockedDateId <= 0) {
-      return buildServerErrorResponse('???? ID ??', 400);
+      return buildServerErrorResponse('无效的锁定档期 ID', 400);
     }
 
     const sessionClient = await createClient();
@@ -135,11 +135,11 @@ export async function DELETE(
         return buildTransientResponse();
       }
       console.error('Error fetching blocked date snapshot:', snapshotError);
-      return buildServerErrorResponse('????');
+      return buildServerErrorResponse('读取锁定档期失败');
     }
 
     if (!snapshotRow) {
-      return buildServerErrorResponse('???????????', 404);
+      return buildServerErrorResponse('锁定档期不存在', 404);
     }
 
     const targetDate = normalizeDateLiteral((snapshotRow as { date?: unknown }).date);
@@ -154,7 +154,7 @@ export async function DELETE(
         return buildTransientResponse();
       }
       console.error('Error deleting blocked date by id:', deleteByIdError);
-      return buildServerErrorResponse(`?????${String(deleteByIdError.message || deleteByIdError.code || '????')}`);
+      return buildServerErrorResponse(`删除锁定档期失败：${String(deleteByIdError.message || deleteByIdError.code || '未知错误')}`);
     }
 
     const { data: remainingById, error: verifyByIdError } = await adminDbClient
@@ -168,11 +168,11 @@ export async function DELETE(
         return buildTransientResponse();
       }
       console.error('Error verifying blocked date delete by id:', verifyByIdError);
-      return buildServerErrorResponse('????');
+      return buildServerErrorResponse('校验锁定档期删除结果失败');
     }
 
     if (remainingById) {
-      return buildServerErrorResponse('??????????');
+      return buildServerErrorResponse('锁定档期删除未生效');
     }
 
     if (targetDate) {
@@ -186,7 +186,7 @@ export async function DELETE(
           return buildTransientResponse();
         }
         console.error('Error deleting duplicated blocked dates by date:', deleteByDateError);
-        return buildServerErrorResponse(`?????${String(deleteByDateError.message || deleteByDateError.code || '????')}`);
+        return buildServerErrorResponse(`清理重复锁定档期失败：${String(deleteByDateError.message || deleteByDateError.code || '未知错误')}`);
       }
 
       const { data: remainingByDate, error: verifyByDateError } = await adminDbClient
@@ -200,11 +200,11 @@ export async function DELETE(
           return buildTransientResponse();
         }
         console.error('Error verifying blocked date delete by date:', verifyByDateError);
-        return buildServerErrorResponse('????');
+        return buildServerErrorResponse('校验重复锁定档期清理结果失败');
       }
 
       if (remainingByDate) {
-        return buildServerErrorResponse('??????????');
+        return buildServerErrorResponse('仍有同日期锁定档期残留');
       }
     }
 
@@ -215,6 +215,6 @@ export async function DELETE(
     }
 
     console.error('Unexpected error:', error);
-    return buildServerErrorResponse('?????');
+    return buildServerErrorResponse('删除锁定档期失败');
   }
 }

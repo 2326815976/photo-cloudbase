@@ -132,6 +132,8 @@ const metadataList: TableMetadata[] = [
       'recipient_name',
       'enable_tipping',
       'enable_welcome_letter',
+      'welcome_letter_mode',
+      'enable_freeze',
       'donation_qr_code_url',
       'expires_at',
       'created_by',

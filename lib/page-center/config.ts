@@ -139,6 +139,18 @@ export interface MiniProgramPageCenterRuntimeResult {
 
 export const PAGE_CENTER_CHANNELS: AppChannel[] = ['web', 'miniprogram'];
 export const PAGE_PUBLISH_STATES: PagePublishState[] = ['offline', 'beta', 'online'];
+export const PROFILE_SECONDARY_PAGE_KEYS = [
+  'profile-edit',
+  'profile-bookings',
+  'profile-change-password',
+  'about',
+  'profile-delete-account',
+] as const;
+
+export function isProfileSecondaryPageKey(input: unknown): boolean {
+  const pageKey = normalizeText(input);
+  return (PROFILE_SECONDARY_PAGE_KEYS as readonly string[]).includes(pageKey);
+}
 
 export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
   {
@@ -239,13 +251,87 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     routePathMiniProgram: 'pages/profile/about/index',
     previewRoutePathWeb: '/profile/about?presentation=preview&page_key=about',
     previewRoutePathMiniProgram: '/pages/profile/about/index?presentation=preview&page_key=about',
-    tabKey: 'about',
-    iconKey: 'about',
+    tabKey: null,
+    iconKey: null,
     defaultTabText: '关于',
     defaultGuestTabText: '关于',
-    isNavCandidateWeb: true,
-    isTabCandidateMiniProgram: true,
-    supportsBeta: true,
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'profile-edit',
+    pageName: '编辑个人资料',
+    pageDescription: '我的页个人资料编辑入口',
+    routePathWeb: '/profile/edit',
+    routePathMiniProgram: 'pages/profile/edit/index',
+    previewRoutePathWeb: '/profile/edit?presentation=preview&page_key=profile-edit',
+    previewRoutePathMiniProgram: '/pages/profile/edit/index?presentation=preview&page_key=profile-edit',
+    tabKey: null,
+    iconKey: null,
+    defaultTabText: '编辑个人资料',
+    defaultGuestTabText: '编辑个人资料',
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'profile-bookings',
+    pageName: '我的预约记录',
+    pageDescription: '我的页预约记录入口',
+    routePathWeb: '/profile/bookings',
+    routePathMiniProgram: 'pages/profile/bookings/index',
+    previewRoutePathWeb: '/profile/bookings?presentation=preview&page_key=profile-bookings',
+    previewRoutePathMiniProgram: '/pages/profile/bookings/index?presentation=preview&page_key=profile-bookings',
+    tabKey: null,
+    iconKey: null,
+    defaultTabText: '我的预约记录',
+    defaultGuestTabText: '我的预约记录',
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'profile-change-password',
+    pageName: '修改密码',
+    pageDescription: '我的页密码修改入口',
+    routePathWeb: '/profile/change-password',
+    routePathMiniProgram: 'pages/profile/change-password/index',
+    previewRoutePathWeb: '/profile/change-password?presentation=preview&page_key=profile-change-password',
+    previewRoutePathMiniProgram:
+      '/pages/profile/change-password/index?presentation=preview&page_key=profile-change-password',
+    tabKey: null,
+    iconKey: null,
+    defaultTabText: '修改密码',
+    defaultGuestTabText: '修改密码',
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'profile-delete-account',
+    pageName: '删除账户',
+    pageDescription: '我的页账户删除入口',
+    routePathWeb: '/profile/delete-account',
+    routePathMiniProgram: 'pages/profile/delete-account/index',
+    previewRoutePathWeb: '/profile/delete-account?presentation=preview&page_key=profile-delete-account',
+    previewRoutePathMiniProgram:
+      '/pages/profile/delete-account/index?presentation=preview&page_key=profile-delete-account',
+    tabKey: null,
+    iconKey: null,
+    defaultTabText: '删除账户',
+    defaultGuestTabText: '删除账户',
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
     supportsPreview: true,
     isBuiltIn: true,
   },
@@ -257,7 +343,19 @@ export const DEFAULT_WEB_NAV_RULES: Array<Pick<AppPagePublishRuleItem, 'pageKey'
   { pageKey: 'gallery', publishState: 'online', showInNav: true, navOrder: 2, navText: '照片墙', guestNavText: '照片墙', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'booking', publishState: 'online', showInNav: true, navOrder: 3, navText: '约拍', guestNavText: '约拍', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile', publishState: 'online', showInNav: true, navOrder: 4, navText: '我的', guestNavText: '我的', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'about', publishState: 'offline', showInNav: false, navOrder: 99, navText: '关于', guestNavText: '关于', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
+];
+
+export const DEFAULT_PROFILE_SECONDARY_RULES: Array<
+  Pick<
+    AppPagePublishRuleItem,
+    'pageKey' | 'publishState' | 'showInNav' | 'navOrder' | 'navText' | 'guestNavText' | 'headerTitle' | 'headerSubtitle' | 'isHomeEntry' | 'notes'
+  >
+> = [
+  { pageKey: 'profile-edit', publishState: 'online', showInNav: false, navOrder: 99, navText: '编辑个人资料', guestNavText: '编辑个人资料', headerTitle: '编辑个人资料', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-bookings', publishState: 'online', showInNav: false, navOrder: 99, navText: '我的预约记录', guestNavText: '我的预约记录', headerTitle: '我的预约记录', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-change-password', publishState: 'online', showInNav: false, navOrder: 99, navText: '修改密码', guestNavText: '修改密码', headerTitle: '修改密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'about', publishState: 'online', showInNav: false, navOrder: 99, navText: '关于', guestNavText: '关于', headerTitle: '关于', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-delete-account', publishState: 'online', showInNav: false, navOrder: 99, navText: '删除账户', guestNavText: '删除账户', headerTitle: '删除账户', headerSubtitle: '', isHomeEntry: false, notes: '' },
 ];
 
 export const PAGE_KEY_MAP = new Map(BUILT_IN_APP_PAGES.map((item) => [item.pageKey, item]));
@@ -344,6 +442,23 @@ export function createFallbackMiniProgramRuleMap(runtimeConfig: MiniProgramRunti
       updatedAt: '',
     });
   });
+  DEFAULT_PROFILE_SECONDARY_RULES.forEach((item, index) => {
+    map.set(item.pageKey, {
+      id: buildRegistryFallbackItems().length + index + 1,
+      pageKey: item.pageKey,
+      channel: 'miniprogram',
+      publishState: item.publishState,
+      showInNav: item.showInNav,
+      navOrder: item.navOrder,
+      navText: item.navText,
+      guestNavText: item.guestNavText,
+      headerTitle: item.headerTitle,
+      headerSubtitle: item.headerSubtitle,
+      isHomeEntry: item.isHomeEntry,
+      notes: item.notes,
+      updatedAt: '',
+    });
+  });
   return map;
 }
 
@@ -352,6 +467,23 @@ export function createFallbackWebRuleMap(): Map<string, AppPagePublishRuleItem> 
   DEFAULT_WEB_NAV_RULES.forEach((item, index) => {
     map.set(item.pageKey, {
       id: index + 1,
+      pageKey: item.pageKey,
+      channel: 'web',
+      publishState: item.publishState,
+      showInNav: item.showInNav,
+      navOrder: item.navOrder,
+      navText: item.navText,
+      guestNavText: item.guestNavText,
+      headerTitle: item.headerTitle,
+      headerSubtitle: item.headerSubtitle,
+      isHomeEntry: item.isHomeEntry,
+      notes: item.notes,
+      updatedAt: '',
+    });
+  });
+  DEFAULT_PROFILE_SECONDARY_RULES.forEach((item, index) => {
+    map.set(item.pageKey, {
+      id: DEFAULT_WEB_NAV_RULES.length + index + 1,
       pageKey: item.pageKey,
       channel: 'web',
       publishState: item.publishState,
@@ -384,16 +516,26 @@ export function resolvePageRuleView(
         : createFallbackMiniProgramRuleMap(runtimeConfig || buildRuntimeConfigPresetForFallback());
   const fallback = fallbackMap?.get(page.pageKey);
   const resolved = rule || fallback;
+  const isSecondaryPage = isProfileSecondaryPageKey(page.pageKey);
+  const navText = normalizeText(resolved?.navText) || page.defaultTabText || page.pageName;
+  const guestNavText = isSecondaryPage
+    ? navText
+    : normalizeText(resolved?.guestNavText) ||
+      page.defaultGuestTabText ||
+      navText ||
+      page.defaultTabText ||
+      page.pageName;
+
   return {
     channel,
     publishState: resolved?.publishState || 'offline',
-    showInNav: Boolean(resolved?.showInNav),
-    navOrder: normalizeNumber(resolved?.navOrder, 99),
-    navText: normalizeText(resolved?.navText) || page.defaultTabText,
-    guestNavText: normalizeText(resolved?.guestNavText) || page.defaultGuestTabText || normalizeText(resolved?.navText) || page.defaultTabText,
-    headerTitle: normalizeText(resolved?.headerTitle),
+    showInNav: isSecondaryPage ? false : Boolean(resolved?.showInNav),
+    navOrder: isSecondaryPage ? 99 : normalizeNumber(resolved?.navOrder, 99),
+    navText,
+    guestNavText,
+    headerTitle: isSecondaryPage ? navText : normalizeText(resolved?.headerTitle),
     headerSubtitle: normalizeText(resolved?.headerSubtitle),
-    isHomeEntry: Boolean(resolved?.isHomeEntry),
+    isHomeEntry: isSecondaryPage ? false : Boolean(resolved?.isHomeEntry),
     notes: normalizeText(resolved?.notes),
     routePath: channel === 'web' ? page.routePathWeb : page.routePathMiniProgram,
     previewRoutePath: channel === 'web' ? page.previewRoutePathWeb : page.previewRoutePathMiniProgram,

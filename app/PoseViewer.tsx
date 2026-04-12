@@ -1045,7 +1045,7 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                   setScale(1);
                   setPosition({ x: 0, y: 0 });
                 }}
-                className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4 z-10"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
               >
                 <X className="action-icon-svg" />
               </button>
@@ -1125,12 +1125,12 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
               className="fixed top-[72px] left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-5"
               style={{ willChange: 'transform, opacity' }}
             >
-              <div className="bg-[#FFFBF0] rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.2)] border-2 border-[#5D4037]/10 max-h-[60vh] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
-                <div className="flex items-center justify-between p-4 border-b-2 border-dashed border-[#5D4037]/15">
+              <div className="relative bg-[#FFFBF0] rounded-2xl shadow-[0_8px_30px_rgba(93,64,55,0.2)] border-2 border-[#5D4037]/10 max-h-[60vh] overflow-hidden flex flex-col" style={{ transform: 'translateZ(0)' }}>
+                <div className="flex items-center justify-between p-4 pr-12 border-b-2 border-dashed border-[#5D4037]/15">
                   <h3 className="text-lg font-bold text-[#5D4037]">选择标签</h3>
                   <button
                     onClick={() => setShowTagSelector(false)}
-                    className="icon-button action-icon-btn action-icon-btn--close"
+                    className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                     style={{ transform: 'translateZ(0)' }}
                   >
                     <X className="action-icon-svg" />

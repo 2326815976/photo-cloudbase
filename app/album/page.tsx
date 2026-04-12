@@ -11,6 +11,7 @@ import { createClient } from '@/lib/cloudbase/client';
 import { getClipboardText } from '@/lib/android';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { formatDateDisplayUTC8, toTimestampUTC8 } from '@/lib/utils/date-helpers';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { isWechatBrowser } from '@/lib/wechat';
 
 interface BoundAlbum {
@@ -27,7 +28,7 @@ interface BoundAlbum {
 const COPY = {
   fallbackTitle: '专属返图空间',
   fallbackBadge: '✨ 趁照片消失前，把美好定格 ✨',
-  loadingTitle: '加载中...',
+  loadingTitle: '拾光中...',
   loadingDesc: '正在为你打开空间入口',
   serviceInitError: '服务初始化失败，请刷新页面后重试',
   authTimeout: '网络连接超时，请稍后重试',
@@ -94,6 +95,11 @@ function getDaysRemaining(expiresAt: string) {
 
 export default function AlbumLoginPage() {
   const router = useRouter();
+  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
+    'album',
+    COPY.fallbackTitle,
+    COPY.fallbackBadge
+  );
 
   const [pageLoading, setPageLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -108,8 +114,16 @@ export default function AlbumLoginPage() {
   const [listNotice, setListNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const hasBindings = isLoggedIn && boundAlbums.length > 0;
-  const loadingTitle = COPY.loadingTitle;
-  const loadingDescription = COPY.loadingDesc;
+  const loadingTitle = useMemo(() => {
+    const candidate = String(
+      (isLoggedIn ? navLabel : guestNavLabel) || navLabel || guestNavLabel || managedTitle || COPY.fallbackTitle
+    ).trim();
+    return candidate || COPY.fallbackTitle;
+  }, [guestNavLabel, isLoggedIn, managedTitle, navLabel]);
+  const loadingDescription = useMemo(() => {
+    const subject = String(managedTitle || loadingTitle || COPY.fallbackTitle).trim();
+    return `正在载入${subject}内容`;
+  }, [loadingTitle, managedTitle]);
 
   const loadUserData = async () => {
     setPageLoading(true);
@@ -288,7 +302,7 @@ export default function AlbumLoginPage() {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-[#FFFBF0]">
       <div className="flex-none border-b-2 border-dashed border-[#5D4037]/10 bg-[#FFFBF0]/96 shadow-[0_2px_12px_rgba(93,64,55,0.08)] backdrop-blur-md">
-        <PageTopHeader title={COPY.fallbackTitle} badge={COPY.fallbackBadge} />
+        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
       </div>
 
       <PreviewAwareScrollArea className="min-h-0 flex-1 overflow-y-auto pb-20" bottomPaddingMode="scroll">

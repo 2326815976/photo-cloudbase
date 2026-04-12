@@ -8,12 +8,10 @@ import MaintenanceButton from '../components/MaintenanceButton';
 const REFRESH_PENDING_TIMEOUT_MS = 15000;
 
 interface StatsMetaView {
-  generatedAtText: string;
   snapshotDateText: string;
   trendCoverageText: string;
   statusText: string;
   statusTone: 'fresh' | 'warning' | 'muted';
-  unavailableSourcesText: string;
 }
 
 interface StatsClientProps {
@@ -73,7 +71,7 @@ export default function StatsClient({ children, meta }: StatsClientProps) {
             <h1 className="stats-header__title" style={{ fontFamily: "'ZQKNNY', cursive" }}>
               快照与趋势状态
             </h1>
-            <p className="stats-header__desc">集中查看统计快照、趋势覆盖和维护状态。</p>
+            <p className="stats-header__desc">集中查看快照日期、趋势覆盖和维护状态。</p>
           </div>
           <div className="stats-toolbar">
             <button
@@ -89,10 +87,6 @@ export default function StatsClient({ children, meta }: StatsClientProps) {
         </div>
         <div className="stats-meta-panel">
           <div className="stats-meta-item">
-            <span className="stats-meta-item__label">生成时间</span>
-            <span className="stats-meta-item__value">{meta.generatedAtText || "—"}</span>
-          </div>
-          <div className="stats-meta-item">
             <span className="stats-meta-item__label">快照日期</span>
             <span className="stats-meta-item__value">{meta.snapshotDateText || "—"}</span>
           </div>
@@ -100,12 +94,6 @@ export default function StatsClient({ children, meta }: StatsClientProps) {
             <span className="stats-meta-item__label">趋势覆盖</span>
             <span className="stats-meta-item__value">{meta.trendCoverageText || "0/7 天"}</span>
           </div>
-          {meta.unavailableSourcesText ? (
-            <div className="stats-meta-item stats-meta-item--full">
-              <span className="stats-meta-item__label">异常来源</span>
-              <span className="stats-meta-item__value">{meta.unavailableSourcesText}</span>
-            </div>
-          ) : null}
         </div>
       </section>
 

@@ -34,12 +34,12 @@ async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckRe
     if (isRetryableSqlError(authError)) {
       return { ok: false, response: buildTransientResponse() };
     }
-    return { ok: false, response: buildServerErrorResponse('????????') };
+    return { ok: false, response: buildServerErrorResponse('管理员身份校验失败') };
   }
 
   const user = authData?.user ?? null;
   if (!user) {
-    return { ok: false, response: buildServerErrorResponse('???', 401) };
+    return { ok: false, response: buildServerErrorResponse('未登录', 401) };
   }
 
   let isAdmin = String((user as { role?: unknown }).role ?? '').trim() === 'admin';
@@ -54,14 +54,14 @@ async function ensureAdminSession(dbClient: SessionClient): Promise<AdminCheckRe
       if (isRetryableSqlError(profileError)) {
         return { ok: false, response: buildTransientResponse() };
       }
-      return { ok: false, response: buildServerErrorResponse('?????????') };
+      return { ok: false, response: buildServerErrorResponse('管理员权限校验失败') };
     }
 
     isAdmin = String((profile as { role?: unknown } | null)?.role ?? '').trim() === 'admin';
   }
 
   if (!isAdmin) {
-    return { ok: false, response: buildServerErrorResponse('???????', 403) };
+    return { ok: false, response: buildServerErrorResponse('无权访问', 403) };
   }
 
   return { ok: true, userId: String(user.id || '') };
@@ -103,7 +103,7 @@ export async function GET() {
         return buildTransientResponse();
       }
       console.error('Error fetching blocked dates:', error);
-      return buildServerErrorResponse('????');
+      return buildServerErrorResponse('获取锁定档期失败');
     }
 
     return NextResponse.json({ data });
@@ -113,7 +113,7 @@ export async function GET() {
     }
 
     console.error('Unexpected error:', error);
-    return buildServerErrorResponse('?????');
+    return buildServerErrorResponse('锁定档期服务异常');
   }
 }
 
@@ -131,22 +131,22 @@ export async function POST(request: Request) {
     const reason = String(body?.reason ?? '').trim();
 
     if (!date) {
-      return buildServerErrorResponse('??????', 400);
+      return buildServerErrorResponse('请提供锁定日期', 400);
     }
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return buildServerErrorResponse('????????? YYYY-MM-DD', 400);
+      return buildServerErrorResponse('日期格式错误，请使用 YYYY-MM-DD', 400);
     }
 
     const dateObj = new Date(`${date}T00:00:00Z`);
     if (Number.isNaN(dateObj.getTime())) {
-      return buildServerErrorResponse('?????', 400);
+      return buildServerErrorResponse('日期无效', 400);
     }
 
     const today = getTodayUTC8();
     await cleanupExpiredBlockedDates(adminDbClient, today);
     if (date < today) {
-      return buildServerErrorResponse('?????????', 400);
+      return buildServerErrorResponse('不能锁定今天之前的日期', 400);
     }
 
     const { data: existingRow, error: existingError } = await adminDbClient
@@ -162,11 +162,11 @@ export async function POST(request: Request) {
         return buildTransientResponse();
       }
       console.error('Error checking existing blocked date:', existingError);
-      return buildServerErrorResponse('??????????????');
+      return buildServerErrorResponse('检查锁定日期是否重复失败');
     }
 
     if (existingRow) {
-      return buildServerErrorResponse('???????', 409);
+      return buildServerErrorResponse('该日期已被锁定', 409);
     }
 
     const { data, error } = await adminDbClient
@@ -183,7 +183,7 @@ export async function POST(request: Request) {
         errorCode === '1062' ||
         /duplicate entry/i.test(errorMessage)
       ) {
-        return buildServerErrorResponse('???????', 409);
+        return buildServerErrorResponse('该日期已被锁定', 409);
       }
 
       if (isRetryableSqlError(error)) {
@@ -191,7 +191,7 @@ export async function POST(request: Request) {
       }
 
       console.error('Error inserting blocked date:', error);
-      return buildServerErrorResponse(`?????${String(errorMessage || errorCode || '????')}`);
+      return buildServerErrorResponse(`创建锁定档期失败：${String(errorMessage || errorCode || '未知错误')}`);
     }
 
     if (!data) {
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
           return buildTransientResponse();
         }
         console.error('Error reading inserted blocked date:', fallbackError);
-        return buildServerErrorResponse('?????????????????');
+        return buildServerErrorResponse('读取新建锁定档期失败');
       }
 
       return NextResponse.json({ success: true, data: fallback ?? null });
@@ -221,6 +221,6 @@ export async function POST(request: Request) {
     }
 
     console.error('Unexpected error:', error);
-    return buildServerErrorResponse('?????');
+    return buildServerErrorResponse('创建锁定档期失败');
   }
 }

@@ -2,6 +2,7 @@
 import { type ChangeEventHandler, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CheckCircle, X } from 'lucide-react';
+import AdminLoadingCard from '../components/AdminLoadingCard';
 import { loadLatestAboutSettingsWithCompat } from '@/lib/about/about-settings-compat';
 import { createClient } from '@/lib/cloudbase/client';
 import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
@@ -30,6 +31,17 @@ function toText(value: unknown): string {
 
   const normalized = text.toLowerCase();
   return normalized === 'null' || normalized === 'undefined' ? '' : text;
+}
+
+function toMessageText(value: unknown): string {
+  const raw = String(value ?? '');
+  const text = raw.trim();
+  if (!text) {
+    return '';
+  }
+
+  const normalized = text.toLowerCase();
+  return normalized === 'null' || normalized === 'undefined' ? '' : raw.replace(/\r\n/g, '\n');
 }
 
 function isValidEmailText(value: string): boolean {
@@ -67,7 +79,7 @@ function sanitizeAboutForm(source: AboutFormData): AboutFormData {
     wechat: toText(source.wechat),
     email: toText(source.email),
     donation_qr_code: normalizeImageUrlText(source.donation_qr_code),
-    author_message: toText(source.author_message),
+    author_message: toMessageText(source.author_message),
   };
 }
 export default function AdminAboutPage() {
@@ -157,7 +169,7 @@ export default function AdminAboutPage() {
       wechat: toText(data.wechat),
       email: toText(data.email),
       donation_qr_code: normalizeImageUrlText(data.donation_qr_code),
-      author_message: toText(data.author_message),
+      author_message: toMessageText(data.author_message),
     });
     setLoading(false);
   };
@@ -170,7 +182,7 @@ export default function AdminAboutPage() {
     wechat: toText(source.wechat) || null,
     email: toText(source.email) || null,
     donation_qr_code: toText(source.donation_qr_code) || null,
-    author_message: toText(source.author_message) || null,
+    author_message: toMessageText(source.author_message) || null,
   });
   const upsertAboutSettings = async (payload: ReturnType<typeof buildPayload>, successMessage: string): Promise<boolean> => {
     const dbClient = createClient();
@@ -320,18 +332,13 @@ export default function AdminAboutPage() {
     setSaving(false);
   };
   const aboutBusy = loading || saving || uploadingQr;
-  const normalizedPreviewForm = sanitizeAboutForm(form);
-  const donationQrCode = normalizedPreviewForm.donation_qr_code;
+  const normalizedAboutForm = sanitizeAboutForm(form);
+  const donationQrCode = normalizedAboutForm.donation_qr_code;
   const hasDonationQrValue = Boolean(donationQrCode);
-  const showDonationQrPreview = hasDonationQrValue && !aboutQrPreviewFailed;
+  const showDonationQrImage = hasDonationQrValue && !aboutQrPreviewFailed;
   const donationQrHintText = hasDonationQrValue
     ? '当前赞赏码图片加载失败，可重新上传或清空。'
     : '当前未上传赞赏码，上传后将展示在用户端关于页面。';
-  const contactRows = [
-    { label: '手机号', value: normalizedPreviewForm.phone, breakable: false },
-    { label: '微信号', value: normalizedPreviewForm.wechat, breakable: false },
-    { label: '邮箱', value: normalizedPreviewForm.email, breakable: true },
-  ].filter((item) => item.value);
   return (
     <div className="admin-mobile-page about-page space-y-6 pt-6">
       <input ref={qrInputRef} type="file" accept="image/*" className="hidden" onChange={handleUploadQrFile} />
@@ -351,10 +358,7 @@ export default function AdminAboutPage() {
       </div>
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="booking-panel about-panel">
         {loading ? (
-          <div className="pose-loading">
-            <div className="pose-loading__spinner"></div>
-            <div className="pose-loading__text">加载中...</div>
-          </div>
+          <AdminLoadingCard description="正在同步关于页内容与赞赏码配置，请稍候。" variant="inline" />
         ) : (
           <div className="about-grid">
             <div className="about-card about-card--form">
@@ -378,7 +382,7 @@ export default function AdminAboutPage() {
                 </div>
                 <div className="booking-modal__field">
                   <label className="booking-modal__label">赞赏码图片（选填）</label>
-                  {showDonationQrPreview ? (
+                  {showDonationQrImage ? (
                     <div className="album-upload-preview">
                       <span className="album-upload-preview__label">当前赞赏码</span>
                       <img className="album-upload-preview__qr" src={donationQrCode} alt="当前赞赏码" onError={() => setAboutQrPreviewFailed(true)} />
@@ -406,34 +410,6 @@ export default function AdminAboutPage() {
                 </button>
               </div>
             </div>
-            <div className="about-card about-card--preview">
-              <div className="about-preview-head">
-                <span className="about-preview-title">{toText(form.author_name) || '作者'}</span>
-                <span className="about-preview-sub">用户端“关于”预览</span>
-              </div>
-              <div className="about-preview-message">
-                <span>{toText(form.author_message) || '暂无留言'}</span>
-              </div>
-              {contactRows.length > 0 ? (
-                <div className="about-preview-contact">
-                  {contactRows.map((item) => (
-                    <div key={item.label} className="about-preview-row">
-                      <span className="about-preview-label">{item.label}</span>
-                      <span className={`about-preview-value ${item.breakable ? 'about-preview-value--break' : ''}`}>{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="about-preview-empty">
-                  <span>未填写联系方式</span>
-                </div>
-              )}
-              {showDonationQrPreview && (
-                <div className="about-preview-qr-wrap">
-                  <img className="about-preview-qr" src={donationQrCode} alt="赞赏码预览" onError={() => setAboutQrPreviewFailed(true)} />
-                </div>
-              )}
-            </div>
           </div>
         )}
       </motion.div>
@@ -443,13 +419,13 @@ export default function AdminAboutPage() {
             <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} transition={{ type: 'spring', duration: 0.28 }} className="booking-modal booking-modal--form album-modal about-donation-modal" onClick={(event) => event.stopPropagation()}>
               <div className="booking-modal__head">
                 <h3 className="booking-modal__title">更换赞赏码</h3>
-                <button type="button" className="booking-modal__close" onClick={() => { if (!aboutBusy) setAboutDonationModalOpen(false); }} disabled={aboutBusy} aria-label="关闭赞赏码弹窗">
-                  <X className="action-icon-svg" />
+                <button type="button" className="icon-button action-icon-btn action-icon-btn--close" onClick={() => { if (!aboutBusy) setAboutDonationModalOpen(false); }} disabled={aboutBusy} aria-label="关闭赞赏码弹窗">
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
               <div className="booking-modal__body">
                 <span className="album-modal__subtitle">用于用户端“关于”页面展示</span>
-                {showDonationQrPreview ? (
+                {showDonationQrImage ? (
                   <div className="album-upload-preview">
                     <span className="album-upload-preview__label">当前赞赏码</span>
                     <img className="album-upload-preview__qr" src={donationQrCode} alt="当前赞赏码" onError={() => setAboutQrPreviewFailed(true)} />

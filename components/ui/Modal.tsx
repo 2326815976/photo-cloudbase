@@ -42,7 +42,7 @@ export default function Modal({ isOpen, onClose, children, className }: ModalPro
               >
                 <button
                   onClick={onClose}
-                  className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
+                  className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                 >
                   <X className="action-icon-svg" />
                 </button>
@@ -82,7 +82,7 @@ export default function Modal({ isOpen, onClose, children, className }: ModalPro
             >
               <button
                 onClick={onClose}
-                className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
               >
                 <X className="action-icon-svg" />
               </button>

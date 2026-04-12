@@ -6,12 +6,19 @@ import {
   loadPagePublishRule,
   loadRegistryItemByPageKey,
   normalizeAppChannel,
+  upsertPageRegistryItem,
   upsertPagePublishRule,
   validateChannelNavLimit,
 } from '@/lib/page-center/admin';
 import { buildPageCenterOverview, loadEffectiveMiniProgramRuntimeConfig } from '@/lib/page-center/runtime';
 import { MIN_NAV_ITEMS_PER_CHANNEL, canPageShowInNav } from '@/lib/page-center/capabilities';
-import { normalizeNumber, normalizePublishState, normalizeText } from '@/lib/page-center/config';
+import {
+  isProfileSecondaryPageKey,
+  normalizeNumber,
+  normalizePublishState,
+  normalizeText,
+  PAGE_KEY_MAP,
+} from '@/lib/page-center/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,11 +68,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '缺少页面标识' }, { status: 400 });
     }
 
-    const registryItem = await loadRegistryItemByPageKey(pageKey);
+    let registryItem = await loadRegistryItemByPageKey(pageKey);
+    if ((!registryItem || registryItem.id <= 0) && PAGE_KEY_MAP.has(pageKey)) {
+      const builtIn = PAGE_KEY_MAP.get(pageKey);
+      if (builtIn) {
+        await upsertPageRegistryItem({
+          ...builtIn,
+          isActive: true,
+        });
+        registryItem = await loadRegistryItemByPageKey(pageKey);
+      }
+    }
     if (!registryItem || registryItem.id <= 0) {
       return NextResponse.json({ error: '目标页面不存在' }, { status: 404 });
     }
 
+    const isSecondaryPage = isProfileSecondaryPageKey(pageKey);
     const currentChannelRoutePath =
       channel === 'miniprogram' ? registryItem.routePathMiniProgram : registryItem.routePathWeb;
     if (publishState !== 'offline' && !currentChannelRoutePath) {
@@ -99,7 +117,7 @@ export async function POST(request: Request) {
     }
 
     const navSupported = canPageShowInNav(registryItem, channel);
-    if (publishState === 'online' && !navSupported) {
+    if (publishState === 'online' && !navSupported && !isSecondaryPage) {
       return NextResponse.json(
         {
           error:
@@ -123,13 +141,18 @@ export async function POST(request: Request) {
     }
 
     const currentRule = await loadPagePublishRule(registryItem.id, channel);
-    const nextShowInNav = publishState === 'online';
+    const nextShowInNav = publishState === 'online' && navSupported;
     const resolvedNavOrder =
       channel === 'miniprogram' && pageKey === 'pose'
         ? hideAudit
           ? 99
           : -1
         : navOrder;
+    const resolvedNavText = navText || registryItem.defaultTabText;
+    const resolvedGuestNavText = isSecondaryPage
+      ? resolvedNavText
+      : guestNavText || registryItem.defaultGuestTabText || resolvedNavText;
+    const resolvedHeaderTitle = isSecondaryPage ? resolvedNavText : headerTitle;
 
     const overviewItems = await buildPageCenterOverview();
     const nextEffectiveOnlineCount = countEffectiveOnlineNavItems(
@@ -161,10 +184,9 @@ export async function POST(request: Request) {
       publishState,
       showInNav: nextShowInNav,
       navOrder: resolvedNavOrder,
-      navText: navText || registryItem.defaultTabText,
-      guestNavText:
-        guestNavText || registryItem.defaultGuestTabText || navText || registryItem.defaultTabText,
-      headerTitle,
+      navText: resolvedNavText,
+      guestNavText: resolvedGuestNavText,
+      headerTitle: resolvedHeaderTitle,
       headerSubtitle,
       isHomeEntry: false,
       notes,
@@ -173,7 +195,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('??????????:', error);
+    console.error('保存页面发布规则失败:', error);
     const resolved = resolvePageCenterAdminError(error, {
       fallbackMessage: '保存页面发布规则失败',
     });

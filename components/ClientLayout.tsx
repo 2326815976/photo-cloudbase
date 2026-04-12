@@ -136,7 +136,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     [bottomNavHidden, isPreviewMode, managedPage, shellRuntime, shellRuntimeResolved]
   );
   const shouldUseReconnectCopy = !hasCompletedInitialShellLoad && backendState.backendReconnecting;
-  const shellLoadingTitle = shouldUseReconnectCopy ? MINI_PROGRAM_RECONNECT_COPY.title : '加载中...';
+  const shellLoadingTitle = shouldUseReconnectCopy ? MINI_PROGRAM_RECONNECT_COPY.title : '拾光中...';
   const shellLoadingDescription = shouldUseReconnectCopy
     ? MINI_PROGRAM_RECONNECT_COPY.description
     : '正在加载页面';
@@ -504,4 +504,3 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     </SWRProvider>
   );
 }
-

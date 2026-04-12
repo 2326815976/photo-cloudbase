@@ -64,6 +64,10 @@ function clearUserSessionCache(userId: string): void {
   }
 }
 
+export function clearSessionCacheByUserId(userId: string): void {
+  clearUserSessionCache(userId);
+}
+
 function touchSessionLastSeen(tokenHash: string, cacheEntry: SessionCacheEntry): void {
   if (sessionTouchPending.has(tokenHash)) {
     return;
@@ -78,6 +82,10 @@ function touchSessionLastSeen(tokenHash: string, cacheEntry: SessionCacheEntry):
     `,
     {
       token_hash: tokenHash,
+    },
+    {
+      suppressRetryableFailureMarking: true,
+      suppressRetryableFailureLog: true,
     }
   )
     .then(() => undefined)

@@ -44,7 +44,7 @@ export async function POST(request: Request) {
       {
         data: null,
         error: {
-          message: error instanceof Error ? error.message : 'RPC ????',
+          message: error instanceof Error ? error.message : 'RPC 调用失败',
         },
       },
       { status: 500 }

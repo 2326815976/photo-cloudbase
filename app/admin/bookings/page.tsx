@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { MapPin, X, Trash2, CheckCircle, XCircle, AlertCircle, Camera, Search, Calendar, Phone, MessageSquare, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
+import AdminLoadingCard from '../components/AdminLoadingCard';
+import { useAutoLoadMore } from '../hooks/useAutoLoadMore';
 
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 
@@ -189,7 +191,7 @@ export default function BookingsPage() {
   const [bookingsReady, setBookingsReady] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'in_progress' | 'finished' | 'cancelled'>('all');
   const [bookingKeyword, setBookingKeyword] = useState('');
-  const [bookingCurrentPage, setBookingCurrentPage] = useState(1);
+  const [bookingVisibleCount, setBookingVisibleCount] = useState(BOOKING_PAGE_SIZE);
 
   const [submitting, setSubmitting] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
@@ -341,7 +343,7 @@ export default function BookingsPage() {
   }, [filter]);
 
   useEffect(() => {
-    setBookingCurrentPage(1);
+    setBookingVisibleCount(BOOKING_PAGE_SIZE);
   }, [filter, bookingKeyword]);
 
   // 预约管理函数
@@ -682,17 +684,14 @@ export default function BookingsPage() {
   };
 
   const selectAllBookings = () => {
-    if (bookingPageDeletableIds.length === 0) {
+    if (bookingDeletableIds.length === 0) {
       return;
     }
 
-    const pageDeletableIdSet = new Set(bookingPageDeletableIds);
+    setBookingVisibleCount(filteredBookings.length || BOOKING_PAGE_SIZE);
     setSelectedBookingIds((prev) => {
-      const hasAllCurrentPage = bookingPageDeletableIds.every((id) => prev.includes(id));
-      if (hasAllCurrentPage) {
-        return prev.filter((id) => !pageDeletableIdSet.has(id));
-      }
-      return Array.from(new Set([...prev, ...bookingPageDeletableIds]));
+      const hasAllRows = bookingDeletableIds.every((id) => prev.includes(id));
+      return hasAllRows ? [] : bookingDeletableIds;
     });
   };
 
@@ -727,13 +726,10 @@ export default function BookingsPage() {
     [filteredBookings]
   );
 
-  const bookingTotalPages = Math.max(1, Math.ceil(filteredBookings.length / BOOKING_PAGE_SIZE));
-
-  useEffect(() => {
-    if (bookingCurrentPage > bookingTotalPages) {
-      setBookingCurrentPage(bookingTotalPages);
-    }
-  }, [bookingCurrentPage, bookingTotalPages]);
+  const bookingVisibleLimit =
+    filteredBookings.length > 0
+      ? Math.min(Math.max(BOOKING_PAGE_SIZE, bookingVisibleCount), filteredBookings.length)
+      : BOOKING_PAGE_SIZE;
 
   useEffect(() => {
     const deletableIdSet = new Set(bookingDeletableIds);
@@ -748,9 +744,10 @@ export default function BookingsPage() {
   }, [bookingDeletableIds, isBookingSelectionMode]);
 
   const bookingRows = useMemo(() => {
-    const startIndex = Math.max(0, (bookingCurrentPage - 1) * BOOKING_PAGE_SIZE);
-    return filteredBookings.slice(startIndex, startIndex + BOOKING_PAGE_SIZE);
-  }, [filteredBookings, bookingCurrentPage]);
+    return filteredBookings.slice(0, bookingVisibleLimit);
+  }, [filteredBookings, bookingVisibleLimit]);
+
+  const bookingHasMoreVisible = bookingRows.length < filteredBookings.length;
 
   const bookingPageDeletableIds = useMemo(
     () => bookingRows.filter((booking) => isBookingDeletable(booking.status)).map((booking) => booking.id),
@@ -758,12 +755,22 @@ export default function BookingsPage() {
   );
 
   const bookingAllSelected =
-    bookingPageDeletableIds.length > 0 &&
-    bookingPageDeletableIds.every((id) => selectedBookingIds.includes(id));
+    bookingDeletableIds.length > 0 &&
+    bookingDeletableIds.every((id) => selectedBookingIds.includes(id));
 
   const bookingSelectedCount = selectedBookingIds.length;
   const bookingDeletableCount = bookingDeletableIds.length;
   const bookingSearchPlaceholder = '搜索：ID/用户/城市/日期';
+
+  const handleAutoLoadBookings = useCallback(() => {
+    setBookingVisibleCount((prev) => prev + BOOKING_PAGE_SIZE);
+  }, []);
+
+  useAutoLoadMore({
+    enabled: bookingHasMoreVisible,
+    isLoading: bookingsLoading || bookingsRefreshing,
+    onLoadMore: handleAutoLoadBookings,
+  });
 
   // 约拍类型管理函数
   const loadBookingTypes = async () => {
@@ -1366,6 +1373,8 @@ export default function BookingsPage() {
     }
   };
 
+  const hasBookingFilters = bookingKeyword.trim().length > 0 || filter !== 'all';
+
   return (
     <div className="admin-mobile-page booking-admin-page space-y-5 pt-6">
       <div className="module-intro booking-page-intro">
@@ -1441,7 +1450,7 @@ export default function BookingsPage() {
             <div className="booking-search-actions">
               <button
                 type="button"
-                className="booking-pill-btn booking-pill-btn--ghost"
+                className="booking-pill-btn booking-pill-btn--danger"
                 onClick={() => setIsBookingSelectionMode(true)}
                 disabled={actionLoading || bookingDeletableCount <= 0}
               >
@@ -1457,9 +1466,9 @@ export default function BookingsPage() {
                   type="button"
                   className="booking-pill-btn booking-pill-btn--ghost booking-pill-btn--compact"
                   onClick={selectAllBookings}
-                  disabled={actionLoading || bookingPageDeletableIds.length === 0}
+                  disabled={actionLoading || bookingDeletableIds.length === 0}
                 >
-                  {bookingAllSelected ? '取消全选' : '全选'} ({bookingSelectedCount}/{bookingPageDeletableIds.length})
+                  {bookingAllSelected ? '取消全选' : '全选'} ({bookingSelectedCount}/{bookingDeletableIds.length})
                 </button>
                 <button
                   type="button"
@@ -1488,20 +1497,12 @@ export default function BookingsPage() {
           ) : null}
 
           {bookingsLoading && !bookingsReady ? (
-            <div className="booking-state-card booking-state-card--loading schedule-state-card schedule-state-card--loading">
-              <div className="schedule-state-card__top">
-                <div className="schedule-state-card__badge schedule-state-card__badge--loading">
-                  <div className="h-6 w-6 animate-spin rounded-full border-[3px] border-[#FFC857] border-t-transparent"></div>
-                </div>
-                <div className="schedule-state-card__copy">
-                  <p className="schedule-state-card__title">正在加载预约列表</p>
-                  <p className="schedule-state-card__desc">请稍候，正在同步最新预约数据</p>
-                </div>
-              </div>
-            </div>
+            <AdminLoadingCard description="正在同步最新预约数据，请稍候。" variant="inline" />
           ) : !bookingsReady ? (
-            <div className="booking-state-card">
-              <CheckCircle className="booking-state-card__icon" />
+            <div className={`booking-state-card ${bookingsError ? 'booking-state-card--error' : 'booking-state-card--empty'}`}>
+              <div className={`booking-state-card__badge ${bookingsError ? 'booking-state-card__badge--error' : 'booking-state-card__badge--empty'}`}>
+                {bookingsError ? <AlertCircle className="booking-state-card__icon" /> : <Calendar className="booking-state-card__icon" />}
+              </div>
               <p className="booking-state-card__title">{bookingsError ? '加载失败' : '暂无预约数据'}</p>
               <p className="booking-state-card__desc">{bookingsError || '请稍后重试或手动刷新预约列表'}</p>
               <button
@@ -1514,17 +1515,26 @@ export default function BookingsPage() {
               </button>
             </div>
           ) : filteredBookings.length === 0 ? (
-            <div className="booking-state-card">
-              <CheckCircle className="booking-state-card__icon" />
-              <p className="booking-state-card__title">{bookingKeyword || filter !== 'all' ? '未找到匹配预约' : '暂无预约记录'}</p>
-              <p className="booking-state-card__desc">{bookingKeyword || filter !== 'all' ? '请调整筛选条件后再试' : '当前还没有用户提交预约'}</p>
+            <div className={`booking-state-card ${hasBookingFilters ? 'booking-state-card--search' : 'booking-state-card--empty'}`}>
+              <div className={`booking-state-card__badge ${hasBookingFilters ? 'booking-state-card__badge--search' : 'booking-state-card__badge--empty'}`}>
+                {hasBookingFilters ? <Search className="booking-state-card__icon" /> : <Calendar className="booking-state-card__icon" />}
+              </div>
+              <p className="booking-state-card__title">{hasBookingFilters ? '未找到匹配预约' : '暂无预约记录'}</p>
+              <p className="booking-state-card__desc">{hasBookingFilters ? '请调整筛选条件后再试' : '当前还没有用户提交预约'}</p>
               <button
                 type="button"
                 className="booking-state-card__action"
-                onClick={() => void refreshBookingsPanel()}
+                onClick={() => {
+                  if (hasBookingFilters) {
+                    setBookingKeyword('');
+                    setFilter('all');
+                    return;
+                  }
+                  void refreshBookingsPanel();
+                }}
                 disabled={bookingsLoading || bookingsRefreshing}
               >
-                {bookingsLoading || bookingsRefreshing ? '刷新中...' : '刷新列表'}
+                {bookingsLoading || bookingsRefreshing ? '刷新中...' : hasBookingFilters ? '清空筛选' : '刷新列表'}
               </button>
             </div>
           ) : (
@@ -1593,6 +1603,12 @@ export default function BookingsPage() {
                             </span>
                             <span className="booking-info-row__text">{booking.booking_date || '未设置日期'}</span>
                           </div>
+                          <div className="booking-info-row booking-info-row--phone">
+                            <span className="booking-info-row__icon">
+                              <Phone className="booking-info-row__icon-svg" strokeWidth={2.1} />
+                            </span>
+                            <span className="booking-info-row__text">{phoneDisplay}</span>
+                          </div>
                           <div className="booking-info-row booking-info-row--location">
                             <span className="booking-info-row__icon">
                               <MapPin className="booking-info-row__icon-svg" strokeWidth={2.1} />
@@ -1604,12 +1620,6 @@ export default function BookingsPage() {
                               <MessageSquare className="booking-info-row__icon-svg" strokeWidth={2.1} />
                             </span>
                             <span className="booking-info-row__text">{wechatDisplay}</span>
-                          </div>
-                          <div className="booking-info-row booking-info-row--phone">
-                            <span className="booking-info-row__icon">
-                              <Phone className="booking-info-row__icon-svg" strokeWidth={2.1} />
-                            </span>
-                            <span className="booking-info-row__text">{phoneDisplay}</span>
                           </div>
                         </div>
 
@@ -1716,23 +1726,11 @@ export default function BookingsPage() {
               </div>
 
               <div className="booking-pagination">
-                <button
-                  type="button"
-                  className="booking-page-btn booking-page-btn--ghost"
-                  onClick={() => setBookingCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={bookingsLoading || bookingCurrentPage <= 1}
-                >
-                  上一页
-                </button>
-                <span className="booking-page-indicator">第 {bookingCurrentPage} 页 / 共 {bookingTotalPages} 页</span>
-                <button
-                  type="button"
-                  className="booking-page-btn booking-page-btn--ghost"
-                  onClick={() => setBookingCurrentPage((prev) => Math.min(bookingTotalPages, prev + 1))}
-                  disabled={bookingsLoading || bookingCurrentPage >= bookingTotalPages}
-                >
-                  下一页
-                </button>
+                <span className="booking-page-indicator">
+                  {bookingHasMoreVisible
+                    ? `已加载 ${bookingRows.length} / ${filteredBookings.length} 条，继续下滑自动加载`
+                    : `已全部加载，共 ${filteredBookings.length} 条`}
+                </span>
               </div>
             </>
           )}
@@ -1755,10 +1753,7 @@ export default function BookingsPage() {
           </div>
 
           {typesLoading ? (
-            <div className="py-10 text-center">
-              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#FFC857] border-t-transparent"></div>
-              <p className="text-sm text-[#5D4037]/60">加载中...</p>
-            </div>
+            <AdminLoadingCard description="正在同步预约类型配置，请稍候。" variant="compact" />
           ) : bookingTypes.length === 0 ? (
             <div className="booking-empty-card text-center">
               <span className="booking-empty-card__icon">📷</span>
@@ -1826,10 +1821,7 @@ export default function BookingsPage() {
           </div>
 
           {citiesLoading ? (
-            <div className="py-10 text-center">
-              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#FFC857] border-t-transparent"></div>
-              <p className="text-sm text-[#5D4037]/60">加载中...</p>
-            </div>
+            <AdminLoadingCard description="正在同步可预约城市配置，请稍候。" variant="compact" />
           ) : cities.length === 0 ? (
             <div className="booking-empty-card text-center">
               <span className="booking-empty-card__icon">📍</span>
@@ -1912,9 +1904,10 @@ export default function BookingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowTypeModal(false)}
-                  className="booking-modal__close"
+                  className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭类型弹窗"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -1981,9 +1974,10 @@ export default function BookingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowCityModal(false)}
-                  className="booking-modal__close"
+                  className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭城市弹窗"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 

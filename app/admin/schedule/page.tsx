@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, AlertCircle, CheckCircle, X } from 'lucide-react';
+import AdminLoadingCard from '../components/AdminLoadingCard';
 import { formatDateUTC8, getDateAfterDaysUTC8, getTodayUTC8, parseDateUTC8 } from '@/lib/utils/date-helpers';
 
 interface Blackout {
@@ -574,17 +575,7 @@ export default function SchedulePage() {
         ) : null}
 
         {loading && !blackoutsReady ? (
-          <div className="schedule-state-card schedule-state-card--loading">
-            <div className="schedule-state-card__top">
-              <div className="schedule-state-card__badge schedule-state-card__badge--loading">
-                <div className="h-6 w-6 animate-spin rounded-full border-[3px] border-[#FFC857] border-t-transparent"></div>
-              </div>
-              <div className="schedule-state-card__copy">
-                <p className="schedule-state-card__title">正在加载档期列表</p>
-                <p className="schedule-state-card__desc">请稍候，正在同步最新锁定档期</p>
-              </div>
-            </div>
-          </div>
+          <AdminLoadingCard description="正在同步最新锁定档期，请稍候。" variant="inline" />
         ) : !blackoutsReady ? (
           <div className="schedule-state-card schedule-state-card--error">
             <div className="schedule-state-card__top">
@@ -705,10 +696,11 @@ export default function SchedulePage() {
                 <h3 className="booking-modal__title">锁定档期</h3>
                 <button
                   type="button"
-                  className="booking-modal__close"
+                  className="icon-button action-icon-btn action-icon-btn--close"
                   onClick={() => !submitting && setShowAddModal(false)}
+                  aria-label="关闭锁定档期弹窗"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -872,5 +864,3 @@ export default function SchedulePage() {
     </div>
   );
 }
-
-

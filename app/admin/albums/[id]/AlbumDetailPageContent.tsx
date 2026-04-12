@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, ArrowRightLeft, FolderPlus, Upload, Trash2, Image as ImageIcon, Folder, X, CheckCircle, XCircle, AlertCircle, Pencil, ChevronUp, ChevronDown, ArrowUpToLine, RotateCcw, Sparkles, Calendar, Eye, EyeOff, Download, MapPin, Heart } from 'lucide-react';
@@ -11,6 +11,8 @@ import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
 import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
+import AdminLoadingCard from '../../components/AdminLoadingCard';
+import { useAutoLoadMore } from '../../hooks/useAutoLoadMore';
 
 interface Album {
   id: string;
@@ -24,6 +26,7 @@ interface AlbumFolder {
   name: string;
   sort_order?: number | null;
   created_at: string;
+  photoCount?: number | null;
 }
 
 interface Photo {
@@ -53,6 +56,8 @@ const DEFAULT_PHOTO_SORT_ORDER = 2147483647;
 const TOP_PIN_SORT_ORDER = 1;
 const TOP_PIN_CONFLICT_SORT_ORDER = 11;
 const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
+const DELETE_FOLDER_CONFIRM_PHRASE = '确认删除';
+const DELETE_FOLDER_MANUAL_CONFIRM_THRESHOLD = 10;
 const ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT = '数据库缺少 story_text / is_highlight / sort_order 字段，请先执行 SQL 迁移：photo/sql/migrations/06_album_photo_story_sort.sql';
 const ALBUM_FOLDER_SORT_MIGRATION_HINT = '\u6570\u636e\u5e93\u7f3a\u5c11 album_folders.sort_order \u5b57\u6bb5\uff0c\u8bf7\u5148\u6267\u884c SQL \u8fc1\u79fb\uff1aphoto/sql/migrations/15_album_folder_sort_order.sql';
 const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
@@ -194,6 +199,7 @@ export function AlbumDetailPageContent({
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -211,12 +217,15 @@ export function AlbumDetailPageContent({
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [pendingSelectAllPhotos, setPendingSelectAllPhotos] = useState(false);
   const photosPerPage = 20;
+  const [photoVisibleCount, setPhotoVisibleCount] = useState(photosPerPage);
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentFolderTotalCount, setCurrentFolderTotalCount] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<AlbumFolder | null>(null);
+  const [deleteFolderConfirmText, setDeleteFolderConfirmText] = useState('');
   const [deletingPhoto, setDeletingPhoto] = useState<Photo | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -252,7 +261,7 @@ export function AlbumDetailPageContent({
     return () => {
       albumLoadTokenRef.current += 1;
     };
-  }, [albumId, currentPage]);
+  }, [albumId, photoVisibleCount]);
 
   useEffect(() => {
     if (photos.length > 0) {
@@ -274,14 +283,32 @@ export function AlbumDetailPageContent({
     }
   }, [folders, selectedFolder]);
 
+  const photoHasMoreVisible = !isSystemWallAlbum && photos.length < totalCount;
+  const deleteFolderNeedsManualConfirm =
+    Math.max(0, Number(deletingFolder?.photoCount || 0)) >= DELETE_FOLDER_MANUAL_CONFIRM_THRESHOLD;
+  const deleteFolderConfirmMatched = deleteFolderConfirmText.trim() === DELETE_FOLDER_CONFIRM_PHRASE;
+
+  const handleAutoLoadPhotos = useCallback(() => {
+    setPhotoVisibleCount((prev) => prev + photosPerPage);
+  }, []);
+
+  useAutoLoadMore({
+    enabled: photoHasMoreVisible,
+    isLoading: loading || loadingMore,
+    onLoadMore: handleAutoLoadPhotos,
+  });
+
   const loadAlbumData = async () => {
     const loadToken = albumLoadTokenRef.current + 1;
     albumLoadTokenRef.current = loadToken;
+    const isFirstLoad = !album && photos.length === 0 && folders.length === 0;
 
-    setLoading(true);
+    setLoading(isFirstLoad);
+    setLoadingMore(!isFirstLoad);
     const dbClient = createClient();
     if (!dbClient) {
       setLoading(false);
+      setLoadingMore(false);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -307,8 +334,8 @@ export function AlbumDetailPageContent({
       : photosQuery.order('created_at', { ascending: false });
 
     let photosRes = isSystemWallAlbum
-      ? await photosQuery
-      : await photosQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+    ? await photosQuery
+    : await photosQuery.range(0, Math.max(0, photoVisibleCount - 1));
 
     if (loadToken !== albumLoadTokenRef.current) {
       return;
@@ -324,7 +351,7 @@ export function AlbumDetailPageContent({
         : fallbackQuery.order('created_at', { ascending: false });
       photosRes = isSystemWallAlbum
         ? await fallbackQuery
-        : await fallbackQuery.range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1);
+        : await fallbackQuery.range(0, Math.max(0, photoVisibleCount - 1));
     }
 
     if (isSystemWallAlbum && photosRes.error && isColumnMissingError(photosRes.error.message || '', 'shot_date')) {
@@ -386,6 +413,7 @@ export function AlbumDetailPageContent({
     }
 
     setLoading(false);
+    setLoadingMore(false);
   };
 
   const loadPhotoUrls = async (photosToLoad: Photo[]) => {
@@ -678,19 +706,48 @@ export function AlbumDetailPageContent({
 
   const handleDeleteFolder = async (folderId: string) => {
     const folder = folders.find(f => f.id === folderId);
-    if (folder) {
-      setDeletingFolder(folder);
+    if (!folder) {
+      return;
     }
+    const dbClient = createClient();
+    if (!dbClient) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { count, error } = await dbClient
+      .from('album_photos')
+      .select('id', { count: 'exact' })
+      .eq('album_id', albumId)
+      .eq('folder_id', folderId)
+      .range(0, 0);
+
+    if (error) {
+      setShowToast({ message: `暂时无法校验文件夹照片数量：${error.message}`, type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setDeletingFolder({
+      ...folder,
+      photoCount: Math.max(0, Number(count || 0)),
+    });
+    setDeleteFolderConfirmText('');
   };
 
   const confirmDeleteFolder = async () => {
     if (!deletingFolder) return;
+    if (deleteFolderNeedsManualConfirm && !deleteFolderConfirmMatched) {
+      setShowToast({ message: `该文件夹照片较多，请先输入“${DELETE_FOLDER_CONFIRM_PHRASE}”再继续`, type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
 
     setActionLoading(true);
     const dbClient = createClient();
     if (!dbClient) {
       setActionLoading(false);
-      setDeletingFolder(null);
       setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
       return;
@@ -704,6 +761,7 @@ export function AlbumDetailPageContent({
 
     setActionLoading(false);
     setDeletingFolder(null);
+    setDeleteFolderConfirmText('');
 
     if (error) {
       setShowToast({ message: `删除失败：${error.message}`, type: 'error' });
@@ -725,6 +783,14 @@ export function AlbumDetailPageContent({
       setShowToast({ message: `文件夹已删除，照片已移至${currentRootName}`, type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
     }
+  };
+
+  const closeDeleteFolderModal = () => {
+    if (actionLoading) {
+      return;
+    }
+    setDeletingFolder(null);
+    setDeleteFolderConfirmText('');
   };
 
   const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
@@ -1692,16 +1758,33 @@ export function AlbumDetailPageContent({
 
   const handleSelectFolder = (folderId: string | null) => {
     setSelectedFolder(folderId);
-    setCurrentPage(1);
+    setPhotoVisibleCount(photosPerPage);
+    setPendingSelectAllPhotos(false);
     setIsSelectionMode(false);
     setSelectedPhotoIds([]);
   };
 
   const toggleSelectAllPhotos = () => {
-    if (filteredPhotos.length > 0 && selectedPhotoIds.length === filteredPhotos.length) {
+    const allVisibleSelected =
+      filteredPhotos.length > 0 &&
+      filteredPhotos.every((photo) => selectedPhotoIds.includes(photo.id));
+    if (allVisibleSelected && !pendingSelectAllPhotos) {
+      setPendingSelectAllPhotos(false);
       setSelectedPhotoIds([]);
       return;
     }
+
+    if (loading || loadingMore || actionLoading) {
+      return;
+    }
+
+    if (photoHasMoreVisible) {
+      setPendingSelectAllPhotos(true);
+      setPhotoVisibleCount(Math.max(totalCount, photosPerPage));
+      return;
+    }
+
+    setPendingSelectAllPhotos(false);
     setSelectedPhotoIds(filteredPhotos.map((photo) => photo.id));
   };
   const togglePhotoSelection = (id: string) => {
@@ -1710,11 +1793,8 @@ export function AlbumDetailPageContent({
     );
   };
 
-  const selectAllPhotos = () => {
-    setSelectedPhotoIds(filteredPhotos.map(p => p.id));
-  };
-
   const clearPhotoSelection = () => {
+    setPendingSelectAllPhotos(false);
     setSelectedPhotoIds([]);
     setIsSelectionMode(false);
   };
@@ -2009,6 +2089,8 @@ export function AlbumDetailPageContent({
   const canMoveSelectedFolderUp = selectedFolderIndex > 0;
   const canMoveSelectedFolderDown = selectedFolderIndex >= 0 && selectedFolderIndex < folders.length - 1;
   const selectedFolderName = selectedFolderEntity ? String(selectedFolderEntity.name || '').trim() : rootFolderName;
+  const currentFolderLoadedCount = filteredPhotos.length;
+  const currentFolderDisplayTotalCount = Math.max(currentFolderTotalCount, currentFolderLoadedCount);
   const systemWallRows = filteredPhotos.map((photo) => {
     const hasStory = Boolean(normalizeStoryText(photo.story_text));
     const isHighlighted = hasStory || Boolean(photo.is_highlight);
@@ -2032,12 +2114,66 @@ export function AlbumDetailPageContent({
     };
   });
   const showAllSelected = filteredPhotos.length > 0 && selectedPhotoIds.length === filteredPhotos.length;
+
+  useEffect(() => {
+    if (isSystemWallAlbum) {
+      setCurrentFolderTotalCount(currentFolderLoadedCount);
+      return;
+    }
+
+    let cancelled = false;
+    const dbClient = createClient();
+    if (!dbClient) {
+      setCurrentFolderTotalCount(currentFolderLoadedCount);
+      return;
+    }
+
+    const loadCurrentFolderTotalCount = async () => {
+      let countQuery = dbClient
+        .from('album_photos')
+        .select('id', { count: 'exact' })
+        .eq('album_id', albumId)
+        .limit(1);
+
+      countQuery = selectedFolder
+        ? countQuery.eq('folder_id', selectedFolder)
+        : countQuery.eq('folder_id', null);
+
+      const countRes = await countQuery;
+      if (cancelled) {
+        return;
+      }
+
+      if (countRes.error) {
+        setCurrentFolderTotalCount(currentFolderLoadedCount);
+        return;
+      }
+
+      setCurrentFolderTotalCount(Math.max(0, Number(countRes.count || 0)));
+    };
+
+    void loadCurrentFolderTotalCount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [albumId, currentFolderLoadedCount, isSystemWallAlbum, selectedFolder, totalCount]);
+
+  useEffect(() => {
+    if (!pendingSelectAllPhotos || loading || loadingMore || photoHasMoreVisible) {
+      return;
+    }
+
+    setSelectedPhotoIds(filteredPhotos.map((photo) => photo.id));
+    setPendingSelectAllPhotos(false);
+  }, [filteredPhotos, loading, loadingMore, pendingSelectAllPhotos, photoHasMoreVisible]);
+
   if (loading) {
     return (
-      <div className="text-center py-12">
-        <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <p className="text-sm text-[#5D4037]/60">加载中...</p>
-      </div>
+      <AdminLoadingCard
+        description={isSystemWallAlbum ? '正在同步照片墙照片与目录结构，请稍候。' : '正在同步当前空间照片与文件夹数据，请稍候。'}
+        variant="page"
+      />
     );
   }
 
@@ -2089,7 +2225,14 @@ export function AlbumDetailPageContent({
                 ) : (
                   <div className="toolbar-actions toolbar-actions--selection">
                     <button type="button" className="toolbar-btn toolbar-btn--ghost toolbar-btn--select-toggle" onClick={toggleSelectAllPhotos}>
-                      {showAllSelected ? '取消全选' : `全选(${selectedPhotoIds.length}/${filteredPhotos.length})`}
+                      {pendingSelectAllPhotos
+                        ? '全选加载中...'
+                        : showAllSelected
+                          ? '取消全选'
+                          : `全选(${selectedPhotoIds.length}/${filteredPhotos.length})`}
+                    </button>
+                    <button type="button" className="toolbar-btn toolbar-btn--ghost toolbar-btn--selection-cancel" onClick={clearPhotoSelection}>
+                      取消
                     </button>
                     <button
                       type="button"
@@ -2108,9 +2251,6 @@ export function AlbumDetailPageContent({
                     >
                       <Trash2 className="toolbar-btn__icon" />
                       <span className="toolbar-btn__text">删除({selectedPhotoIds.length})</span>
-                    </button>
-                    <button type="button" className="toolbar-btn toolbar-btn--ghost" onClick={clearPhotoSelection}>
-                      取消
                     </button>
                   </div>
                 )}
@@ -2385,9 +2525,11 @@ export function AlbumDetailPageContent({
                 </div>
               )}
 
-              <div className="pagination">
-                <span className="pagination__info">已全部加载，共 {totalCount || systemWallRows.length} 张</span>
-              </div>
+              {currentFolderDisplayTotalCount > 0 ? (
+                <div className="pagination">
+                  <span className="pagination__info">已全部加载，共 {currentFolderDisplayTotalCount} 张</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -2451,10 +2593,14 @@ export function AlbumDetailPageContent({
           ) : (
             <>
               <button
-                onClick={selectAllPhotos}
+                onClick={toggleSelectAllPhotos}
                 className="px-3 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 active:scale-95 transition-all whitespace-nowrap"
               >
-                全选 ({selectedPhotoIds.length}/{filteredPhotos.length})
+                {pendingSelectAllPhotos
+                  ? '全选加载中...'
+                  : showAllSelected
+                    ? '取消全选'
+                    : `全选 (${selectedPhotoIds.length}/${filteredPhotos.length})`}
               </button>
               <button
                 onClick={handleBatchMove}
@@ -2486,7 +2632,7 @@ export function AlbumDetailPageContent({
       <div className="flex gap-2 flex-wrap">
         <div className="relative group">
           <button
-            onClick={() => setSelectedFolder(null)}
+            onClick={() => handleSelectFolder(null)}
             className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
               selectedFolder === null ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
             }`}
@@ -2508,7 +2654,7 @@ export function AlbumDetailPageContent({
         {folders.map((folder) => (
           <div key={folder.id} className="relative group">
             <button
-              onClick={() => setSelectedFolder(folder.id)}
+              onClick={() => handleSelectFolder(folder.id)}
               className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
                 selectedFolder === folder.id ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
               }`}
@@ -2531,17 +2677,21 @@ export function AlbumDetailPageContent({
       </div>
 
       {filteredPhotos.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
-          <ImageIcon className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
-          <p className="text-[#5D4037]/60">暂无照片</p>
-        </div>
+        photos.length < totalCount ? (
+          <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+            <ImageIcon className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+            <p className="text-[#5D4037]/60">当前目录暂无已加载照片，可继续加载查看更多</p>
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-white rounded-2xl border border-[#5D4037]/10">
+            <ImageIcon className="w-16 h-16 text-[#5D4037]/20 mx-auto mb-4" />
+            <p className="text-[#5D4037]/60">暂无照片</p>
+          </div>
+        )
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3">
           <AnimatePresence>
             {filteredPhotos.map((photo, index) => {
-              const folderName = photo.folder_id
-                ? folders.find((folder) => String(folder.id) === String(photo.folder_id))?.name || '未知文件夹'
-                : rootFolderName;
               const dateText = formatPhotoDateText(resolvePhotoDisplayDate(photo));
               const hasStory = Boolean(normalizeStoryText(photo.story_text));
               const isHighlighted = hasStory || Boolean(photo.is_highlight);
@@ -2551,7 +2701,7 @@ export function AlbumDetailPageContent({
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  className={`relative bg-white rounded-[28px] overflow-hidden transition-all ${
+                  className={`relative overflow-hidden rounded-[24px] bg-white transition-all ${
                     isSelectionMode
                       ? selectedPhotoIds.includes(photo.id)
                         ? 'ring-4 ring-[#FFC857]/75 shadow-[0_10px_28px_rgba(93,64,55,0.22)]'
@@ -2570,7 +2720,7 @@ export function AlbumDetailPageContent({
                     }
                   }}
                 >
-                  <div className="relative aspect-[4/5] bg-[#f5f5f5]">
+                  <div className="relative aspect-square bg-[#f5f5f5]">
                     {isSelectionMode && (
                       <div className={`absolute top-3 left-3 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors z-10 ${
                         selectedPhotoIds.includes(photo.id)
@@ -2590,144 +2740,143 @@ export function AlbumDetailPageContent({
                         <img
                           src={url}
                           alt=""
-                          className="w-full h-full object-cover"
+                          className="h-full w-full object-cover"
                           onError={(e) => console.error(`❌ 照片 ${photo.id} 加载失败:`, e)}
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-[#f5f5f5]">
-                          <div className="w-8 h-8 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin"></div>
+                        <div className="flex h-full w-full items-center justify-center bg-[#f5f5f5]">
+                          <div className="h-8 w-8 rounded-full border-4 border-[#FFC857] border-t-transparent animate-spin"></div>
                         </div>
                       );
                     })()}
 
                     {!isSelectionMode && (
-                      <>
+                      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             openStoryModal(photo);
                           }}
-                          className={`absolute top-3 right-[9.75rem] w-10 h-10 rounded-full transition-colors flex items-center justify-center shadow-md ${
-                            hasStory
-                              ? 'bg-[#FFC857]/90 text-[#5D4037] border border-white/70'
-                              : Boolean(photo.is_highlight)
-                              ? 'bg-[#5D4037]/85 text-white'
-                              : 'bg-white/90 text-[#5D4037]'
-                          }`}
-                          aria-label="编辑关于此刻"
+                          className="icon-button h-10 w-10 rounded-full border border-white/70 bg-[#5D4037]/85 text-white shadow-[0_8px_18px_rgba(93,64,55,0.18)] transition-colors hover:bg-[#5D4037]"
+                          aria-label={hasStory ? '编辑关于此刻' : '添加关于此刻'}
                           title={hasStory ? '编辑关于此刻' : '添加关于此刻'}
                         >
-                          {hasStory ? <RotateCcw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                          {hasStory ? <RotateCcw className="h-[18px] w-[18px]" /> : <Sparkles className="h-[18px] w-[18px]" />}
                         </button>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             openShotDateModal(photo);
                           }}
-                          className="icon-button absolute top-3 right-[6.5rem] w-10 h-10 bg-white/90 text-[#5D4037] rounded-full hover:bg-[#FFC857]/70 transition-colors flex items-center justify-center shadow-md border border-[#5D4037]/10"
+                          className="icon-button h-10 w-10 rounded-full border border-[#5D4037]/12 bg-white/92 text-[#5D4037] shadow-[0_8px_18px_rgba(93,64,55,0.16)] transition-colors hover:bg-[#FFC857]/16"
                           aria-label="修改拍摄信息"
                           title="修改拍摄信息"
                         >
-                          <Calendar className="w-4 h-4" />
+                          <Calendar className="h-[18px] w-[18px]" />
                         </button>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             openMoveModal([photo.id]);
                           }}
-                          className="icon-button absolute top-3 right-14 w-10 h-10 bg-[#FFC857] text-[#5D4037] rounded-full hover:bg-[#f2b93f] transition-colors flex items-center justify-center shadow-md"
+                          className="icon-button h-10 w-10 rounded-full bg-[#FFC857] text-[#5D4037] shadow-[0_8px_18px_rgba(255,200,87,0.24)] transition-colors hover:bg-[#f2b93f]"
                           aria-label="迁移照片"
                           title="迁移到其他文件夹"
                         >
-                          <ArrowRightLeft className="w-4 h-4" />
+                          <ArrowRightLeft className="h-[18px] w-[18px]" />
                         </button>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeletePhoto(photo.id);
                           }}
-                          className="icon-button action-icon-btn action-icon-btn--delete absolute top-3 right-3"
+                          className="icon-button h-10 w-10 rounded-full border border-[#fecaca] bg-[#fff1f2] text-[#ef4444] shadow-[0_8px_18px_rgba(239,68,68,0.14)] transition-colors hover:bg-[#fee2e2]"
                           aria-label="删除照片"
+                          title="删除照片"
                         >
-                          <Trash2 className="action-icon-svg action-icon-svg--delete" />
+                          <Trash2 className="h-[18px] w-[18px]" />
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
 
-                  <div className="px-3 py-2 bg-[#FFFBF0] border-t border-[#5D4037]/10 flex items-center justify-between text-xs">
-                    <span className="inline-flex items-center gap-1 text-[#5D4037]/75 truncate max-w-[70%]">
-                      <Folder className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">{folderName}</span>
-                    </span>
-                    <div className="flex items-center gap-2">
+                  <div className="border-t border-[#5D4037]/10 bg-[#FFFBF0] px-3 py-3">
+                    <div className="flex items-center gap-1 text-[12px] text-[#5D4037]/72">
+                      <Calendar className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{dateText}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#5D4037]/76">
+                      <span className="inline-flex min-h-6 items-center gap-1 rounded-full border border-[#5D4037]/12 bg-white/90 px-2">
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>{Math.max(0, Number(photo.view_count || 0))}</span>
+                      </span>
+                      <span className="inline-flex min-h-6 items-center gap-1 rounded-full border border-[#5D4037]/12 bg-white/90 px-2">
+                        <Download className="h-3.5 w-3.5" />
+                        <span>{Math.max(0, Number(photo.download_count || 0))}</span>
+                      </span>
                       {hasStory && (
-                        <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 bg-[#FFC857]/25 text-[#5D4037]">
-                          <RotateCcw className="w-3 h-3" />
+                        <span className="inline-flex min-h-6 items-center gap-1 rounded-full bg-[#FFC857]/24 px-2 text-[#5D4037]">
+                          <RotateCcw className="h-3 w-3" />
                           <span>故事</span>
                         </span>
                       )}
                       {!hasStory && Boolean(photo.is_highlight) && (
-                        <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 bg-[#5D4037]/10 text-[#5D4037]">
-                          <Sparkles className="w-3 h-3" />
+                        <span className="inline-flex min-h-6 items-center gap-1 rounded-full bg-[#5D4037]/10 px-2 text-[#5D4037]">
+                          <Sparkles className="h-3 w-3" />
                           <span>高亮</span>
                         </span>
                       )}
-                      <span className="text-[#5D4037]/55">{dateText}</span>
                     </div>
-                  </div>
-                  <div className="px-3 pb-2 bg-[#FFFBF0] flex items-center justify-end gap-3 text-[11px] text-[#5D4037]/60">
-                    <span className="inline-flex items-center gap-1">
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>{Math.max(0, Number(photo.view_count || 0))}</span>
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Download className="w-3.5 h-3.5" />
-                      <span>{Math.max(0, Number(photo.download_count || 0))}</span>
-                    </span>
-                  </div>
 
-                  {!isSelectionMode && (
-                    <div className="px-3 pb-3 flex items-center justify-end gap-2 bg-[#FFFBF0]">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          pinPhotoToTop(photo.id);
-                        }}
-                        disabled={index === 0 || actionLoading}
-                        className="h-8 rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] disabled:opacity-40 inline-flex items-center justify-center px-3 gap-1 hover:bg-[#FFC857]/20 transition-colors"
-                        aria-label="置顶"
-                        title="置顶"
-                      >
-                        <ArrowUpToLine className="w-3.5 h-3.5" />
-                        <span className="text-xs">置顶</span>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          movePhotoOrder(photo.id, 'up');
-                        }}
-                        disabled={index === 0 || actionLoading}
-                        className="w-8 h-8 rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] disabled:opacity-40 flex items-center justify-center hover:bg-[#FFC857]/20 transition-colors"
-                        aria-label="上移"
-                        title="上移"
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          movePhotoOrder(photo.id, 'down');
-                        }}
-                        disabled={index === filteredPhotos.length - 1 || actionLoading}
-                        className="w-8 h-8 rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] disabled:opacity-40 flex items-center justify-center hover:bg-[#FFC857]/20 transition-colors"
-                        aria-label="下移"
-                        title="下移"
-                      >
-                        <ChevronDown className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
+                    {!isSelectionMode && (
+                      <div className="mt-2 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            pinPhotoToTop(photo.id);
+                          }}
+                          disabled={index === 0 || actionLoading}
+                          className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-[#5D4037]/20 bg-white px-3 text-[12px] font-medium text-[#5D4037] transition-colors hover:bg-[#FFC857]/20 disabled:opacity-40"
+                          aria-label="置顶"
+                          title="置顶"
+                        >
+                          <ArrowUpToLine className="h-3.5 w-3.5" />
+                          <span>置顶</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            movePhotoOrder(photo.id, 'up');
+                          }}
+                          disabled={index === 0 || actionLoading}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] transition-colors hover:bg-[#FFC857]/20 disabled:opacity-40"
+                          aria-label="上移"
+                          title="上移"
+                        >
+                          <ChevronUp className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            movePhotoOrder(photo.id, 'down');
+                          }}
+                          disabled={index === filteredPhotos.length - 1 || actionLoading}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-[#5D4037]/20 bg-white text-[#5D4037] transition-colors hover:bg-[#FFC857]/20 disabled:opacity-40"
+                          aria-label="下移"
+                          title="下移"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               );
             })}
@@ -2736,27 +2885,15 @@ export function AlbumDetailPageContent({
       )}
 
       {/* 分页 */}
-      {!loading && totalCount > photosPerPage && (
-        <div className="flex items-center justify-center gap-2 mt-6">
-          <button
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-            className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
-          >
-            上一页
-          </button>
-          <span className="px-4 py-2 bg-[#FFC857]/20 rounded-full text-[#5D4037] font-medium">
-            第 {currentPage} 页 / 共 {Math.ceil(totalCount / photosPerPage)} 页
+      {!loading && !isSystemWallAlbum && currentFolderDisplayTotalCount > 0 ? (
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <span className="inline-flex min-h-8 items-center rounded-full bg-[#FFC857]/20 px-4 py-2 text-sm font-medium text-[#5D4037]">
+            {currentFolderLoadedCount < currentFolderDisplayTotalCount
+              ? `已加载 ${currentFolderLoadedCount} / ${currentFolderDisplayTotalCount} 张，继续下滑自动加载`
+              : `已全部加载，共 ${currentFolderDisplayTotalCount} 张`}
           </span>
-          <button
-            onClick={() => setCurrentPage(currentPage + 1)}
-            disabled={currentPage >= Math.ceil(totalCount / photosPerPage)}
-            className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
-          >
-            下一页
-          </button>
         </div>
-      )}
+      ) : null}
 
         </>
       )}
@@ -2902,7 +3039,7 @@ export function AlbumDetailPageContent({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => !actionLoading && setDeletingFolder(null)}
+            onClick={closeDeleteFolderModal}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -2920,16 +3057,44 @@ export function AlbumDetailPageContent({
                 <p className="text-sm text-[#5D4037]/80 mb-4">
                   确定要删除文件夹 <span className="font-bold">{deletingFolder.name}</span> 吗？
                 </p>
-                <div className="bg-orange-50 rounded-xl p-4 text-left">
-                  <p className="text-sm text-orange-800">
+                <div className={`${deleteFolderNeedsManualConfirm ? 'bg-red-50' : 'bg-orange-50'} rounded-xl p-4 text-left`}>
+                  <p className={`text-sm ${deleteFolderNeedsManualConfirm ? 'text-red-700' : 'text-orange-800'}`}>
                     <AlertCircle className="w-4 h-4 inline mr-1" />
                     文件夹内的照片将移至根目录
                   </p>
+                  {deleteFolderNeedsManualConfirm && (
+                    <p className="mt-2 text-sm leading-6 text-red-700">
+                      当前文件夹共有 <span className="font-semibold">{Math.max(0, Number(deletingFolder.photoCount || 0))}</span> 张照片。
+                      为避免误删，请先手动输入“<span className="font-semibold">{DELETE_FOLDER_CONFIRM_PHRASE}</span>”。
+                    </p>
+                  )}
                 </div>
+                {deleteFolderNeedsManualConfirm && (
+                  <div className="mt-4 text-left">
+                    <input
+                      type="text"
+                      value={deleteFolderConfirmText}
+                      onChange={(event) => setDeleteFolderConfirmText(event.target.value)}
+                      placeholder={`请输入 ${DELETE_FOLDER_CONFIRM_PHRASE}`}
+                      maxLength={20}
+                      className="gallery-manager-modal__input"
+                      autoFocus
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && deleteFolderConfirmMatched) {
+                          event.preventDefault();
+                          void confirmDeleteFolder();
+                        }
+                      }}
+                    />
+                    <p className="gallery-manager-modal__hint text-red-600">
+                      仅当输入内容完全等于“<span className="font-semibold">{DELETE_FOLDER_CONFIRM_PHRASE}</span>”时才可删除。
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setDeletingFolder(null)}
+                  onClick={closeDeleteFolderModal}
                   disabled={actionLoading}
                   className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium disabled:opacity-50"
                 >
@@ -2937,7 +3102,7 @@ export function AlbumDetailPageContent({
                 </button>
                 <button
                   onClick={confirmDeleteFolder}
-                  disabled={actionLoading}
+                  disabled={actionLoading || (deleteFolderNeedsManualConfirm && !deleteFolderConfirmMatched)}
                   className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-full font-medium hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-50"
                 >
                   {actionLoading ? '删除中...' : '确认删除'}
@@ -3188,11 +3353,12 @@ export function AlbumDetailPageContent({
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="relative bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-6">
+              <div className="mb-6 flex items-start justify-between gap-3">
                 <h2 className="text-xl font-bold text-[#5D4037]">上传照片</h2>
                 <button
+                  type="button"
                   onClick={() => {
                     if (uploading) return;
                     setShowUploadModal(false);
@@ -3207,8 +3373,9 @@ export function AlbumDetailPageContent({
                     setUploadProgress({ current: 0, total: 0 });
                   }}
                   className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭上传照片弹窗"
                 >
-                  <X className="action-icon-svg" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -3445,15 +3612,17 @@ export function AlbumDetailPageContent({
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="relative bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex items-start justify-between gap-3">
                 <h3 className="text-xl font-bold text-[#5D4037]">编辑关于此刻</h3>
                 <button
+                  type="button"
                   onClick={closeStoryModal}
                   className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭照片文案弹窗"
                 >
-                  <X className="action-icon-svg" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -3511,15 +3680,17 @@ export function AlbumDetailPageContent({
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="relative bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex items-start justify-between gap-3">
                 <h3 className="text-xl font-bold text-[#5D4037]">修改拍摄信息</h3>
                 <button
+                  type="button"
                   onClick={closeShotDateModal}
                   className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭拍摄信息弹窗"
                 >
-                  <X className="action-icon-svg" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 

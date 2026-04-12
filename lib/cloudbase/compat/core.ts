@@ -34,7 +34,13 @@ interface AuthClient {
   getSession: () => Promise<{ data: { session: { user: AuthUser } | null }; error: CompatError | null }>;
   signInWithPassword: (params: { phone: string; password: string }) => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
   signOut: () => Promise<{ error: CompatError | null }>;
-  updateUser: (params: { password?: string }) => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
+  updateUser: (params: {
+    password?: string;
+    currentPassword?: string;
+    name?: string;
+    phone?: string | null;
+    wechat?: string | null;
+  }) => Promise<{ data: { user: AuthUser | null }; error: CompatError | null }>;
   resetPasswordForEmail: (email: string, options?: { redirectTo?: string }) => Promise<{ data: null; error: CompatError | null }>;
   verifyOtp: (params: Record<string, unknown>) => Promise<{ data: null; error: CompatError | null }>;
   exchangeCodeForSession: (code: string) => Promise<{ data: { session: { user: AuthUser } | null }; error: CompatError | null }>;

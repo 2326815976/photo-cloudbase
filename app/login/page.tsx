@@ -92,24 +92,8 @@ function LoginForm() {
         return;
       }
 
-      // 检查是否有保存的重定向路径
-      const savedRedirect = localStorage.getItem('login_redirect');
-
-      // 直接使用登录返回的用户角色
-      const userRole = data.user.role;
-
-      // 根据角色和保存的路径跳转
-      if (userRole === 'admin') {
-        if (savedRedirect?.startsWith('/admin')) {
-          localStorage.removeItem('login_redirect');
-          router.push(savedRedirect);
-        } else {
-          router.push('/admin');
-        }
-      } else {
-        localStorage.removeItem('login_redirect');
-        router.push('/profile');
-      }
+      localStorage.removeItem('login_redirect');
+      router.push('/profile');
       router.refresh();
     } catch (err) {
       setError('登录失败，请稍后重试');
@@ -238,7 +222,7 @@ export default function LoginPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-[#FFFBF0] flex items-center justify-center">
-        <div className="text-[#5D4037]">加载中...</div>
+        <div className="text-[#5D4037]">拾光中...</div>
       </div>
     }>
       <LoginForm />

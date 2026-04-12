@@ -38,6 +38,17 @@ function toText(value: unknown): string {
   return normalized === 'null' || normalized === 'undefined' ? '' : text;
 }
 
+function toMessageText(value: unknown): string {
+  const raw = String(value ?? '');
+  const text = raw.trim();
+  if (!text) {
+    return '';
+  }
+
+  const normalized = text.toLowerCase();
+  return normalized === 'null' || normalized === 'undefined' ? '' : raw.replace(/\r\n/g, '\n');
+}
+
 function normalizeImageUrlText(value: unknown): string {
   const text = toText(value);
   if (!text) {
@@ -100,7 +111,7 @@ export default function ProfileAboutPage() {
         wechat: toText(data.wechat),
         email: toText(data.email),
         donation_qr_code: normalizeImageUrlText(data.donation_qr_code),
-        author_message: toText(data.author_message),
+        author_message: toMessageText(data.author_message),
       });
       setLoading(false);
     };
@@ -163,7 +174,7 @@ export default function ProfileAboutPage() {
                 </div>
               </div>
               <p className="text-sm text-[#5D4037]/80 leading-6 whitespace-pre-wrap">
-                {toText(about.author_message) || '暂无留言'}
+                {toMessageText(about.author_message) || '暂无留言'}
               </p>
             </div>
 

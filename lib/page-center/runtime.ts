@@ -13,6 +13,7 @@ import {
   buildRegistryFallbackItems,
   createFallbackMiniProgramRuleMap,
   createFallbackWebRuleMap,
+  isProfileSecondaryPageKey,
   normalizeBoolean,
   normalizeMiniProgramPath,
   normalizeNumber,
@@ -484,6 +485,22 @@ function applyDerivedHomeEntry<T extends { pageKey: string; channels: Record<App
   }));
 }
 
+function resolveManagedHeaderTitle(
+  page: Pick<AppPageRegistryItem, 'pageKey' | 'defaultTabText' | 'pageName'>,
+  view: Pick<WebPageAccessItem, 'headerTitle' | 'navText'>
+) {
+  const explicitTitle = normalizeText(view.headerTitle);
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  if (isProfileSecondaryPageKey(page.pageKey)) {
+    return normalizeText(view.navText) || page.defaultTabText || page.pageName;
+  }
+
+  return '';
+}
+
 export async function buildPageCenterOverview(): Promise<PageCenterOverviewItem[]> {
   const [rows, effectiveRuntimeConfig] = await Promise.all([
     loadPageCenterRows(),
@@ -545,8 +562,45 @@ export async function buildMiniProgramRuntimeWithPageCenter(
     }
 
     map[page.pageKey] = {
-      title: currentView.headerTitle,
+      title: resolveManagedHeaderTitle(page, currentView),
       subtitle: currentView.headerSubtitle,
+    };
+    return map;
+  }, {});
+  const managedPageAccessMap = registryItems.reduce<
+    Record<
+      string,
+      {
+        pageKey: string;
+        routePath: string;
+        previewRoutePath: string;
+        publishState: AppPagePublishRuleItem['publishState'];
+        navText: string;
+        guestNavText: string;
+        headerTitle: string;
+        headerSubtitle: string;
+      }
+    >
+  >((map, page) => {
+    const currentView = mergedViews.find((item) => item.pageKey === page.pageKey);
+    if (!currentView) {
+      return map;
+    }
+
+    map[page.pageKey] = {
+      pageKey: page.pageKey,
+      routePath: normalizePath(currentView.routePath),
+      previewRoutePath: normalizePath(currentView.previewRoutePath),
+      publishState: currentView.publishState,
+      navText: currentView.navText || page.defaultTabText || page.pageName,
+      guestNavText:
+        currentView.guestNavText ||
+        currentView.navText ||
+        page.defaultGuestTabText ||
+        page.defaultTabText ||
+        page.pageName,
+      headerTitle: resolveManagedHeaderTitle(page, currentView),
+      headerSubtitle: currentView.headerSubtitle,
     };
     return map;
   }, {});
@@ -557,6 +611,7 @@ export async function buildMiniProgramRuntimeWithPageCenter(
     homeEntryPagePath: homeEntryPagePath || 'pages/index/index',
     tabBarItems,
     managedPageMetaMap,
+    managedPageAccessMap,
   };
 }
 
@@ -606,7 +661,7 @@ export async function buildWebShellRuntime(): Promise<WebShellRuntime> {
     navText: view.navText || page.defaultTabText || page.pageName,
     guestNavText:
       view.guestNavText || view.navText || page.defaultGuestTabText || page.defaultTabText || page.pageName,
-    headerTitle: view.headerTitle,
+    headerTitle: resolveManagedHeaderTitle(page, view),
     headerSubtitle: view.headerSubtitle,
   }));
 

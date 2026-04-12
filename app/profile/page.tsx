@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Calendar, Info, LayoutDashboard, Lock, LogOut, User } from 'lucide-react';
@@ -9,6 +9,7 @@ import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
 import { logoutWithCleanup } from '@/lib/auth/logout-client';
+import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 function isTransientConnectionError(message: string): boolean {
@@ -25,11 +26,20 @@ function isTransientConnectionError(message: string): boolean {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+  const { shellRuntime } = usePageCenterRuntime();
+  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
     'profile',
     '我的小天地',
     '📒 管理你的拾光小秘密 📒'
   );
+  const loadingTitle = useMemo(() => {
+    const candidate = String((guestNavLabel || navLabel || managedTitle || '我的小天地')).trim();
+    return candidate || '我的小天地';
+  }, [guestNavLabel, managedTitle, navLabel]);
+  const loadingDescription = useMemo(() => {
+    const subject = String(managedTitle || loadingTitle || '我的小天地').trim();
+    return `正在载入${subject}内容`;
+  }, [loadingTitle, managedTitle]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
@@ -39,6 +49,96 @@ export default function ProfilePage() {
   const [authCheckError, setAuthCheckError] = useState('');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const managedPageMap = useMemo(() => {
+    const pageAccessItems = Array.isArray(shellRuntime?.pageAccessItems)
+      ? shellRuntime.pageAccessItems
+      : [];
+    return pageAccessItems.reduce<Record<string, { publishState: string; navText: string; headerTitle: string }>>(
+      (map, item) => {
+        map[item.pageKey] = {
+          publishState: String(item.publishState || '').trim(),
+          navText: String(item.navText || '').trim(),
+          headerTitle: String(item.headerTitle || '').trim(),
+        };
+        return map;
+      },
+      {}
+    );
+  }, [shellRuntime]);
+
+  const profileMenuItems = useMemo(() => {
+    const resolveVisibleTitle = (pageKey: string, fallbackTitle: string) => {
+      const current = managedPageMap[pageKey];
+      if (!current || current.publishState !== 'online') {
+        return '';
+      }
+      return current.navText || current.headerTitle || fallbackTitle;
+    };
+
+    return [
+      {
+        key: 'profile-edit',
+        title: resolveVisibleTitle('profile-edit', '编辑个人资料'),
+        description: '修改用户名、手机号、微信号',
+        path: '/profile/edit',
+        Icon: User,
+        iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
+        iconClassName: 'w-5 h-5 text-[#FFC857]',
+        buttonClassName:
+          'w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all',
+        titleClassName: 'text-sm font-medium text-[#5D4037]',
+      },
+      {
+        key: 'profile-bookings',
+        title: resolveVisibleTitle('profile-bookings', '我的预约记录'),
+        description: '查看所有约拍记录',
+        path: '/profile/bookings',
+        Icon: Calendar,
+        iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
+        iconClassName: 'w-5 h-5 text-[#FFC857]',
+        buttonClassName:
+          'w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all',
+        titleClassName: 'text-sm font-medium text-[#5D4037]',
+      },
+      {
+        key: 'about',
+        title: !isAdmin ? resolveVisibleTitle('about', '关于') : '',
+        description: '查看作者联系方式与留言',
+        path: '/profile/about',
+        Icon: Info,
+        iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
+        iconClassName: 'w-5 h-5 text-[#FFC857]',
+        buttonClassName:
+          'w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all',
+        titleClassName: 'text-sm font-medium text-[#5D4037]',
+      },
+      {
+        key: 'profile-change-password',
+        title: resolveVisibleTitle('profile-change-password', '修改密码'),
+        description: '更新账户安全信息',
+        path: '/profile/change-password',
+        Icon: Lock,
+        iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
+        iconClassName: 'w-5 h-5 text-[#FFC857]',
+        buttonClassName:
+          'w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all',
+        titleClassName: 'text-sm font-medium text-[#5D4037]',
+      },
+      {
+        key: 'profile-delete-account',
+        title: resolveVisibleTitle('profile-delete-account', '删除账户'),
+        description: '永久删除账户和所有数据',
+        path: '/profile/delete-account',
+        Icon: LogOut,
+        iconWrapClassName: 'w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center',
+        iconClassName: 'w-5 h-5 text-red-600',
+        buttonClassName:
+          'w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md hover:border-red-500/30 transition-all',
+        titleClassName: 'text-sm font-medium text-red-600',
+      },
+    ].filter((item) => item.title);
+  }, [isAdmin, managedPageMap]);
 
   // 检查登录状态
   useEffect(() => {
@@ -124,10 +224,10 @@ export default function ProfilePage() {
             className="text-center"
           >
             <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              时光中...
+              {loadingTitle}
             </p>
             <p className="text-sm text-[#5D4037]/60">
-              正在加载您的个人信息
+              {loadingDescription}
             </p>
           </motion.div>
         </motion.div>
@@ -253,61 +353,26 @@ export default function ProfilePage() {
 
         {/* 功能菜单 */}
         <div className="space-y-3">
-          <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 }}
-            whileTap={{ scale: 0.98 }}
-            whileHover={{ x: 4 }}
-            onClick={() => router.push('/profile/edit')}
-            className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
-          >
-            <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
-              <User className="w-5 h-5 text-[#FFC857]" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-[#5D4037]">编辑个人资料</h3>
-              <p className="text-xs text-[#5D4037]/50">修改用户名、手机号、微信号</p>
-            </div>
-          </motion.button>
-
-          <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.25 }}
-            whileTap={{ scale: 0.98 }}
-            whileHover={{ x: 4 }}
-            onClick={() => router.push('/profile/bookings')}
-            className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
-          >
-            <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
-              <Calendar className="w-5 h-5 text-[#FFC857]" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-[#5D4037]">我的预约记录</h3>
-              <p className="text-xs text-[#5D4037]/50">查看所有约拍记录</p>
-            </div>
-          </motion.button>
-
-          {!isAdmin && (
+          {profileMenuItems.map((item, index) => (
             <motion.button
+              key={item.key}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.27 }}
+              transition={{ delay: 0.2 + index * 0.05 }}
               whileTap={{ scale: 0.98 }}
               whileHover={{ x: 4 }}
-              onClick={() => router.push('/profile/about')}
-              className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
+              onClick={() => router.push(item.path)}
+              className={item.buttonClassName}
             >
-              <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
-                <Info className="w-5 h-5 text-[#FFC857]" />
+              <div className={item.iconWrapClassName}>
+                <item.Icon className={item.iconClassName} />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-medium text-[#5D4037]">关于</h3>
-                <p className="text-xs text-[#5D4037]/50">查看作者联系方式与留言</p>
+                <h3 className={item.titleClassName}>{item.title}</h3>
+                <p className="text-xs text-[#5D4037]/50">{item.description}</p>
               </div>
             </motion.button>
-          )}
+          ))}
 
           {isAdmin && (
             <motion.button
@@ -328,42 +393,6 @@ export default function ProfilePage() {
               </div>
             </motion.button>
           )}
-
-          <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 }}
-            whileTap={{ scale: 0.98 }}
-            whileHover={{ x: 4 }}
-            onClick={() => router.push('/profile/change-password')}
-            className="w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all"
-          >
-            <div className="w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center">
-              <Lock className="w-5 h-5 text-[#FFC857]" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-[#5D4037]">修改密码</h3>
-              <p className="text-xs text-[#5D4037]/50">更新账户安全信息</p>
-            </div>
-          </motion.button>
-
-          <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.4 }}
-            whileTap={{ scale: 0.98 }}
-            whileHover={{ x: 4 }}
-            onClick={() => router.push('/profile/delete-account')}
-            className="w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md hover:border-red-500/30 transition-all"
-          >
-            <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-              <LogOut className="w-5 h-5 text-red-600" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-red-600">删除账户</h3>
-              <p className="text-xs text-[#5D4037]/50">永久删除账户和所有数据</p>
-            </div>
-          </motion.button>
 
           <motion.button
             initial={{ opacity: 0, x: -20 }}

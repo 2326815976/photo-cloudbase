@@ -20,6 +20,7 @@ import { setClipboardText } from '@/lib/android';
 import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
 import { insertReleaseWithCompat, listReleasesWithCompat } from '@/lib/releases/release-compat';
+import AdminLoadingCard from '../components/AdminLoadingCard';
 
 const RELEASE_PLATFORM_OPTIONS = ['Android', 'iOS', 'HarmonyOS', 'Windows', 'MacOS', 'Linux'] as const;
 const RELEASE_ALLOWED_EXTENSIONS = ['.apk', '.ipa', '.exe', '.dmg', '.zip', '.deb', '.rpm', '.appimage', '.tar.gz'] as const;
@@ -501,10 +502,7 @@ export default function AdminReleasesPage() {
             </div>
 
             {releasesLoading ? (
-              <div className="release-loading">
-                <div className="release-spinner" />
-                <span className="release-loading__text">加载中...</span>
-              </div>
+              <AdminLoadingCard description="正在同步已发布版本与更新说明，请稍候。" variant="inline" />
             ) : releases.length === 0 ? (
               <div className="release-empty">
                 <span className="release-empty__icon">📦</span>

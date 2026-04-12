@@ -26,6 +26,38 @@ const SELECT_COLUMNS = [
   'updated_at',
 ].join(', ');
 
+function normalizeBooleanInput(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value !== 0 : fallback;
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return fallback;
+  if (['1', 'true', 'yes', 'y', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(text)) return false;
+  return fallback;
+}
+
+function serializeJsonInput(fallback: string, ...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const text = candidate.trim();
+      if (text) {
+        return text;
+      }
+      continue;
+    }
+
+    if (candidate !== null && candidate !== undefined) {
+      try {
+        return JSON.stringify(candidate);
+      } catch {
+        // ignore invalid payloads and continue
+      }
+    }
+  }
+
+  return fallback;
+}
+
 async function loadLatestRuntimeConfig() {
   const dbClient = await createClient();
   const { data, error } = await dbClient
@@ -83,16 +115,27 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as Record<string, unknown>;
     const dbClient = await createClient();
+    const hideAudit = normalizeBooleanInput(body.legacy_hide_audit ?? body.hideAudit, true);
     const payload = {
       config_key: String(body.config_key || body.configKey || 'default').trim() || 'default',
       config_name: String(body.config_name || body.configName || '').trim(),
       scene_code: String(body.scene_code || body.sceneCode || 'review').trim(),
-      legacy_hide_audit: Boolean(body.legacy_hide_audit ?? body.hideAudit ?? true),
+      legacy_hide_audit: hideAudit,
       home_mode: String(body.home_mode || body.homeMode || 'gallery').trim(),
       guest_profile_mode: String(body.guest_profile_mode || body.guestProfileMode || 'about').trim(),
       auth_mode: String(body.auth_mode || body.authMode || 'wechat_only').trim(),
-      tab_bar_items_json: String(body.tab_bar_items_json || body.tabBarItemsJson || '[]'),
-      feature_flags_json: String(body.feature_flags_json || body.featureFlagsJson || '{}'),
+      tab_bar_items_json: serializeJsonInput(
+        '[]',
+        body.tab_bar_items_json,
+        body.tabBarItemsJson,
+        body.tabBarItems
+      ),
+      feature_flags_json: serializeJsonInput(
+        '{}',
+        body.feature_flags_json,
+        body.featureFlagsJson,
+        body.featureFlags
+      ),
       notes: String(body.notes || '').trim() || null,
       is_active: true,
     };
@@ -112,6 +155,10 @@ export async function POST(request: Request) {
 
       if (error) {
         throw error;
+      }
+
+      if (!data) {
+        return NextResponse.json({ error: '目标运行时配置不存在' }, { status: 404 });
       }
 
       const runtimeConfig = normalizeRuntimeConfigRow(data || null);

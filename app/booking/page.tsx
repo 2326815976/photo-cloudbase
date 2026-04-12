@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
@@ -143,11 +143,21 @@ export default function BookingPage() {
   const [error, setError] = useState('');
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
     'booking',
     activeBooking ? '我的预约' : '约拍邀请',
     '📝 写下你的约拍便利贴 📝'
   );
+  const loadingTitle = useMemo(() => {
+    const candidate = String(
+      (showLoginPrompt ? guestNavLabel : navLabel) || navLabel || guestNavLabel || managedTitle || '约拍邀请'
+    ).trim();
+    return candidate || '约拍邀请';
+  }, [guestNavLabel, managedTitle, navLabel, showLoginPrompt]);
+  const loadingDescription = useMemo(() => {
+    const subject = String(managedTitle || loadingTitle || '约拍邀请').trim();
+    return `正在载入${subject}内容`;
+  }, [loadingTitle, managedTitle]);
 
   const checkLoginStatus = async () => {
     const dbClient = createClient();
@@ -583,10 +593,10 @@ export default function BookingPage() {
             className="text-center"
           >
             <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
+              {loadingTitle}
             </p>
             <p className="text-sm text-[#5D4037]/60">
-              正在准备约拍信息
+              {loadingDescription}
             </p>
           </motion.div>
         </motion.div>

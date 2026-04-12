@@ -11,17 +11,17 @@ export interface SqlExecuteResult {
 }
 
 export const TRANSIENT_BACKEND_ERROR_CODE = 'TRANSIENT_BACKEND';
-export const TRANSIENT_BACKEND_ERROR_MESSAGE = '?????????????';
+export const TRANSIENT_BACKEND_ERROR_MESSAGE = '数据库服务暂时不可用，请稍后重试';
 export const SQL_CONFIGURATION_ERROR_CODE = 'SQL_CONFIGURATION_ERROR';
 export const SQL_CONFIGURATION_ERROR_MESSAGE =
-  'CloudBase SQL ????????CLOUDBASE_SQL_DB_NAME ?????????';
+  'CloudBase SQL 配置无效，请检查 CLOUDBASE_SQL_DB_NAME 是否指向正确的数据库名。';
 
 function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
 }
 
-const SQL_EXECUTE_RETRY_TIMES = parseNonNegativeInt(process.env.CLOUDBASE_SQL_EXECUTE_RETRIES, 1);
+const SQL_EXECUTE_RETRY_TIMES = parseNonNegativeInt(process.env.CLOUDBASE_SQL_EXECUTE_RETRIES, 2);
 const SQL_EXECUTE_RETRY_DELAY_MS = parseNonNegativeInt(process.env.CLOUDBASE_SQL_EXECUTE_RETRY_DELAY_MS, 250);
 const SQL_TRANSIENT_OUTAGE_COOLDOWN_MS = parseNonNegativeInt(
   process.env.CLOUDBASE_SQL_TRANSIENT_OUTAGE_COOLDOWN_MS,
@@ -41,6 +41,12 @@ type TransientBackendState = {
 type SqlCommandConfig = {
   database?: string;
   instance?: string;
+};
+
+type ExecuteSqlOptions = {
+  skipTransientOutageGuard?: boolean;
+  suppressRetryableFailureMarking?: boolean;
+  suppressRetryableFailureLog?: boolean;
 };
 
 declare global {
@@ -115,6 +121,10 @@ function isDatabaseConnectionConfigError(error: unknown): boolean {
     return true;
   }
 
+  return false;
+}
+
+function isCloudBaseDatabaseConnectionFailure(error: unknown): boolean {
   const message = extractErrorMessage(error).toLowerCase();
   return (
     message.includes('database connection failed') ||
@@ -149,7 +159,9 @@ function buildSqlCommandConfigCandidates(): SqlCommandConfig[] {
   );
   const instance = 'default';
 
-  const databases = Array.from(new Set([cachedDatabase, resolvedConfiguredDatabase].filter(Boolean)));
+  const databases = Array.from(
+    new Set([cachedDatabase, resolvedConfiguredDatabase, DEFAULT_CLOUDBASE_SQL_DATABASE].filter(Boolean))
+  );
 
   return databases.map((database) => ({
     database,
@@ -175,9 +187,11 @@ async function runSqlWithResolvedConfig(
     } catch (error) {
       const sanitizedError = sanitizeSqlError(error);
       lastError = sanitizedError;
-      const canTryNext = index < candidates.length - 1 && isDatabaseConnectionConfigError(sanitizedError);
+      const canTryNext =
+        index < candidates.length - 1 &&
+        (isDatabaseConnectionConfigError(sanitizedError) || isCloudBaseDatabaseConnectionFailure(sanitizedError));
       if (!canTryNext) {
-        throw sanitizedError;
+        break;
       }
 
       if (process.env.NODE_ENV !== 'production') {
@@ -347,9 +361,22 @@ export function extractErrorMessage(error: unknown): string {
   return '';
 }
 
+export function isMissingDefinerSqlError(error: unknown): boolean {
+  const message = extractErrorMessage(error).toLowerCase();
+  return message.includes('the user specified as a definer') && message.includes('does not exist');
+}
+
 export function isRetryableSqlError(error: unknown): boolean {
   if (isDatabaseConnectionConfigError(error)) {
     return false;
+  }
+
+  if (isMissingDefinerSqlError(error)) {
+    return false;
+  }
+
+  if (isCloudBaseDatabaseConnectionFailure(error)) {
+    return true;
   }
 
   const code = (() => {
@@ -444,7 +471,7 @@ function buildTransientBackendError(error?: unknown): Error & { code: string; or
 
 export function escapeIdentifier(input: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(input)) {
-    throw new Error(`?? SQL ????${input}`);
+    throw new Error(`非法 SQL 标识符：${input}`);
   }
 
   return `\`${input}\``;
@@ -452,9 +479,10 @@ export function escapeIdentifier(input: string): string {
 
 export async function executeSQL(
   sql: string,
-  values: Record<string, unknown> = {}
+  values: Record<string, unknown> = {},
+  options: ExecuteSqlOptions = {}
 ): Promise<SqlExecuteResult> {
-  if (hasTransientBackendOutage()) {
+  if (!options.skipTransientOutageGuard && hasTransientBackendOutage()) {
     throw buildTransientBackendError(getTransientBackendState().cause);
   }
 
@@ -486,11 +514,15 @@ export async function executeSQL(
       const retryable = isRetryableSqlError(sanitizedError);
       const canRetry = retryable && attempt < SQL_EXECUTE_RETRY_TIMES;
       if (!canRetry) {
-        if (retryable) {
+        if (retryable && !options.suppressRetryableFailureMarking) {
           markTransientBackendOutage(sanitizedError);
         }
 
-        if (process.env.NODE_ENV !== 'production' && retryable) {
+        if (
+          process.env.NODE_ENV !== 'production' &&
+          retryable &&
+          !options.suppressRetryableFailureLog
+        ) {
           console.warn('[cloudbase.executeSQL.transient]', {
             attempt: attempt + 1,
             message: extractErrorMessage(sanitizedError),

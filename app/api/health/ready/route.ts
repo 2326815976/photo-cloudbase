@@ -9,7 +9,7 @@ import {
 export const dynamic = 'force-dynamic';
 
 const READY_SUCCESS_CACHE_MS = 1_000;
-const READY_FAILURE_CACHE_MS = 1_000;
+const READY_FAILURE_CACHE_MS = 300;
 
 type ReadyPayload = {
   ok: boolean;
@@ -69,7 +69,7 @@ async function runReadyProbe(): Promise<ReadyResult> {
           ? TRANSIENT_BACKEND_ERROR_MESSAGE
           : error instanceof Error
             ? error.message
-            : '????????',
+            : '服务健康检查失败',
         code: isTransient ? TRANSIENT_BACKEND_ERROR_CODE : undefined,
       }
     );

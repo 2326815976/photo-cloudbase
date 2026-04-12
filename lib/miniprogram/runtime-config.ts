@@ -62,6 +62,17 @@ export interface MiniProgramFeatureFlags {
   allowPoseBetaBypass: boolean;
 }
 
+export interface MiniProgramManagedPageAccessItem {
+  pageKey: string;
+  routePath: string;
+  previewRoutePath: string;
+  publishState: 'offline' | 'beta' | 'online';
+  navText: string;
+  guestNavText: string;
+  headerTitle: string;
+  headerSubtitle: string;
+}
+
 export interface MiniProgramRuntimeConfig {
   configKey: string;
   configName: string;
@@ -74,6 +85,7 @@ export interface MiniProgramRuntimeConfig {
   tabBarItems: MiniProgramTabBarItem[];
   featureFlags: MiniProgramFeatureFlags;
   managedPageMetaMap?: Record<string, { title: string; subtitle: string }>;
+  managedPageAccessMap?: Record<string, MiniProgramManagedPageAccessItem>;
   notes: string;
   source: MiniProgramRuntimeConfigSource;
   updatedAt: string | null;
@@ -182,6 +194,39 @@ function parseJsonArray(input: unknown): Array<Record<string, unknown>> | null {
   }
 
   return null;
+}
+
+function normalizeManagedPageAccessMap(
+  input: unknown
+): Record<string, MiniProgramManagedPageAccessItem> {
+  const source =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : parseJsonObject(input) || {};
+
+  return Object.keys(source).reduce<Record<string, MiniProgramManagedPageAccessItem>>((map, pageKey) => {
+    const normalizedPageKey = toText(pageKey);
+    if (!normalizedPageKey) {
+      return map;
+    }
+
+    const current =
+      source[pageKey] && typeof source[pageKey] === 'object' && !Array.isArray(source[pageKey])
+        ? (source[pageKey] as Record<string, unknown>)
+        : {};
+    const publishState = toText(current.publishState);
+    map[normalizedPageKey] = {
+      pageKey: normalizedPageKey,
+      routePath: toText(current.routePath),
+      previewRoutePath: toText(current.previewRoutePath),
+      publishState: publishState === 'online' || publishState === 'beta' ? publishState : 'offline',
+      navText: toText(current.navText),
+      guestNavText: toText(current.guestNavText),
+      headerTitle: toText(current.headerTitle),
+      headerSubtitle: toText(current.headerSubtitle),
+    };
+    return map;
+  }, {});
 }
 
 function normalizeSceneCode(value: unknown, hideAudit: boolean): MiniProgramSceneCode {
@@ -319,6 +364,8 @@ export function buildRuntimeConfigPreset(sceneCode: MiniProgramSceneCode): MiniP
       authMode: 'wechat_only',
       tabBarItems: buildReviewTabBarItems(),
       featureFlags: buildFeatureFlagsPreset(true),
+      managedPageMetaMap: {},
+      managedPageAccessMap: {},
       notes: '',
       source: 'default_fallback',
       updatedAt: null,
@@ -336,6 +383,8 @@ export function buildRuntimeConfigPreset(sceneCode: MiniProgramSceneCode): MiniP
     authMode: 'phone_password',
     tabBarItems: buildStandardTabBarItems(),
     featureFlags: buildFeatureFlagsPreset(false),
+    managedPageMetaMap: {},
+    managedPageAccessMap: {},
     notes: '',
     source: 'default_fallback',
     updatedAt: null,
@@ -458,6 +507,7 @@ export function normalizeRuntimeConfigRow(
     tabBarItems,
     featureFlags,
     managedPageMetaMap: {},
+    managedPageAccessMap: {},
     notes: toText(row.notes),
     source: 'database',
     updatedAt: toText(row.updated_at) || null,

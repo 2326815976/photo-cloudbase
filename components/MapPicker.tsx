@@ -663,12 +663,12 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
 
   const MapContent = (
     <>
-      <div className="flex-none flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="relative flex-none flex items-center justify-between p-4 pr-12 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <MapPin className="w-5 h-5 text-[#FFC857]" />
           <h3 className="text-lg font-semibold text-[#5D4037]">选择位置</h3>
         </div>
-        <button onClick={onClose} className="icon-button action-icon-btn action-icon-btn--close">
+        <button onClick={onClose} className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20">
           <X className="action-icon-svg" />
         </button>
       </div>

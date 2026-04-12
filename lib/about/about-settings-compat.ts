@@ -66,6 +66,17 @@ function toText(value: unknown): string {
   return normalized === 'null' || normalized === 'undefined' ? '' : text;
 }
 
+function toMessageText(value: unknown): string {
+  const raw = String(value ?? '');
+  const text = raw.trim();
+  if (!text) {
+    return '';
+  }
+
+  const normalized = text.toLowerCase();
+  return normalized === 'null' || normalized === 'undefined' ? '' : raw.replace(/\r\n/g, '\n');
+}
+
 function normalizeImageUrlText(value: unknown): string {
   const text = toText(value);
   if (!text) {
@@ -96,7 +107,7 @@ export function normalizeAboutSettingsRecord(row: unknown): AboutSettingsCompatR
     wechat: toText(source.wechat),
     email: toText(source.email),
     donation_qr_code: normalizeImageUrlText(source.donation_qr_code),
-    author_message: toText(source.author_message),
+    author_message: toMessageText(source.author_message),
   };
 }
 

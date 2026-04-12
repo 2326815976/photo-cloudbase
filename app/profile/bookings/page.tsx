@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar, MapPin, Phone, MessageSquare, ArrowLeft, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { formatDateDisplayUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Booking {
@@ -61,6 +62,7 @@ const statusConfig = {
 
 export default function BookingsPage() {
   const router = useRouter();
+  const { title: managedTitle } = useManagedPageMeta('profile-bookings', '我的预约记录');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
@@ -86,6 +88,14 @@ export default function BookingsPage() {
 
   const showActionNotice = (message: string, type: ActionNotice['type'] = 'error') => {
     setActionNotice({ message, type });
+  };
+
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push('/profile');
   };
 
   const loadBookings = async () => {
@@ -300,39 +310,58 @@ export default function BookingsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
+      <div className="flex flex-col h-full w-full bg-[#FFFBF0]">
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex flex-col items-center gap-6"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
         >
-          <div className="relative">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Calendar className="w-8 h-8 text-[#FFC857]" />
-            </div>
+          <div className="px-4 py-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="icon-button action-icon-btn action-icon-btn--back"
+            >
+              <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
+            </button>
+            <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
+              {managedTitle}
+            </h1>
           </div>
+        </motion.div>
+
+        <div className="flex-1 flex items-center justify-center px-6">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
+            className="flex flex-col items-center gap-6"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
-            </p>
-            <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
+            <div className="relative">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+              />
+              <motion.div
+                animate={{ rotate: -360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Calendar className="w-8 h-8 text-[#FFC857]" />
+              </div>
+            </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="text-center"
+            >
+              <p className="text-lg font-medium text-[#5D4037] mb-2">{managedTitle}</p>
+              <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
+            </motion.div>
           </motion.div>
-        </motion.div>
+        </div>
       </div>
     );
   }
@@ -347,13 +376,13 @@ export default function BookingsPage() {
       >
         <div className="px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => router.back()}
+            onClick={handleBack}
             className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
           <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            我的预约记录
+            {managedTitle}
           </h1>
         </div>
       </motion.div>
@@ -500,13 +529,13 @@ export default function BookingsPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 max-w-sm w-full"
+              className="relative bg-white rounded-2xl p-6 max-w-sm w-full"
             >
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 pr-12">
                 <h3 className="text-lg font-bold text-[#5D4037]">确认删除</h3>
                 <button
                   onClick={() => setShowDeleteConfirm(null)}
-                  className="icon-button action-icon-btn action-icon-btn--close"
+                  className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                 >
                   <X className="action-icon-svg" />
                 </button>
@@ -535,5 +564,3 @@ export default function BookingsPage() {
     </div>
   );
 }
-
-

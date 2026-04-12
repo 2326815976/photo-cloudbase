@@ -9,10 +9,21 @@ interface LetterOpeningModalProps {
   onClose: () => void;
   letterContent: string;
   recipientName?: string;
+  initialStage?: 'envelope' | 'letter';
 }
 
-export default function LetterOpeningModal({ isOpen, onClose, letterContent, recipientName = '拾光者' }: LetterOpeningModalProps) {
-  const [stage, setStage] = useState<'envelope' | 'opening' | 'letter' | 'closing'>('envelope');
+function resolveInitialStage(initialStage: 'envelope' | 'letter') {
+  return initialStage === 'letter' ? 'letter' : 'envelope';
+}
+
+export default function LetterOpeningModal({
+  isOpen,
+  onClose,
+  letterContent,
+  recipientName = '拾光者',
+  initialStage = 'envelope',
+}: LetterOpeningModalProps) {
+  const [stage, setStage] = useState<'envelope' | 'opening' | 'letter' | 'closing'>(() => resolveInitialStage(initialStage));
   const shouldReduceMotion = useReducedMotion();
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -29,12 +40,11 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
   }, []);
 
   useEffect(() => {
-    if (!isOpen) {
-      timeoutsRef.current.forEach(clearTimeout);
-      timeoutsRef.current = [];
-      setStage('envelope');
-    }
-  }, [isOpen]);
+    const nextInitialStage = resolveInitialStage(initialStage);
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
+    setStage(nextInitialStage);
+  }, [initialStage, isOpen]);
 
   const handleSealClick = () => {
     setStage('opening');
@@ -46,7 +56,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
   const handleClose = () => {
     setStage('closing');
     addTimeout(() => {
-      setStage('envelope');
+      setStage(resolveInitialStage(initialStage));
       onClose();
     }, 600);
   };
@@ -192,7 +202,7 @@ export default function LetterOpeningModal({ isOpen, onClose, letterContent, rec
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={handleClose}
-                  className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4 z-10"
+                  className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                 >
                   <X className="action-icon-svg" />
                 </motion.button>

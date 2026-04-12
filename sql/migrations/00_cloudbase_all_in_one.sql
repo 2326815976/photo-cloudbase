@@ -190,6 +190,8 @@ CREATE TABLE IF NOT EXISTS albums (
   recipient_name VARCHAR(128) NOT NULL DEFAULT '拾光者',
   enable_tipping TINYINT(1) NOT NULL DEFAULT 1,
   enable_welcome_letter TINYINT(1) NOT NULL DEFAULT 1,
+  welcome_letter_mode VARCHAR(24) NOT NULL DEFAULT 'envelope',
+  enable_freeze TINYINT(1) NOT NULL DEFAULT 1,
   donation_qr_code_url VARCHAR(1024) NULL,
   expires_at DATETIME NULL,
   created_by CHAR(36) NULL,
@@ -599,6 +601,7 @@ INSERT INTO albums (
   recipient_name,
   enable_tipping,
   enable_welcome_letter,
+  enable_freeze,
   donation_qr_code_url,
   expires_at,
   created_by,
@@ -613,6 +616,7 @@ SELECT
   '拾光者',
   0,
   0,
+  1,
   NULL,
   NULL,
   NULL,
@@ -979,17 +983,21 @@ SELECT
   seed.default_guest_tab_text,
   seed.is_nav_candidate_web,
   seed.is_tab_candidate_miniprogram,
-  1,
-  1,
+  seed.supports_beta,
+  seed.supports_preview,
   1,
   1
 FROM (
-  SELECT 'pose' AS page_key, '摆姿推荐' AS page_name, '首页摆姿内容' AS page_description, '/' AS route_path_web, 'pages/index/index' AS route_path_miniprogram, '/?presentation=preview&page_key=pose' AS preview_route_path_web, '/pages/profile/beta/pose/index' AS preview_route_path_miniprogram, 'home' AS tab_key, 'home' AS icon_key, '首页' AS default_tab_text, '首页' AS default_guest_tab_text, 1 AS is_tab_candidate_miniprogram
-  UNION ALL SELECT 'album', '提取', '返图与相册入口', '/album', 'pages/album/index', '/album?presentation=preview&page_key=album', '/pages/album/index', 'album', 'album', '提取', '提取', 1
-  UNION ALL SELECT 'gallery', '照片墙', '公开照片墙', '/gallery', 'pages/gallery/index', '/gallery?presentation=preview&page_key=gallery', '/pages/gallery/index', 'gallery', 'gallery', '照片墙', '照片墙', 1
-  UNION ALL SELECT 'booking', '约拍', '预约入口', '/booking', 'pages/booking/index', '/booking?presentation=preview&page_key=booking', '/pages/booking/index', 'booking', 'booking', '约拍', '约拍', 1
-  UNION ALL SELECT 'profile', '我的', '个人中心', '/profile', 'pages/profile/index', '/profile?presentation=preview&page_key=profile', '/pages/profile/index', 'profile', 'profile', '我的', '我的', 1
-  UNION ALL SELECT 'about', '关于', '关于页面', '/profile/about', 'pages/profile/about/index', '/profile/about?presentation=preview&page_key=about', '/pages/profile/about/index', NULL, NULL, '关于', '关于', 0
+  SELECT 'pose' AS page_key, '摆姿推荐' AS page_name, '首页摆姿内容' AS page_description, '/' AS route_path_web, 'pages/index/index' AS route_path_miniprogram, '/?presentation=preview&page_key=pose' AS preview_route_path_web, '/pages/profile/beta/pose/index' AS preview_route_path_miniprogram, 'home' AS tab_key, 'home' AS icon_key, '首页' AS default_tab_text, '首页' AS default_guest_tab_text, 1 AS is_nav_candidate_web, 1 AS is_tab_candidate_miniprogram, 1 AS supports_beta, 1 AS supports_preview
+  UNION ALL SELECT 'album', '提取', '返图与相册入口', '/album', 'pages/album/index', '/album?presentation=preview&page_key=album', '/pages/album/index?presentation=preview&page_key=album', 'album', 'album', '提取', '提取', 1, 1, 1, 1
+  UNION ALL SELECT 'gallery', '照片墙', '公开照片墙', '/gallery', 'pages/gallery/index', '/gallery?presentation=preview&page_key=gallery', '/pages/gallery/index?presentation=preview&page_key=gallery', 'gallery', 'gallery', '照片墙', '照片墙', 1, 1, 1, 1
+  UNION ALL SELECT 'booking', '约拍', '预约入口', '/booking', 'pages/booking/index', '/booking?presentation=preview&page_key=booking', '/pages/booking/index?presentation=preview&page_key=booking', 'booking', 'booking', '约拍', '约拍', 1, 1, 1, 1
+  UNION ALL SELECT 'profile', '我的', '个人中心', '/profile', 'pages/profile/index', '/profile?presentation=preview&page_key=profile', '/pages/profile/index?presentation=preview&page_key=profile', 'profile', 'profile', '我的', '我的', 1, 1, 1, 1
+  UNION ALL SELECT 'about', '关于', '我的页关于入口', '/profile/about', 'pages/profile/about/index', '/profile/about?presentation=preview&page_key=about', '/pages/profile/about/index?presentation=preview&page_key=about', NULL, NULL, '关于', '关于', 0, 0, 0, 1
+  UNION ALL SELECT 'profile-edit', '编辑个人资料', '我的页个人资料编辑入口', '/profile/edit', 'pages/profile/edit/index', '/profile/edit?presentation=preview&page_key=profile-edit', '/pages/profile/edit/index?presentation=preview&page_key=profile-edit', NULL, NULL, '编辑个人资料', '编辑个人资料', 0, 0, 0, 1
+  UNION ALL SELECT 'profile-bookings', '我的预约记录', '我的页预约记录入口', '/profile/bookings', 'pages/profile/bookings/index', '/profile/bookings?presentation=preview&page_key=profile-bookings', '/pages/profile/bookings/index?presentation=preview&page_key=profile-bookings', NULL, NULL, '我的预约记录', '我的预约记录', 0, 0, 0, 1
+  UNION ALL SELECT 'profile-change-password', '修改密码', '我的页密码修改入口', '/profile/change-password', 'pages/profile/change-password/index', '/profile/change-password?presentation=preview&page_key=profile-change-password', '/pages/profile/change-password/index?presentation=preview&page_key=profile-change-password', NULL, NULL, '修改密码', '修改密码', 0, 0, 0, 1
+  UNION ALL SELECT 'profile-delete-account', '删除账户', '我的页账户删除入口', '/profile/delete-account', 'pages/profile/delete-account/index', '/profile/delete-account?presentation=preview&page_key=profile-delete-account', '/pages/profile/delete-account/index?presentation=preview&page_key=profile-delete-account', NULL, NULL, '删除账户', '删除账户', 0, 0, 0, 1
 ) AS seed
 WHERE NOT EXISTS (
   SELECT 1 FROM app_page_registry current_registry WHERE current_registry.page_key = seed.page_key

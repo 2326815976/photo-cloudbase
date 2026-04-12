@@ -45,7 +45,7 @@ export async function POST(request: Request) {
       {
         data: null,
         error: {
-          message: error instanceof Error ? error.message : '???????',
+          message: error instanceof Error ? error.message : '数据库查询失败',
         },
         count: null,
       },

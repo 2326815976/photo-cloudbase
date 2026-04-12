@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Eye, MapPin, X } from 'lucide-react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { Heart, Eye, MapPin, RotateCw, X } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
 import { getSessionId } from '@/lib/utils/session';
 import { vibrate } from '@/lib/android';
@@ -313,6 +313,45 @@ function appendUniquePhotos(currentPhotos: Photo[], incomingPhotos: Photo[]): Ph
   return incremental.length > 0 ? currentPhotos.concat(incremental) : currentPhotos;
 }
 
+function toNonNegativeInteger(value: unknown): number | null {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+  return Math.round(numeric);
+}
+
+function readPayloadNumberField(payload: unknown, fields: string | string[]): number | null {
+  const keys = Array.isArray(fields) ? fields : [fields];
+  let current = payload;
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== 'object') {
+      break;
+    }
+
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = String(keys[index] || '').trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(current, key)) {
+        continue;
+      }
+
+      const parsed = toNonNegativeInteger((current as Record<string, unknown>)[key]);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
+
+    const next = (current as { data?: unknown }).data;
+    if (!next || typeof next !== 'object' || next === current) {
+      break;
+    }
+    current = next;
+  }
+
+  return null;
+}
+
 function normalizeDateOnlyText(value: unknown): string {
   const raw = String(value ?? '').trim();
   const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -372,7 +411,7 @@ function isGalleryPhotoHighlighted(photo: Photo): boolean {
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
     'gallery',
     String.fromCodePoint(0x7167, 0x7247, 0x5899),
     String.fromCodePoint(0x1f4f8) + ' ' + String.fromCodePoint(0x8d29, 0x5356, 0x4eba, 0x95f4, 0x8def, 0x8fc7, 0x7684, 0x6e29, 0x67d4) + ' ' + String.fromCodePoint(0x1f4f8)
@@ -416,6 +455,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [tempFilterDateEnd, setTempFilterDateEnd] = useState('');
   const [filterModalError, setFilterModalError] = useState('');
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
+  const shouldReduceMotion = useReducedMotion();
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const [isSwitchingTag, setIsSwitchingTag] = useState(false);
   const [isSilentTagLoadPending, setIsSilentTagLoadPending] = useState(false);
@@ -564,6 +604,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
           page_no: pageNo,
           page_size: pageSize,
           folder_id: targetFolderId,
+          client_source: 'web',
         });
 
         if (error) {
@@ -891,32 +932,68 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
   };
 
-  const handlePreview = async (photo: Photo) => {
-    setPreviewPhoto(photo);
-
-    // 增加浏览量（带会话去重）
-    const dbClient = createClient();
-    if (!dbClient) {
+  const syncPhotoViewCount = useCallback((photoId: string, viewCount: number) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    const normalizedViewCount = toNonNegativeInteger(viewCount);
+    if (!normalizedPhotoId || normalizedViewCount === null) {
       return;
     }
-    const sessionId = getSessionId();
 
-    const { data } = await dbClient.rpc('increment_photo_view', {
-      p_photo_id: photo.id,
-      p_session_id: sessionId
-    });
+    setAllPhotos((prev) => prev.map((photo) => (
+      photo.id === normalizedPhotoId
+        ? { ...photo, view_count: normalizedViewCount }
+        : photo
+    )));
+    setPreviewPhoto((prev) => (
+      prev && prev.id === normalizedPhotoId
+        ? { ...prev, view_count: normalizedViewCount }
+        : prev
+    ));
+    setFullscreenPhoto((prev) => (
+      prev && prev.id === normalizedPhotoId
+        ? { ...prev, view_count: normalizedViewCount }
+        : prev
+    ));
+  }, []);
 
-    // 更新 allPhotos 中的浏览量
-    if (data?.counted) {
-      setAllPhotos(prev => prev.map(p =>
-        p.id === photo.id ? { ...p, view_count: data.view_count } : p
-      ));
-      setPreviewPhoto(prev =>
-        prev && prev.id === photo.id
-          ? { ...prev, view_count: data.view_count }
-          : prev
-      );
+  const incrementPhotoViewCount = useCallback(async (photoId: string, fallbackViewCount?: number | null) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId) {
+      return null;
     }
+
+    const dbClient = createClient();
+    if (!dbClient) {
+      return null;
+    }
+
+    try {
+      const { data } = await dbClient.rpc('increment_photo_view', {
+        p_photo_id: normalizedPhotoId,
+        p_session_id: getSessionId(),
+      });
+
+      const counted = Boolean(
+        data
+        && typeof data === 'object'
+        && (data as { counted?: unknown }).counted
+      );
+      const nextViewCount = readPayloadNumberField(data, 'view_count')
+        ?? (counted ? Math.max(0, Number(fallbackViewCount ?? 0)) + 1 : null);
+
+      if (nextViewCount !== null) {
+        syncPhotoViewCount(normalizedPhotoId, nextViewCount);
+      }
+
+      return nextViewCount;
+    } catch {
+      return null;
+    }
+  }, [syncPhotoViewCount]);
+
+  const handlePreview = async (photo: Photo) => {
+    setPreviewPhoto(photo);
+    await incrementPhotoViewCount(photo.id, photo.view_count);
   };
 
   const hasStory = (photo: Photo): boolean => {
@@ -1208,8 +1285,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   );
 
   const isTagOverlayLoading = isSwitchingTag || isSilentTagLoadPending || pendingTagPhotoIds.length > 0;
-  const loadingTitle = isTagOverlayLoading ? '拾光中...' : '加载中...';
-  const loadingDescription = isTagOverlayLoading ? '正在切换照片标签' : '正在加载照片墙';
+  const loadingPageLabel = useMemo(() => {
+    const candidate = String(navLabel || guestNavLabel || managedTitle || '').trim();
+    return candidate || '页面';
+  }, [guestNavLabel, managedTitle, navLabel]);
+  const loadingTitle = loadingPageLabel;
+  const loadingDescription = isTagOverlayLoading
+    ? `正在切换${loadingPageLabel}标签`
+    : `正在加载${loadingPageLabel}`;
 
   const showInitialPageLoading = isLoading && allPhotos.length === 0 && !isTagOverlayLoading;
   const showContentOverlayLoading = isTagOverlayLoading;
@@ -1434,73 +1517,90 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                   >
                     {/* 图片区域 */}
                     <div className="relative">
-                      {storyOpenMap[photo.id] && hasStory(photo) ? (
-                        <div className="min-h-[140px] box-border bg-[linear-gradient(150deg,#FFFDF7_0%,#FFF5DC_52%,#FCEBC5_100%)] p-[8px]">
-                          <div className="relative min-h-[124px] rounded-[9px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[9px] pt-[9px] pb-[10px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
-                            <span className="mb-[5px] inline-flex h-[17px] items-center justify-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
-                              {String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
-                            </span>
-                            <p className="whitespace-pre-wrap break-words text-left text-[12.5px] font-semibold leading-[1.78] tracking-[0.4px] text-[#5D4037]/93">
-                              {String(photo.story_text || '').trim()}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div
-                          className="relative cursor-pointer"
-                          onClick={() => handlePreview(photo)}
-                        >
-                          <SimpleImage
-                            src={photo.thumbnail_url}
-                            alt="照片"
-                            aspectRatio={resolvePhotoAspectRatio(photo)}
-                            onLoad={() => markTagSwitchPhotoSettled(photo.id)}
-                            onError={() => markTagSwitchPhotoSettled(photo.id)}
-                            onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
-                            className="gallery-card-image w-full"
-                          />
-
-                          {/* 顶部统计胶囊 */}
-                          <div className="absolute left-[6px] top-[6px] z-[3] inline-flex items-center gap-[5px] rounded-full bg-[linear-gradient(135deg,rgba(56,47,43,0.66),rgba(28,23,21,0.46))] px-[7px] py-[3px] shadow-[0_5px_12px_rgba(0,0,0,0.14)] backdrop-blur-[8px]">
-                            <span className="inline-flex items-center gap-[2px]">
-                              <Eye className="h-[9px] w-[9px] text-white/88" />
-                              <span className="text-[9px] font-semibold leading-none text-white/95">{photo.view_count}</span>
-                            </span>
-                            <span className="h-[9px] w-px bg-white/18" />
-                            <motion.button
-                              whileTap={{ scale: 0.94 }}
-                              onClick={(e) => handleLike(photo.id, e)}
-                              className="compact-button inline-flex min-h-0 appearance-none items-center gap-[2px] border-0 bg-transparent p-0 text-white/95 shadow-none outline-none transition-all duration-200 active:opacity-90"
-                              aria-label={String.fromCodePoint(0x70B9, 0x8D5E)}
-                              title={String.fromCodePoint(0x70B9, 0x8D5E)}
-                            >
-                              <motion.div
-                                animate={photo.is_liked ? { scale: [1, 1.16, 1] } : {}}
-                                transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
-                              >
-                                <Heart
-                                  className={`h-[9px] w-[9px] transition-all duration-300 ${
-                                    photo.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : 'text-white/80'
-                                  }`}
-                                />
-                              </motion.div>
-                              <span className="text-[9px] font-semibold leading-none text-white/95">
-                                {photo.like_count}
+                      <AnimatePresence initial={false} mode="wait">
+                        {storyOpenMap[photo.id] && hasStory(photo) ? (
+                          <motion.div
+                            key={`story-${photo.id}`}
+                            initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: 12, scale: 0.985 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, scale: 0.985 }}
+                            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.28, ease: 'easeOut' }}
+                            className="min-h-[140px] box-border origin-top bg-[linear-gradient(150deg,#FFFDF7_0%,#FFF5DC_52%,#FCEBC5_100%)] p-[8px]"
+                          >
+                            <div className="relative min-h-[124px] rounded-[9px] border border-[#A67E52]/24 bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(255,246,231,0.98)_100%),repeating-linear-gradient(180deg,transparent_0px,transparent_23px,rgba(93,64,55,0.055)_23px,rgba(93,64,55,0.055)_24px)] px-[9px] pt-[9px] pb-[10px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72),0_4px_10px_rgba(93,64,55,0.14)]">
+                              <span className="mb-[5px] inline-flex h-[17px] items-center justify-center rounded-full border border-[#5D4037]/16 bg-[#FFC857]/22 px-[7px] text-[10px] font-bold leading-none text-[#5D4037]/86">
+                                {String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
                               </span>
-                            </motion.button>
-                          </div>
+                              <p className="whitespace-pre-wrap break-words text-left text-[12.5px] font-semibold leading-[1.78] tracking-[0.4px] text-[#5D4037]/93">
+                                {String(photo.story_text || '').trim()}
+                              </p>
+                            </div>
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key={`photo-${photo.id}`}
+                            initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.992 }}
+                            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.24, ease: 'easeOut' }}
+                          >
+                            <div
+                              className="relative cursor-pointer origin-top"
+                              onClick={() => handlePreview(photo)}
+                            >
+                              <SimpleImage
+                                src={photo.thumbnail_url}
+                                alt="照片"
+                                aspectRatio={resolvePhotoAspectRatio(photo)}
+                                onLoad={() => markTagSwitchPhotoSettled(photo.id)}
+                                onError={() => markTagSwitchPhotoSettled(photo.id)}
+                                onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
+                                className="gallery-card-image w-full"
+                              />
 
-                        </div>
-                      )}
+                              {/* 顶部统计胶囊 */}
+                              <div className="absolute left-[6px] top-[6px] z-[3] inline-flex items-center gap-[5px] rounded-full bg-[linear-gradient(135deg,rgba(56,47,43,0.66),rgba(28,23,21,0.46))] px-[7px] py-[3px] shadow-[0_5px_12px_rgba(0,0,0,0.14)] backdrop-blur-[8px]">
+                                <span className="inline-flex items-center gap-[2px]">
+                                  <Eye className="h-[9px] w-[9px] text-white/88" />
+                                  <span className="text-[9px] font-semibold leading-none text-white/95">{photo.view_count}</span>
+                                </span>
+                                <span className="h-[9px] w-px bg-white/18" />
+                                <motion.button
+                                  whileTap={{ scale: 0.94 }}
+                                  onClick={(e) => handleLike(photo.id, e)}
+                                  className="compact-button inline-flex min-h-0 appearance-none items-center gap-[2px] border-0 bg-transparent p-0 text-white/95 shadow-none outline-none transition-all duration-200 active:opacity-90"
+                                  aria-label={String.fromCodePoint(0x70B9, 0x8D5E)}
+                                  title={String.fromCodePoint(0x70B9, 0x8D5E)}
+                                >
+                                  <motion.div
+                                    animate={photo.is_liked ? { scale: [1, 1.16, 1] } : {}}
+                                    transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                                  >
+                                    <Heart
+                                      className={`h-[9px] w-[9px] transition-all duration-300 ${
+                                        photo.is_liked ? 'fill-[#FFC857] text-[#FFC857]' : 'text-white/80'
+                                      }`}
+                                    />
+                                  </motion.div>
+                                  <span className="text-[9px] font-semibold leading-none text-white/95">
+                                    {photo.like_count}
+                                  </span>
+                                </motion.button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
 
                       {hasStory(photo) && (
-                        <button
+                        <motion.button
                           type="button"
+                          whileTap={{ scale: 0.9 }}
                           onClick={(e) => toggleStoryCard(photo.id, e)}
-                          className={`absolute right-[5px] top-[5px] flex items-center justify-center overflow-hidden rounded-full transition-all active:scale-95 ${
+                          className={`absolute right-[5px] top-[5px] z-[4] flex items-center justify-center overflow-hidden rounded-full border p-0 leading-none transition-[transform,background-color,border-color,box-shadow] duration-300 [appearance:none] [-webkit-appearance:none] ${
                             isHighlighted(photo)
-                              ? 'border border-[#5D4037]/45 bg-[linear-gradient(135deg,#FFD76E_0%,#FFC857_100%)]'
-                              : 'border border-white/45 bg-black/38'
+                              ? 'border border-[#5D4037]/45 bg-[linear-gradient(135deg,#FFD76E_0%,#FFC857_100%)] text-[#5D4037] animate-pulse'
+                              : 'border border-white/45 bg-black/38 text-white'
                           }`}
                           style={
                             isHighlighted(photo)
@@ -1523,19 +1623,18 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                           aria-label={String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
                           title={String.fromCodePoint(0x5173, 0x4E8E, 0x6B64, 0x523B)}
                         >
-                          <span
-                            className={`font-bold leading-none transition-transform duration-200 ${
-                              storyOpenMap[photo.id] ? 'rotate-180' : ''
-                            } ${
-                              isHighlighted(photo)
-                                ? 'text-[#5D4037] [text-shadow:0_0.5px_0_rgba(255,255,255,0.55)]'
-                                : 'text-white'
-                            }`}
-                            style={{ fontSize: '16px', lineHeight: 1 }}
+                          <motion.span
+                            animate={
+                              shouldReduceMotion
+                                ? { rotate: 0, scale: 1 }
+                                : { rotate: storyOpenMap[photo.id] ? 180 : 0, scale: storyOpenMap[photo.id] ? 1.06 : 1 }
+                            }
+                            transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
+                            className={`${isHighlighted(photo) ? 'drop-shadow-[0_0.5px_0_rgba(255,255,255,0.55)]' : ''}`}
                           >
-                            {String.fromCodePoint(0x21BB)}
-                          </span>
-                        </button>
+                            <RotateCw className="h-[15px] w-[15px]" strokeWidth={2.35} />
+                          </motion.span>
+                        </motion.button>
                       )}
                     </div>
 
@@ -1695,9 +1794,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
             >
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="flex max-h-[66vh] flex-col overflow-hidden rounded-[20px] border border-[#5D4037]/8 bg-[#FFFDF7] shadow-[0_18px_44px_rgba(93,64,55,0.18)]"
+                className="relative flex max-h-[66vh] flex-col overflow-hidden rounded-[20px] border border-[#5D4037]/8 bg-[#FFFDF7] shadow-[0_18px_44px_rgba(93,64,55,0.18)]"
               >
-                <div className="flex items-center justify-between border-b border-[#5D4037]/10 px-4 py-3">
+                <div className="flex items-center justify-between border-b border-[#5D4037]/10 px-4 py-3 pr-12">
                   <div>
                     <h3 className="text-[15px] font-bold text-[#5D4037]">{String.fromCodePoint(0x5168, 0x90E8, 0x7B5B, 0x9009)}</h3>
                     <p className="mt-1 text-[11px] text-[#8D6E63]/72">{String.fromCodePoint(0x9009, 0x62E9, 0x4F60, 0x60F3, 0x770B, 0x7684, 0x6807, 0x7B7E, 0x5206, 0x7C7B)}</p>
@@ -1706,9 +1805,9 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                     type="button"
                     onClick={closeFolderSelector}
                     aria-label={String.fromCodePoint(0x5173, 0x95ED, 0x5168, 0x90E8, 0x7B5B, 0x9009)}
-                    className="icon-button action-icon-btn action-icon-btn--close"
+                    className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                   >
-                    <X className="action-icon-svg" strokeWidth={2.5} />
+                    <X className="action-icon-svg" />
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -1843,7 +1942,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         currentIndex={fullscreenPhoto ? Math.max(0, photos.findIndex((photo) => photo.id === fullscreenPhoto.id)) : 0}
         isOpen={!!fullscreenPhoto}
         onClose={() => setFullscreenPhoto(null)}
-        onIndexChange={(index) => setFullscreenPhoto(photos[index] ?? null)}
+        onIndexChange={(index) => {
+          const target = photos[index] ?? null;
+          setFullscreenPhoto(target);
+          if (target?.id) {
+            void incrementPhotoViewCount(target.id, target.view_count);
+          }
+        }}
         showCounter={true}
         showScale={true}
         enableLongPressDownload={true}

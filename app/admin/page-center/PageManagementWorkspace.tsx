@@ -8,6 +8,7 @@ import type {
   PageCenterOverviewItem,
   PagePublishState,
 } from '@/lib/page-center/config';
+import { isProfileSecondaryPageKey } from '@/lib/page-center/config';
 import { canPageShowInNav } from '@/lib/page-center/capabilities';
 import {
   buildRegistryOptionPatch,
@@ -111,6 +112,30 @@ const BETA_SETTINGS_SECONDARY_BUTTON_CLASS =
 
 const BETA_SETTINGS_PRIMARY_BUTTON_CLASS =
   'w-full rounded-full bg-[#FFF6E0] px-3 py-2 text-sm font-bold text-[#946200] whitespace-nowrap disabled:opacity-60';
+
+const PAGE_CENTER_LIST_ACTION_BASE_CLASS =
+  'min-w-0 whitespace-nowrap rounded-full border px-3 py-2 text-[13px] font-semibold disabled:opacity-60 sm:px-4 sm:text-sm';
+
+const PAGE_CENTER_ACTION_EDIT_CLASS =
+  `${PAGE_CENTER_LIST_ACTION_BASE_CLASS} border-[#B86A2D]/18 bg-[#FFF1E6] text-[#B86A2D]`;
+
+const PAGE_CENTER_ACTION_VIEW_CLASS =
+  `${PAGE_CENTER_LIST_ACTION_BASE_CLASS} border-[#2F6FD6]/18 bg-[#EEF4FF] text-[#2F6FD6]`;
+
+const PAGE_CENTER_ACTION_ONLINE_CLASS =
+  `${PAGE_CENTER_LIST_ACTION_BASE_CLASS} border-[#2E7D32]/18 bg-[#E8F5E9] text-[#2E7D32]`;
+
+const PAGE_CENTER_ACTION_BETA_CLASS =
+  `${PAGE_CENTER_LIST_ACTION_BASE_CLASS} border-[#946200]/18 bg-[#FFF6E0] text-[#946200]`;
+
+const PAGE_CENTER_ACTION_OFFLINE_CLASS =
+  `${PAGE_CENTER_LIST_ACTION_BASE_CLASS} border-[#A34C4C]/18 bg-[#FDECEC] text-[#A34C4C]`;
+
+const PAGE_CENTER_MODAL_VIEW_BUTTON_CLASS =
+  'rounded-full border border-[#2F6FD6]/18 bg-[#EEF4FF] px-5 py-2.5 text-sm font-semibold text-[#2F6FD6] disabled:opacity-60';
+
+const PAGE_CENTER_MODAL_ONLINE_BUTTON_CLASS =
+  'rounded-full border border-[#2E7D32]/18 bg-[#E8F5E9] px-5 py-2.5 text-sm font-bold text-[#2E7D32] disabled:opacity-60';
 
 const EDIT_MODAL_SAVE_BUTTON_CLASS =
   'rounded-full border border-transparent bg-[#FFC857] px-5 py-2.5 text-sm font-bold text-[#5D4037] disabled:opacity-60';
@@ -349,10 +374,18 @@ function getPublishStateMeta(state: PagePublishState) {
   return { label: '下线', className: 'bg-[#FDECEC] text-[#A34C4C]' };
 }
 
-function getStateWeight(state: PagePublishState) {
-  if (state === 'online') return 0;
-  if (state === 'beta') return 1;
-  return 2;
+function getDisplayStateMeta(item: PageCenterOverviewItem, channel: AppChannel) {
+  const currentState = item.channels[channel].publishState;
+  if (isProfileSecondaryPageKey(item.pageKey)) {
+    if (currentState === 'online') {
+      return { label: '显示中', className: 'bg-[#E8F5E9] text-[#2E7D32]' };
+    }
+    if (currentState === 'beta') {
+      return { label: '内测中', className: 'bg-[#FFF6E0] text-[#946200]' };
+    }
+    return { label: '已隐藏', className: 'bg-[#FDECEC] text-[#A34C4C]' };
+  }
+  return getPublishStateMeta(currentState);
 }
 
 function sortNavRows(rows: PageCenterOverviewItem[], channel: AppChannel) {
@@ -409,15 +442,17 @@ function normalizeRuleForm(
 ): RuleForm {
   const publishState = current.publishState;
   const navSupported = canPageShowInNav(item, channel);
+  const isSecondaryPage = isProfileSecondaryPageKey(item.pageKey);
   const showInNav = publishState === 'online' && navSupported;
   const resolvedNavOrder = Number(current.navOrder);
   const navText = String(current.navText || '').trim() || item.defaultTabText || item.pageName;
-  const guestNavText =
-    String(current.guestNavText || '').trim() ||
-    item.defaultGuestTabText ||
-    navText ||
-    item.defaultTabText ||
-    item.pageName;
+  const guestNavText = isSecondaryPage
+    ? navText
+    : String(current.guestNavText || '').trim() ||
+      item.defaultGuestTabText ||
+      navText ||
+      item.defaultTabText ||
+      item.pageName;
 
   return {
     publishState,
@@ -425,7 +460,7 @@ function normalizeRuleForm(
     navOrder: Number.isFinite(resolvedNavOrder) ? resolvedNavOrder : 0,
     navText,
     guestNavText,
-    headerTitle: String(current.headerTitle || '').trim(),
+    headerTitle: isSecondaryPage ? navText : String(current.headerTitle || '').trim(),
     headerSubtitle: String(current.headerSubtitle || '').trim(),
     isHomeEntry: false,
     notes: String(current.notes || '').trim(),
@@ -474,7 +509,22 @@ function sanitizePageCenterUiMessage(message: string, fallback = '操作失败�
   return text;
 }
 
-function buildQuickStateSuccessToast(pageName: string, channel: AppChannel, state: PagePublishState) {
+function buildQuickStateSuccessToast(
+  pageName: string,
+  channel: AppChannel,
+  state: PagePublishState,
+  isSecondaryPage = false
+) {
+  if (isSecondaryPage) {
+    if (state === 'online') {
+      return `${pageName} 入口已显示，页面顶部标题会同步更新`;
+    }
+    if (state === 'beta') {
+      return `${pageName} 已切换为内测`;
+    }
+    return `${pageName} 入口已隐藏，“我的”列表不再展示`;
+  }
+
   if (state === 'online') {
     return `${pageName} 已上线并进入${channel === 'web' ? 'Web' : '小程序'}底部菜单`;
   }
@@ -490,6 +540,7 @@ function resolveQuickStateAction(
   hideAudit: boolean
 ) {
   const view = item.channels[channel];
+  const isSecondaryPage = isProfileSecondaryPageKey(item.pageKey);
   const forcedState = resolveMiniProgramForcedState(item.pageKey, channel, hideAudit);
   const betaSummary = summarizeDecoratedBetaCodes(decorateBetaCodesByChannel(item.betaCodes, channel));
   const canOnline = canPageShowInNav(item, channel) && (!forcedState || forcedState === 'online');
@@ -508,11 +559,31 @@ function resolveQuickStateAction(
     loadingLabel: state === 'online' ? '上线中...' : state === 'beta' ? '切换中...' : '下线中...',
     className:
       state === 'online'
-        ? 'whitespace-nowrap rounded-full border border-[#2E7D32]/18 bg-[#E8F5E9] px-4 py-2 text-sm font-semibold text-[#2E7D32] disabled:opacity-60'
+        ? PAGE_CENTER_ACTION_ONLINE_CLASS
         : state === 'beta'
-          ? 'whitespace-nowrap rounded-full border border-[#946200]/18 bg-[#FFF6E0] px-4 py-2 text-sm font-semibold text-[#946200] disabled:opacity-60'
-          : 'whitespace-nowrap rounded-full border border-[#A34C4C]/18 bg-[#FDECEC] px-4 py-2 text-sm font-semibold text-[#A34C4C] disabled:opacity-60',
+          ? PAGE_CENTER_ACTION_BETA_CLASS
+          : PAGE_CENTER_ACTION_OFFLINE_CLASS,
   });
+
+  if (isSecondaryPage) {
+    return view.publishState === 'online'
+      ? {
+          state: 'offline' as PagePublishState,
+          disabled: !canOffline,
+          requiresConfirm: true,
+          label: '隐藏',
+          loadingLabel: '隐藏中...',
+          className: PAGE_CENTER_ACTION_OFFLINE_CLASS,
+        }
+      : {
+          state: 'online' as PagePublishState,
+          disabled: Boolean(forcedState && forcedState !== 'online'),
+          requiresConfirm: false,
+          label: '显示',
+          loadingLabel: '显示中...',
+          className: PAGE_CENTER_ACTION_ONLINE_CLASS,
+        };
+  }
 
   if (view.publishState === 'offline') {
     if (canOnline) {
@@ -644,20 +715,19 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
 
   const filteredRows = useMemo(() => {
     const keywordText = keyword.trim().toLowerCase();
+    const displayOrderMap = new Map(navRows.map((item, index) => [item.pageKey, index]));
+    const fallbackOrderMap = new Map(previewRows.map((item, index) => [item.pageKey, index]));
     return previewRows
       .slice()
       .sort((left, right) => {
-        const leftView = left.channels[channel];
-        const rightView = right.channels[channel];
-        const stateWeightDiff = getStateWeight(leftView.publishState) - getStateWeight(rightView.publishState);
-        if (stateWeightDiff !== 0) {
-          return stateWeightDiff;
-        }
-        if (leftView.showInNav !== rightView.showInNav) {
-          return leftView.showInNav ? -1 : 1;
-        }
-        if (leftView.navOrder !== rightView.navOrder) {
-          return leftView.navOrder - rightView.navOrder;
+        const leftDisplayOrder = displayOrderMap.has(left.pageKey)
+          ? Number(displayOrderMap.get(left.pageKey))
+          : 1000 + Number(fallbackOrderMap.get(left.pageKey) ?? 0);
+        const rightDisplayOrder = displayOrderMap.has(right.pageKey)
+          ? Number(displayOrderMap.get(right.pageKey))
+          : 1000 + Number(fallbackOrderMap.get(right.pageKey) ?? 0);
+        if (leftDisplayOrder !== rightDisplayOrder) {
+          return leftDisplayOrder - rightDisplayOrder;
         }
         if (left.isBuiltIn !== right.isBuiltIn) {
           return left.isBuiltIn ? -1 : 1;
@@ -685,7 +755,35 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
         ];
         return haystacks.some((value) => String(value || '').toLowerCase().includes(keywordText));
       });
-  }, [channel, keyword, previewRows, stateFilter]);
+  }, [channel, keyword, navRows, previewRows, stateFilter]);
+
+  const primaryRows = useMemo(
+    () => filteredRows.filter((item) => !isProfileSecondaryPageKey(item.pageKey)),
+    [filteredRows]
+  );
+  const secondaryRows = useMemo(
+    () => filteredRows.filter((item) => isProfileSecondaryPageKey(item.pageKey)),
+    [filteredRows]
+  );
+  const pageSections = useMemo(
+    () =>
+      [
+        {
+          key: 'primary',
+          title: '一级页面管理',
+          description: `维护当前${channelMeta.navName}与正式页面的展示状态、菜单顺序和查看入口。`,
+          rows: primaryRows,
+        },
+        {
+          key: 'secondary',
+          title: '二级菜单页面管理',
+          description:
+            '维护“我的”页里的二级入口。修改标题会同步到页面顶部标题，隐藏后“我的”列表不再展示该入口。',
+          rows: secondaryRows,
+        },
+      ].filter((section) => section.rows.length > 0),
+    [channelMeta.navName, primaryRows, secondaryRows]
+  );
 
   const workspaceSummary = useMemo(
     () =>
@@ -874,6 +972,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   };
   const handleQuickStateAction = async (item: PageCenterOverviewItem, nextState: PagePublishState) => {
     const forcedState = resolveMiniProgramForcedState(item.pageKey, channel, hideAudit);
+    const isSecondaryPage = isProfileSecondaryPageKey(item.pageKey);
     if (forcedState && nextState !== forcedState) {
       showToast(sanitizePageCenterUiMessage(buildMiniProgramForcedStateHint(forcedState, hideAudit)));
       return false;
@@ -892,7 +991,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
       }
     }
 
-    if (nextState === 'online' && !canPageShowInNav(item, channel)) {
+    if (nextState === 'online' && !canPageShowInNav(item, channel) && !isSecondaryPage) {
       showToast(`当前页面未标记为${channel === 'web' ? 'Web' : '小程序'}底栏候选，无法直接上线到底栏`);
       return false;
     }
@@ -906,7 +1005,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
           publishState: 'online',
         },
         `${item.pageKey}:${channel}:state:online`,
-        buildQuickStateSuccessToast(item.pageName, channel, 'online')
+        buildQuickStateSuccessToast(item.pageName, channel, 'online', isSecondaryPage)
       );
     }
 
@@ -919,7 +1018,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
         isHomeEntry: false,
       },
       `${item.pageKey}:${channel}:state:${nextState}`,
-      buildQuickStateSuccessToast(item.pageName, channel, nextState)
+      buildQuickStateSuccessToast(item.pageName, channel, nextState, isSecondaryPage)
     );
   };
 
@@ -1215,101 +1314,82 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
         </section>
       ) : (
         <section className="space-y-4">
-          {filteredRows.map((item) => {
-            const view = item.channels[channel];
-            const stateMeta = getPublishStateMeta(view.publishState);
-            const betaSummary = summarizeDecoratedBetaCodes(decorateBetaCodesByChannel(item.betaCodes, channel));
-            const currentNavIndex = navRows.findIndex((row) => row.pageKey === item.pageKey);
-            const navLabel = view.navText || item.defaultTabText || item.pageName;
-            const titlePreview = view.headerTitle || item.pageName;
-            const subtitlePreview = view.headerSubtitle || '留空时不单独显示';
-            const quickAction = resolveQuickStateAction(item, channel, hideAudit);
+          {pageSections.map((section) => (
+            <div key={section.key} className="space-y-3">
+              <div className="booking-panel rounded-[24px] border border-[#5D4037]/8 bg-[#FFF8F2] p-5">
+                <div className="text-lg font-black text-[#5D4037]">{section.title}</div>
+                <p className="mt-1 text-sm leading-6 text-[#8D6E63]">{section.description}</p>
+              </div>
 
-            return (
+              {section.rows.map((item) => {
+                const view = item.channels[channel];
+                const stateMeta = getDisplayStateMeta(item, channel);
+                const quickAction = resolveQuickStateAction(item, channel, hideAudit);
 
-              <article key={item.pageKey} className="booking-panel page-center-card">
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_288px] lg:items-start">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="mr-1 text-xl font-bold text-[#5D4037]">{item.pageName}</h2>
-                        <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${stateMeta.className}`}>
-                          {stateMeta.label}
-                        </span>
-                        <span className="whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#8D6E63]">
-                          {item.pageKey}
-                        </span>
-                        {item.isBuiltIn ? (
-                          <span className="whitespace-nowrap rounded-full bg-[#F4E9E2] px-3 py-1 text-xs font-semibold text-[#8D6E63]">
-                            内置页
-                          </span>
-                        ) : null}
+                return (
+                  <article key={item.pageKey} className="booking-panel page-center-card">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_288px] lg:items-start">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-col gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="mr-1 text-xl font-bold text-[#5D4037]">{item.pageName}</h2>
+                            <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${stateMeta.className}`}>
+                              {stateMeta.label}
+                            </span>
+                            <span className="whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#8D6E63]">
+                              {item.pageKey}
+                            </span>
+                            {item.isBuiltIn ? (
+                              <span className="whitespace-nowrap rounded-full bg-[#F4E9E2] px-3 py-1 text-xs font-semibold text-[#8D6E63]">
+                                内置页
+                              </span>
+                            ) : null}
+                          </div>
+                          {item.pageDescription ? (
+                            <p className="text-sm leading-6 text-[#8D6E63]">{item.pageDescription}</p>
+                          ) : null}
+                        </div>
                       </div>
-                      {item.pageDescription ? (
-                        <p className="text-sm leading-6 text-[#8D6E63]">{item.pageDescription}</p>
-                      ) : null}
-                      <div className="flex flex-wrap gap-2 text-xs text-[#8D6E63]">
-                        <span className="rounded-full bg-[#FFFBF3] px-3 py-2">
-                          入口：{stateMeta.label}
-                          {view.publishState === 'online' && view.showInNav
-                            ? ` · ${channelMeta.navName}第 ${currentNavIndex + 1} 位`
-                            : view.publishState === 'beta'
-                              ? ' · 无底栏'
-                              : ''}
-                        </span>
-                        <span className="rounded-full bg-[#FFFBF3] px-3 py-2">
-                          菜单：{navLabel}{currentNavIndex >= 0 ? ` · 第 ${currentNavIndex + 1} 位` : ' · 未进底栏'}
-                        </span>
-                        <span className="rounded-full bg-[#FFFBF3] px-3 py-2">
-                          顶部：{titlePreview}{view.headerSubtitle ? ` · ${subtitlePreview}` : ''}
-                        </span>
-                        {item.supportsBeta ? (
-                          <span className="rounded-full bg-[#FFFBF3] px-3 py-2">
-                            内测码：{betaSummary.usable} / {betaSummary.total}
-                          </span>
-                        ) : null}
+
+                      <div className="page-center-card__actions grid w-full grid-cols-3 gap-2 lg:w-[288px] lg:self-start">
+                        <button
+                          type="button"
+                          onClick={() => openActionModal(item.pageKey, 'edit')}
+                          className={PAGE_CENTER_ACTION_EDIT_CLASS}
+                        >
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (quickAction.requiresConfirm) {
+                              openActionModal(item.pageKey, 'offline');
+                              return;
+                            }
+                            void handleQuickStateAction(item, quickAction.state);
+                          }}
+                          disabled={quickAction.disabled || savingKey === `${item.pageKey}:${channel}:state:${quickAction.state}`}
+                          className={quickAction.className}
+                        >
+                          {savingKey === `${item.pageKey}:${channel}:state:${quickAction.state}`
+                            ? quickAction.loadingLabel
+                            : quickAction.label}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void viewPage(item)}
+                          disabled={!item.supportsPreview || !view.previewRoutePath || savingKey === `${item.pageKey}:${channel}:view`}
+                          className={PAGE_CENTER_ACTION_VIEW_CLASS}
+                        >
+                          {savingKey === `${item.pageKey}:${channel}:view` ? '生成中...' : '查看'}
+                        </button>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="page-center-card__actions grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-[288px] lg:self-start">
-                    <button
-                      type="button"
-                      onClick={() => openActionModal(item.pageKey, 'edit')}
-                      className="whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037]"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (quickAction.requiresConfirm) {
-                          openActionModal(item.pageKey, 'offline');
-                          return;
-                        }
-                        void handleQuickStateAction(item, quickAction.state);
-                      }}
-                      disabled={quickAction.disabled || savingKey === `${item.pageKey}:${channel}:state:${quickAction.state}`}
-                      className={quickAction.className}
-                    >
-                      {savingKey === `${item.pageKey}:${channel}:state:${quickAction.state}`
-                        ? quickAction.loadingLabel
-                        : quickAction.label}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void viewPage(item)}
-                      disabled={!item.supportsPreview || !view.previewRoutePath || savingKey === `${item.pageKey}:${channel}:view`}
-                      className="whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"
-                    >
-                      {savingKey === `${item.pageKey}:${channel}:view` ? '生成中...' : '查看'}
-                    </button>
-                  </div>
-                </div>
-              </article>
-
-            );
-          })}
+                  </article>
+                );
+              })}
+            </div>
+          ))}
         </section>
       )}
 
@@ -1318,18 +1398,22 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
         <div className="booking-modal-mask" onClick={closeActionModal}>
           <div className="booking-modal booking-modal--form page-center-modal max-w-4xl" onClick={(event) => event.stopPropagation()}>
             <div className="booking-modal__head">
-              <div>
+              <div className="min-w-0 flex-1">
                 <h3 className="booking-modal__title">
-                  {actionModal.mode === 'offline' ? `确认下线 · ${modalRow.pageName}` : `编辑页面 · ${modalRow.pageName}`}
-                </h3>
-                <p className="mt-1 text-sm text-[#8D6E63]">
                   {actionModal.mode === 'offline'
-                    ? '下线后普通用户无法访问该页面，管理员仍可通过“查看”无底栏进入。'
-                    : '只保留必要项：标题、菜单、内测、上线。'}
-                </p>
+                    ? `${isProfileSecondaryPageKey(modalRow.pageKey) ? '确认隐藏' : '确认下线'} · ${modalRow.pageName}`
+                    : `编辑页面 · ${modalRow.pageName}`}
+                </h3>
+                {actionModal.mode === 'offline' ? (
+                  <p className="mt-1 text-sm text-[#8D6E63]">
+                    {isProfileSecondaryPageKey(modalRow.pageKey)
+                      ? '隐藏后“我的”列表不再展示该入口，普通用户也无法继续访问该页面。'
+                      : '下线后普通用户无法访问该页面，管理员仍可通过“查看”无底栏进入。'}
+                  </p>
+                ) : null}
               </div>
-              <button type="button" className="booking-modal__close" onClick={closeActionModal} aria-label="关闭页面编辑弹窗">
-                <X className="h-4 w-4" />
+              <button type="button" className="icon-button action-icon-btn action-icon-btn--close" onClick={closeActionModal} aria-label="关闭页面编辑弹窗">
+                <X className="action-icon-svg" aria-hidden="true" />
               </button>
             </div>
 
@@ -1342,10 +1426,22 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
               {actionModal.mode === 'offline' ? (
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-[#A34C4C]/14 bg-[#FDECEC] p-4">
-                    <div className="text-base font-bold text-[#A34C4C]">下线影响</div>
+                    <div className="text-base font-bold text-[#A34C4C]">
+                      {isProfileSecondaryPageKey(modalRow.pageKey) ? '隐藏影响' : '下线影响'}
+                    </div>
                     <ul className="mt-3 space-y-2 text-sm leading-6 text-[#A34C4C]">
-                      <li>• 普通用户无法通过正式路由访问该页面。</li>
-                      <li>• 如果页面当前在底栏中，会立即从{channelMeta.navName}移除。</li>
+                      <li>
+                        •
+                        {isProfileSecondaryPageKey(modalRow.pageKey)
+                          ? ' “我的”列表中不再展示该入口。'
+                          : ' 普通用户无法通过正式路由访问该页面。'}
+                      </li>
+                      <li>
+                        •
+                        {isProfileSecondaryPageKey(modalRow.pageKey)
+                          ? ' 页面顶部标题配置仍会保留，后续重新显示即可继续使用。'
+                          : ` 如果页面当前在底栏中，会立即从${channelMeta.navName}移除。`}
+                      </li>
                       <li>• 管理员仍可通过“查看”无底栏预览该页面。</li>
                     </ul>
                   </div>
@@ -1372,116 +1468,164 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                       disabled={savingKey === `${modalRow.pageKey}:${channel}:state:offline`}
                       className="flex-1 rounded-full bg-red-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
                     >
-                      {savingKey === `${modalRow.pageKey}:${channel}:state:offline` ? '下线中...' : '确认下线'}
+                      {savingKey === `${modalRow.pageKey}:${channel}:state:offline`
+                        ? isProfileSecondaryPageKey(modalRow.pageKey)
+                          ? '隐藏中...'
+                          : '下线中...'
+                        : isProfileSecondaryPageKey(modalRow.pageKey)
+                          ? '确认隐藏'
+                          : '确认下线'}
                     </button>
                   </div>
                 </div>
               ) : (() => {
                 const savedView = savedRowMap.get(modalRow.pageKey)?.channels[channel] || modalRow.channels[channel];
+                const isSecondaryPage = isProfileSecondaryPageKey(modalRow.pageKey);
                 const currentNavIndex = navRows.findIndex((item) => item.pageKey === modalRow.pageKey);
                 const canMoveUp = currentNavIndex > 0;
                 const canMoveDown = currentNavIndex >= 0 && currentNavIndex < navRows.length - 1;
                 const forcedHome = isMiniProgramForcedHomeEntry(modalRow.pageKey, channel, hideAudit);
                 const usableBetaCount = modalBetaCodes.filter((item) => item.isUsable).length;
                 const canSwitchToBeta = !Boolean(modalForcedState && modalForcedState !== 'beta') && usableBetaCount > 0;
-                const canSwitchToOnline = !Boolean(modalForcedState && modalForcedState !== 'online') && canPageShowInNav(modalRow, channel);
+                const canSwitchToOnline =
+                  !Boolean(modalForcedState && modalForcedState !== 'online') &&
+                  (isSecondaryPage || canPageShowInNav(modalRow, channel));
                 const betaActionLabel = modalRow.channels[channel].publishState === 'beta' ? '保存内测设置' : '切换为内测';
-                const onlineActionLabel = modalRow.channels[channel].publishState === 'online' ? '保存上线设置' : '切换为上线';
+                const onlineActionLabel = isSecondaryPage ? '保存并显示' : '保存';
                 const betaSectionDesc = modalRow.channels[channel].publishState === 'beta'
                   ? '维护当前端可用的内测码，并可继续保留内测发布。'
                   : usableBetaCount > 0
                     ? '已满足切换为内测条件，可从当前状态切换为内测。'
                     : '请先创建至少一个当前端可用的内测码，才能切换为内测。';
-                const onlineSectionDesc = canPageShowInNav(modalRow, channel)
+                const onlineSectionDesc = isSecondaryPage
                   ? modalRow.channels[channel].publishState === 'online'
-                    ? `维护当前${channelMeta.navName}顺序与上线状态。`
-                    : `满足上线条件，保存后会进入${channelMeta.navName}。`
-                  : '当前页面不是底栏候选，不能直接上线到菜单。';
+                    ? '当前入口正在“我的”列表中展示，保存后会同步更新页面顶部标题。'
+                    : '显示后会出现在“我的”列表中，页面顶部标题会与入口名称保持一致。'
+                  : canPageShowInNav(modalRow, channel)
+                    ? modalRow.channels[channel].publishState === 'online'
+                      ? `维护当前${channelMeta.navName}顺序与上线状态。`
+                      : `满足上线条件，保存后会进入${channelMeta.navName}。`
+                    : '当前页面不是底栏候选，不能直接上线到菜单。';
                 const sectionClass = 'page-center-modal__section rounded-[24px] border border-[#5D4037]/8 bg-[#FFFBF7] p-5';
                 const sectionTitleClass = 'text-lg font-black text-[#5D4037]';
                 const sectionDescClass = 'mt-1 text-sm leading-6 text-[#8D6E63]';
                 return (
                   <div className="space-y-4">
                     <section className={sectionClass}>
-                      <div className={sectionTitleClass}>标题设置</div>
-                      <p className={sectionDescClass}>大标题如“拾光谣”，小标题如“定格美好瞬间”。</p>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <label className="booking-modal__field">
-                          <span className="booking-modal__label">顶部大标题</span>
-                          <input value={modalForm.headerTitle} onChange={(event) => updateForm(modalRow.pageKey, { headerTitle: event.target.value })} placeholder="如：拾光谣" className="booking-modal__input" />
-                        </label>
-                        <label className="booking-modal__field">
-                          <span className="booking-modal__label">顶部小标题</span>
-                          <input value={modalForm.headerSubtitle} onChange={(event) => updateForm(modalRow.pageKey, { headerSubtitle: event.target.value })} placeholder="如：定格美好瞬间" className="booking-modal__input" />
-                        </label>
-                      </div>
+                      <div className={sectionTitleClass}>{isSecondaryPage ? '页面标题' : '标题设置'}</div>
+                      <p className={sectionDescClass}>
+                        {isSecondaryPage
+                          ? '这个名称会同步用于“我的”列表入口和页面顶部标题。'
+                          : '大标题如“拾光谣”，小标题如“定格美好瞬间”。'}
+                      </p>
+                      {isSecondaryPage ? (
+                        <div className="mt-4">
+                          <label className="booking-modal__field">
+                            <span className="booking-modal__label">入口名称 / 顶部标题</span>
+                            <input
+                              value={modalForm.navText}
+                              onChange={(event) =>
+                                updateForm(modalRow.pageKey, {
+                                  navText: event.target.value,
+                                  guestNavText: event.target.value,
+                                  headerTitle: event.target.value,
+                                })
+                              }
+                              placeholder="如：编辑个人资料"
+                              className="booking-modal__input"
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <label className="booking-modal__field">
+                            <span className="booking-modal__label">顶部大标题</span>
+                            <input value={modalForm.headerTitle} onChange={(event) => updateForm(modalRow.pageKey, { headerTitle: event.target.value })} placeholder="如：拾光谣" className="booking-modal__input" />
+                          </label>
+                          <label className="booking-modal__field">
+                            <span className="booking-modal__label">顶部小标题</span>
+                            <input value={modalForm.headerSubtitle} onChange={(event) => updateForm(modalRow.pageKey, { headerSubtitle: event.target.value })} placeholder="如：定格美好瞬间" className="booking-modal__input" />
+                          </label>
+                        </div>
+                      )}
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() =>
                             void saveRule(
                               modalRow.pageKey,
-                              {
-                                navText: savedView.navText,
-                                guestNavText: savedView.guestNavText,
-                              },
+                              isSecondaryPage
+                                ? {
+                                    ...modalForm,
+                                    publishState: modalForm.publishState,
+                                  }
+                                : {
+                                    navText: savedView.navText,
+                                    guestNavText: savedView.guestNavText,
+                                  },
                               `${modalRow.pageKey}:${channel}:rule:title`,
-                              '标题设置已保存',
-                              ['navText', 'guestNavText']
+                              isSecondaryPage ? '页面标题已保存' : '标题设置已保存',
+                              isSecondaryPage ? [] : ['navText', 'guestNavText']
                             )
                           }
                           disabled={savingKey === `${modalRow.pageKey}:${channel}:rule:title`}
                           className={EDIT_MODAL_SAVE_BUTTON_CLASS}
                         >
-                          {savingKey === `${modalRow.pageKey}:${channel}:rule:title` ? '保存中...' : '保存标题设置'}
+                          {savingKey === `${modalRow.pageKey}:${channel}:rule:title`
+                            ? '保存中...'
+                            : isSecondaryPage
+                              ? '保存页面标题'
+                              : '保存标题设置'}
                         </button>
                       </div>
                     </section>
 
-                    <section className={sectionClass}>
-                      <div className={sectionTitleClass}>菜单设置</div>
-                      <p className={sectionDescClass}>只保留当前端真正需要修改的菜单文案。</p>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <label className="booking-modal__field">
-                          <span className="booking-modal__label">底部菜单名称</span>
-                          <input value={modalForm.navText} onChange={(event) => updateForm(modalRow.pageKey, { navText: event.target.value })} placeholder="如：首页" className="booking-modal__input" />
-                        </label>
-                        <label className="booking-modal__field">
-                          <span className="booking-modal__label">未登录菜单名称</span>
-                          <input value={modalForm.guestNavText} onChange={(event) => updateForm(modalRow.pageKey, { guestNavText: event.target.value })} placeholder="未登录用户看到的名称" className="booking-modal__input" />
-                        </label>
-                      </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void saveRule(
-                              modalRow.pageKey,
-                              {
-                                headerTitle: savedView.headerTitle,
-                                headerSubtitle: savedView.headerSubtitle,
-                              },
-                              `${modalRow.pageKey}:${channel}:rule:menu`,
-                              '菜单设置已保存',
-                              ['headerTitle', 'headerSubtitle']
-                            )
-                          }
-                          disabled={savingKey === `${modalRow.pageKey}:${channel}:rule:menu`}
-                          className={EDIT_MODAL_SAVE_BUTTON_CLASS}
-                        >
-                          {savingKey === `${modalRow.pageKey}:${channel}:rule:menu` ? '保存中...' : '保存菜单设置'}
-                        </button>
-                      </div>
-                    </section>
+                    {!isSecondaryPage ? (
+                      <section className={sectionClass}>
+                        <div className={sectionTitleClass}>菜单设置</div>
+                        <p className={sectionDescClass}>只保留当前端真正需要修改的菜单文案。</p>
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <label className="booking-modal__field">
+                            <span className="booking-modal__label">底部菜单名称</span>
+                            <input value={modalForm.navText} onChange={(event) => updateForm(modalRow.pageKey, { navText: event.target.value })} placeholder="如：首页" className="booking-modal__input" />
+                          </label>
+                          <label className="booking-modal__field">
+                            <span className="booking-modal__label">未登录菜单名称</span>
+                            <input value={modalForm.guestNavText} onChange={(event) => updateForm(modalRow.pageKey, { guestNavText: event.target.value })} placeholder="未登录用户看到的名称" className="booking-modal__input" />
+                          </label>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void saveRule(
+                                modalRow.pageKey,
+                                {
+                                  headerTitle: savedView.headerTitle,
+                                  headerSubtitle: savedView.headerSubtitle,
+                                },
+                                `${modalRow.pageKey}:${channel}:rule:menu`,
+                                '菜单设置已保存',
+                                ['headerTitle', 'headerSubtitle']
+                              )
+                            }
+                            disabled={savingKey === `${modalRow.pageKey}:${channel}:rule:menu`}
+                            className={EDIT_MODAL_SAVE_BUTTON_CLASS}
+                          >
+                            {savingKey === `${modalRow.pageKey}:${channel}:rule:menu` ? '保存中...' : '保存菜单设置'}
+                          </button>
+                        </div>
+                      </section>
+                    ) : null}
 
                     {modalRow.supportsBeta ? (
                       <section ref={betaEditorSectionRef} className={sectionClass}>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-2">
                           <div>
                             <div className={sectionTitleClass}>内测设置</div>
                             <p className={sectionDescClass}>{betaSectionDesc}</p>
                           </div>
-                          <span className="rounded-full bg-[#FFF6E0] px-3 py-1 text-xs font-semibold text-[#946200]">可用 {usableBetaCount} 个</span>
+                          <span className="w-fit rounded-full bg-[#FFF6E0] px-3 py-1 text-xs font-semibold text-[#946200]">可用 {usableBetaCount} 个</span>
                         </div>
                         <div className="mt-4 grid gap-3 md:grid-cols-2">
                           <label className="booking-modal__field">
@@ -1494,12 +1638,14 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                           </label>
                           <label className="booking-modal__field md:col-span-2">
                             <span className="booking-modal__label">内测码（留空则自动生成）</span>
-                            <input value={modalBetaDraft.betaCode} onChange={(event) => updateBetaDraft(modalRow.pageKey, { betaCode: event.target.value, channel })} placeholder="如：SGY2026" className="booking-modal__input uppercase" />
+                            <div className="page-center-modal__beta-code-row">
+                              <input value={modalBetaDraft.betaCode} onChange={(event) => updateBetaDraft(modalRow.pageKey, { betaCode: event.target.value, channel })} placeholder="如：SGY2026" className="booking-modal__input page-center-modal__beta-code-input uppercase" />
+                              <button type="button" onClick={() => updateBetaDraft(modalRow.pageKey, { betaCode: generateRandomBetaCode(), channel })} className="page-center-modal__beta-generate-btn">随机生成</button>
+                            </div>
                           </label>
                         </div>
                         <p className="mt-3 text-sm leading-6 text-[#8D6E63]">{buildBetaDraftHelperText({ ...modalBetaDraft, channel }, channel, modalBetaCodes)}</p>
-                        <div className="page-center-modal__beta-actions mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                          <button type="button" onClick={() => updateBetaDraft(modalRow.pageKey, { betaCode: generateRandomBetaCode(), channel })} className={BETA_SETTINGS_SECONDARY_BUTTON_CLASS}>随机生成</button>
+                        <div className="page-center-modal__beta-actions mt-4">
                           <button type="button" onClick={() => void saveBetaCode(modalRow.pageKey)} disabled={savingKey === `${modalRow.pageKey}:beta:${modalBetaDraft.codeId || 'create'}`} className={BETA_SETTINGS_SAVE_BUTTON_CLASS}>{savingKey === `${modalRow.pageKey}:beta:${modalBetaDraft.codeId || 'create'}` ? '保存中...' : buildBetaSaveButtonText(modalBetaDraft, modalBetaCodes)}</button>
                           <button
                             type="button"
@@ -1509,7 +1655,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                           >
                             {savingKey === `${modalRow.pageKey}:${channel}:state:beta`
                               ? '切换中...'
-                              : betaActionLabel}
+                              : '切换为内测'}
                           </button>
                         </div>
                         <div className="mt-4 space-y-3">
@@ -1539,31 +1685,97 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                     <section className={sectionClass}>
                       <div className="page-center-modal__section-head flex flex-col items-start gap-3">
                         <div className="min-w-0">
-                          <div className={sectionTitleClass}>上线设置</div>
+                          <div className={sectionTitleClass}>{isSecondaryPage ? '显示设置' : '上线设置'}</div>
                           <p className={sectionDescClass}>{onlineSectionDesc}</p>
                         </div>
                       </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {navRows.length > 0 ? navRows.map((row, index) => (
-                          <span key={row.pageKey} className={`rounded-full px-3 py-2 text-xs font-semibold ${row.pageKey === modalRow.pageKey ? 'border-2 border-[#5D4037] bg-[#FFC857] text-[#5D4037]' : 'border border-[#5D4037]/12 bg-white text-[#8D6E63]'}`}>
-                            {index + 1}. {resolveDisplayedNavLabel(row, channel)}
-                          </span>
-                        )) : <span className="text-sm text-[#8D6E63]">当前还没有上线页面。</span>}
-                      </div>
-                      <div className="page-center-modal__online-actions mt-4 flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={() => void moveNavOrder(modalRow.pageKey, 'up')} disabled={forcedHome || currentNavIndex < 0 || !canMoveUp || savingKey === `${modalRow.pageKey}:${channel}:move:up`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"><ArrowUp className="h-4 w-4" />前移</button>
-                        <button type="button" onClick={() => void moveNavOrder(modalRow.pageKey, 'down')} disabled={forcedHome || currentNavIndex < 0 || !canMoveDown || savingKey === `${modalRow.pageKey}:${channel}:move:down`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"><ArrowDown className="h-4 w-4" />后移</button>
-                        <button
-                          type="button"
-                          onClick={() => void handleQuickStateAction(modalRow, 'online')}
-                          disabled={!canSwitchToOnline || savingKey === `${modalRow.pageKey}:${channel}:state:online`}
-                          className="rounded-full bg-[#FFC857] px-5 py-2.5 text-sm font-bold text-[#5D4037] disabled:opacity-60"
-                        >
-                          {savingKey === `${modalRow.pageKey}:${channel}:state:online`
-                            ? '上线中...'
-                            : onlineActionLabel}
-                        </button>
-                      </div>
+                      {isSecondaryPage ? (
+                        <>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-2xl border border-[#5D4037]/10 bg-white p-4">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8D6E63]">正式路由</div>
+                              <div className="mt-2 break-all text-sm font-bold text-[#5D4037]">
+                                {modalRow.channels[channel].routePath || '未配置'}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl border border-[#5D4037]/10 bg-white p-4">
+                              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8D6E63]">查看路由</div>
+                              <div className="mt-2 break-all text-sm font-bold text-[#5D4037]">
+                                {modalRow.channels[channel].previewRoutePath || '未配置'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="page-center-modal__online-actions mt-4">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleQuickStateAction(
+                                  modalRow,
+                                  modalRow.channels[channel].publishState === 'online' ? 'offline' : 'online'
+                                )
+                              }
+                              disabled={
+                                savingKey ===
+                                `${modalRow.pageKey}:${channel}:state:${
+                                  modalRow.channels[channel].publishState === 'online' ? 'offline' : 'online'
+                                }`
+                              }
+                              className={
+                                modalRow.channels[channel].publishState === 'online'
+                                  ? 'rounded-full border border-[#A34C4C]/18 bg-[#FDECEC] px-5 py-2.5 text-sm font-bold text-[#A34C4C] disabled:opacity-60'
+                                  : 'rounded-full bg-[#FFC857] px-5 py-2.5 text-sm font-bold text-[#5D4037] disabled:opacity-60'
+                              }
+                            >
+                              {savingKey ===
+                              `${modalRow.pageKey}:${channel}:state:${
+                                modalRow.channels[channel].publishState === 'online' ? 'offline' : 'online'
+                              }`
+                                ? modalRow.channels[channel].publishState === 'online'
+                                  ? '隐藏中...'
+                                  : '显示中...'
+                                : modalRow.channels[channel].publishState === 'online'
+                                  ? '立即隐藏'
+                                  : onlineActionLabel}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void viewPage(modalRow)}
+                              disabled={
+                                !modalRow.supportsPreview ||
+                                !modalRow.channels[channel].previewRoutePath ||
+                                savingKey === `${modalRow.pageKey}:${channel}:view`
+                              }
+                              className={PAGE_CENTER_MODAL_VIEW_BUTTON_CLASS}
+                            >
+                              {savingKey === `${modalRow.pageKey}:${channel}:view` ? '生成中...' : '查看页面'}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="page-center-modal__order-pills mt-4">
+                            {navRows.length > 0 ? navRows.map((row, index) => (
+                              <span key={row.pageKey} className={`rounded-full px-3 py-2 text-xs font-semibold ${row.pageKey === modalRow.pageKey ? 'border-2 border-[#5D4037] bg-[#FFC857] text-[#5D4037]' : 'border border-[#5D4037]/12 bg-white text-[#8D6E63]'}`}>
+                                {index + 1}. {resolveDisplayedNavLabel(row, channel)}
+                              </span>
+                            )) : <span className="text-sm text-[#8D6E63]">当前还没有上线页面。</span>}
+                          </div>
+                          <div className="page-center-modal__online-actions mt-4">
+                            <button type="button" onClick={() => void moveNavOrder(modalRow.pageKey, 'up')} disabled={forcedHome || currentNavIndex < 0 || !canMoveUp || savingKey === `${modalRow.pageKey}:${channel}:move:up`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"><ArrowUp className="h-4 w-4" />前移</button>
+                            <button type="button" onClick={() => void moveNavOrder(modalRow.pageKey, 'down')} disabled={forcedHome || currentNavIndex < 0 || !canMoveDown || savingKey === `${modalRow.pageKey}:${channel}:move:down`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"><ArrowDown className="h-4 w-4" />后移</button>
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickStateAction(modalRow, 'online')}
+                              disabled={!canSwitchToOnline || savingKey === `${modalRow.pageKey}:${channel}:state:online`}
+                              className={PAGE_CENTER_MODAL_ONLINE_BUTTON_CLASS}
+                            >
+                              {savingKey === `${modalRow.pageKey}:${channel}:state:online`
+                                ? '保存中...'
+                                : onlineActionLabel}
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </section>
 
                   </div>

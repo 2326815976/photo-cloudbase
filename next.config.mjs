@@ -2,6 +2,8 @@ const isWindows = process.platform === 'win32';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   // standalone 模式在 Windows 下容易因 symlink 导致 EPERM，因此仅在非 Windows 环境启用
   ...(isWindows ? {} : { output: 'standalone' }),
 

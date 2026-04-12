@@ -75,7 +75,7 @@ export async function POST(request: Request) {
           : `已更新${scopeLabel}内测码设置。`;
     return NextResponse.json({ success: true, data: rows, message });
   } catch (error) {
-    console.error('?????????:', error);
+    console.error('保存页面内测码失败:', error);
     const resolved = resolvePageCenterAdminError(error, {
       fallbackMessage: '保存页面内测码失败',
       duplicateMessage: '该内测码已存在，请更换内测码后重试。',

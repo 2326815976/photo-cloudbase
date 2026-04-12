@@ -1,14 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { User, Phone, MessageSquare, ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Phone, Save, User } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
-import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import {
+  clampChinaMobileInput,
+  isValidChinaMobile,
+  normalizeChinaMobile,
+} from '@/lib/utils/phone';
+
+function isProfileMissingError(message: string) {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('no rows') || normalized.includes('not found');
+}
 
 export default function EditProfilePage() {
   const router = useRouter();
+  const { title: managedTitle } = useManagedPageMeta('profile-edit', '编辑个人资料');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -19,47 +30,77 @@ export default function EditProfilePage() {
     wechat: '',
   });
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
-    setIsLoading(true);
-    const dbClient = createClient();
-    if (!dbClient) {
-      setError('服务初始化失败，请刷新后重试');
-      setIsLoading(false);
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
       return;
     }
-
-    const { data: { user } } = await dbClient.auth.getUser();
-
-    if (!user) {
-      setIsLoading(false);
-      router.push('/login');
-      return;
-    }
-
-    const { data: profile } = await dbClient
-      .from('profiles')
-      .select('name, phone, wechat')
-      .eq('id', user.id)
-      .single();
-
-    if (profile) {
-      setFormData({
-        name: profile.name || '',
-        phone: profile.phone || '',
-        wechat: profile.wechat || '',
-      });
-    }
-
-    setIsLoading(false);
+    router.push('/profile');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const loadProfile = async () => {
+      setIsLoading(true);
+      setError('');
+
+      const dbClient = createClient();
+      if (!dbClient) {
+        setError('服务初始化失败，请刷新后重试');
+        setIsLoading(false);
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await dbClient.auth.getUser();
+
+      if (!user) {
+        setIsLoading(false);
+        router.push('/login');
+        return;
+      }
+
+      const { data: profile, error: profileError } = await dbClient
+        .from('profiles')
+        .select('name, phone, wechat')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError && !isProfileMissingError(profileError.message)) {
+        setError(`加载失败：${profileError.message || '请稍后重试'}`);
+        setIsLoading(false);
+        return;
+      }
+
+      setFormData({
+        name: String(profile?.name || user.name || '').trim(),
+        phone: String(profile?.phone || user.phone || '').trim(),
+        wechat: String(profile?.wechat || '').trim(),
+      });
+      setIsLoading(false);
+    };
+
+    void loadProfile();
+  }, [router]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError('');
+
+    const name = String(formData.name || '').trim();
+    const rawPhone = String(formData.phone || '').trim();
+    const wechat = String(formData.wechat || '').trim();
+
+    if (!name) {
+      setError('用户名不能为空');
+      return;
+    }
+
+    if (rawPhone && !isValidChinaMobile(rawPhone)) {
+      setError('请输入有效的手机号');
+      return;
+    }
+
     setIsSaving(true);
 
     const dbClient = createClient();
@@ -69,7 +110,9 @@ export default function EditProfilePage() {
       return;
     }
 
-    const { data: { user } } = await dbClient.auth.getUser();
+    const {
+      data: { user },
+    } = await dbClient.auth.getUser();
 
     if (!user) {
       setError('请先登录');
@@ -77,100 +120,103 @@ export default function EditProfilePage() {
       return;
     }
 
-    // 验证用户名
-    if (!formData.name.trim()) {
-      setError('用户名不能为空');
-      setIsSaving(false);
-      return;
-    }
-
-    const rawPhone = formData.phone.trim();
-    if (rawPhone && !isValidChinaMobile(rawPhone)) {
-      setError('请输入有效的手机号');
-      setIsSaving(false);
-      return;
-    }
     const normalizedPhone = normalizeChinaMobile(rawPhone);
-
-    const { data: updatedProfile, error: updateError } = await dbClient
-      .from('profiles')
-      .update({
-        name: formData.name.trim(),
-        phone: normalizedPhone || null,
-        wechat: formData.wechat.trim() || null,
-      })
-      .eq('id', user.id)
-      .select('id')
-      .maybeSingle();
+    const { data: updatedUser, error: updateError } = await dbClient.auth.updateUser({
+      name,
+      phone: normalizedPhone || null,
+      wechat: wechat || null,
+    });
 
     setIsSaving(false);
 
     if (updateError) {
-      setError('保存失败: ' + updateError.message);
-    } else if (!updatedProfile) {
-      setError('保存失败: 当前账号资料不存在，请重新登录后重试');
-    } else {
-      setSuccess(true);
-      setTimeout(() => {
-        router.push('/profile');
-      }, 1500);
+      setError(`保存失败：${updateError.message || '请稍后重试'}`);
+      return;
     }
+
+    if (!updatedUser?.user) {
+      setError('保存失败：当前账号资料不存在，请重新登录后重试');
+      return;
+    }
+
+    setSuccess(true);
+    window.setTimeout(() => {
+      router.push('/profile');
+    }, 1500);
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-
-    setFormData((prev) => ({
-      ...prev,
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setFormData((current) => ({
+      ...current,
       [name]: name === 'phone' ? clampChinaMobileInput(value) : value,
     }));
   };
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
+      <div className="flex flex-col h-full w-full bg-[#FFFBF0]">
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="flex flex-col items-center gap-6"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
         >
-          <div className="relative">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <User className="w-8 h-8 text-[#FFC857]" />
-            </div>
+          <div className="px-4 py-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="icon-button action-icon-btn action-icon-btn--back"
+            >
+              <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
+            </button>
+            <h1
+              className="text-2xl font-bold text-[#5D4037] leading-none"
+              style={{ fontFamily: "'ZQKNNY', cursive" }}
+            >
+              {managedTitle}
+            </h1>
           </div>
+        </motion.div>
+
+        <div className="flex-1 flex items-center justify-center px-6">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
+            transition={{ duration: 0.3 }}
+            className="flex flex-col items-center gap-6"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
-            </p>
-            <p className="text-sm text-[#5D4037]/60">
-              正在加载个人资料
-            </p>
+            <div className="relative">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+              />
+              <motion.div
+                animate={{ rotate: -360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <User className="w-8 h-8 text-[#FFC857]" />
+              </div>
+            </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="text-center"
+            >
+              <p className="text-lg font-medium text-[#5D4037] mb-2">{managedTitle}</p>
+              <p className="text-sm text-[#5D4037]/60">正在加载个人资料</p>
+            </motion.div>
           </motion.div>
-        </motion.div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* 手账风页头 */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -178,47 +224,50 @@ export default function EditProfilePage() {
       >
         <div className="px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => router.back()}
+            type="button"
+            onClick={handleBack}
             className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
           </button>
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            编辑个人资料
+          <h1
+            className="text-2xl font-bold text-[#5D4037] leading-none"
+            style={{ fontFamily: "'ZQKNNY', cursive" }}
+          >
+            {managedTitle}
           </h1>
         </div>
       </motion.div>
 
-      {/* 滚动区域 */}
       <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
         {success ? (
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-[#fffdf5] rounded-2xl p-8 shadow-lg text-center"
           >
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              transition={{ type: 'spring', delay: 0.2 }}
+              transition={{ type: 'spring', delay: 0.15 }}
               className="inline-flex items-center justify-center w-20 h-20 bg-[#FFC857]/20 rounded-full mb-4"
             >
               <Save className="w-10 h-10 text-[#FFC857]" />
             </motion.div>
-            <h2 className="text-xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              保存成功！
+            <h2
+              className="text-xl font-bold text-[#5D4037] mb-2"
+              style={{ fontFamily: "'ZQKNNY', cursive" }}
+            >
+              保存成功
             </h2>
-            <p className="text-sm text-[#5D4037]/70" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              个人资料已更新 ✨
-            </p>
+            <p className="text-sm text-[#5D4037]/70">个人资料已更新，即将返回我的页面。</p>
           </motion.div>
         ) : (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.08 }}
           >
-            {/* 格纹信纸卡片 */}
             <div
               className="bg-[#fffdf5] rounded-2xl p-6 shadow-lg relative"
               style={{
@@ -229,13 +278,11 @@ export default function EditProfilePage() {
                 backgroundSize: '25px 25px',
               }}
             >
-              {/* 简笔画涂鸦 */}
               <div className="absolute top-4 right-4 text-[#FFC857]/40">
                 <User className="w-8 h-8" strokeWidth={1.5} />
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* 用户名 */}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                     <User className="w-4 h-4" />
@@ -252,7 +299,6 @@ export default function EditProfilePage() {
                   />
                 </div>
 
-                {/* 手机号 */}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                     <Phone className="w-4 h-4" />
@@ -272,7 +318,6 @@ export default function EditProfilePage() {
                   />
                 </div>
 
-                {/* 微信号 */}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
                     <MessageSquare className="w-4 h-4" />
@@ -288,15 +333,13 @@ export default function EditProfilePage() {
                   />
                 </div>
 
-                {/* 提示信息 */}
                 <div className="p-3 bg-[#FFC857]/10 rounded-xl border border-[#FFC857]/30">
                   <p className="text-xs text-[#5D4037]/70 text-center">
-                    💡 填写手机号和微信后，预约时会自动填充
+                    填写手机号和微信后，预约时会自动填充。
                   </p>
                 </div>
 
-                {/* 错误提示 */}
-                {error && (
+                {error ? (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -304,9 +347,8 @@ export default function EditProfilePage() {
                   >
                     <p className="text-sm text-red-600 text-center">{error}</p>
                   </motion.div>
-                )}
+                ) : null}
 
-                {/* 提交按钮 */}
                 <motion.button
                   type="submit"
                   disabled={isSaving}
@@ -314,7 +356,9 @@ export default function EditProfilePage() {
                   whileTap={{ scale: 0.98 }}
                   className="w-full py-4 bg-[#FFC857] text-[#5D4037] font-bold rounded-2xl shadow-[0_4px_0px_#5D4037] hover:shadow-[0_2px_0px_#5D4037] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {isSaving ? '保存中...' : (
+                  {isSaving ? (
+                    '保存中...'
+                  ) : (
                     <>
                       <Save className="w-5 h-5" />
                       <span>保存修改</span>
@@ -329,5 +373,3 @@ export default function EditProfilePage() {
     </div>
   );
 }
-
-

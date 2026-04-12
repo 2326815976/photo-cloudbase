@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/cloudbase/client';
 
 type DbClient = ReturnType<typeof createClient>;
+type WelcomeLetterMode = 'envelope' | 'stamp' | 'none';
 
 interface CompatError {
   message: string;
@@ -16,18 +17,22 @@ export interface AdminAlbumCompatRecord {
   recipient_name: string;
   enable_tipping: boolean;
   enable_welcome_letter: boolean;
+  welcome_letter_mode: WelcomeLetterMode;
+  enable_freeze: boolean;
   donation_qr_code_url: string | null;
   created_at: string;
   expires_at: string | null;
 }
 
 const ADMIN_ALBUM_FULL_COLUMNS =
-  'id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, enable_welcome_letter, donation_qr_code_url, expires_at, created_at';
+  'id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, enable_welcome_letter, welcome_letter_mode, enable_freeze, donation_qr_code_url, expires_at, created_at';
 const ADMIN_ALBUM_LEGACY_COLUMNS = 'id, access_key, title, cover_url, enable_tipping, created_at';
 const ADMIN_ALBUM_LEGACY_OPTIONAL_COLUMNS = [
   'welcome_letter',
   'recipient_name',
   'enable_welcome_letter',
+  'welcome_letter_mode',
+  'enable_freeze',
   'donation_qr_code_url',
   'expires_at',
 ] as const;
@@ -87,10 +92,22 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value : String(value ?? '');
 }
 
+function normalizeWelcomeLetterMode(value: unknown, enabledFallback = true): WelcomeLetterMode {
+  const normalized = normalizeString(value).trim().toLowerCase();
+  if (normalized === 'envelope' || normalized === 'stamp' || normalized === 'none') {
+    return normalized;
+  }
+  return enabledFallback ? 'envelope' : 'none';
+}
+
 export function normalizeAdminAlbumRecord(row: unknown): AdminAlbumCompatRecord {
   const source = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
   const donationQrCodeUrl = normalizeString(source.donation_qr_code_url).trim();
   const expiresAt = normalizeString(source.expires_at).trim();
+  const welcomeLetterMode = normalizeWelcomeLetterMode(
+    source.welcome_letter_mode,
+    source.enable_welcome_letter !== false
+  );
 
   return {
     id: normalizeString(source.id).trim(),
@@ -100,7 +117,9 @@ export function normalizeAdminAlbumRecord(row: unknown): AdminAlbumCompatRecord 
     welcome_letter: normalizeString(source.welcome_letter),
     recipient_name: normalizeString(source.recipient_name).trim() || '拾光者',
     enable_tipping: Boolean(source.enable_tipping),
-    enable_welcome_letter: source.enable_welcome_letter !== false,
+    enable_welcome_letter: welcomeLetterMode !== 'none',
+    welcome_letter_mode: welcomeLetterMode,
+    enable_freeze: source.enable_freeze !== false,
     donation_qr_code_url: donationQrCodeUrl || null,
     created_at: normalizeString(source.created_at).trim(),
     expires_at: expiresAt || null,
@@ -208,6 +227,16 @@ async function executeAlbumMutationWithCompat(
       return {
         data: null,
         error: normalizeCompatError(result.error, options?.fallbackMessage ?? '专属空间写入失败'),
+      };
+    }
+
+    if (missingColumns.includes('welcome_letter_mode')) {
+      return {
+        data: null,
+        error: normalizeCompatError(
+          { message: ADMIN_ALBUM_LEGACY_ONLY_MESSAGE },
+          options?.fallbackMessage ?? '专属空间写入失败'
+        ),
       };
     }
 

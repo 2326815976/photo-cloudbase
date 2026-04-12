@@ -146,7 +146,7 @@ export default function VersionChecker() {
           {!updateInfo.forceUpdate && !downloading && (
             <button
               onClick={handleClose}
-              className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4 z-10"
+              className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
             >
               <X className="action-icon-svg" />
             </button>

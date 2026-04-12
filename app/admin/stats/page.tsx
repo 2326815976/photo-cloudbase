@@ -42,12 +42,10 @@ interface LatestVersionInfo {
 type StatsMetaTone = 'fresh' | 'warning' | 'muted';
 
 interface StatsMetaView {
-  generatedAtText: string;
   snapshotDateText: string;
   trendCoverageText: string;
   statusText: string;
   statusTone: StatsMetaTone;
-  unavailableSourcesText: string;
 }
 
 interface StatsView {
@@ -392,18 +390,15 @@ async function loadStatsSnapshotFallback(): Promise<Record<string, unknown> | nu
 
 function createEmptyStatsMeta(): StatsMetaView {
   return {
-    generatedAtText: '',
     snapshotDateText: '',
     trendCoverageText: '0/7 天',
     statusText: '暂无统计快照',
     statusTone: 'muted',
-    unavailableSourcesText: '',
   };
 }
 
 function buildStatsMeta(root: Record<string, any>): StatsMetaView {
   const meta = root.meta && typeof root.meta === 'object' ? root.meta : {};
-  const generatedAtText = formatDateTimeText(meta.generated_at);
   const snapshotDateText = formatDateText(meta.snapshot_latest_date);
   const trendDaysExpected = Math.max(0, toSafeNumber(meta.trend_days_expected, 7));
   const trendDaysAvailable = Math.max(0, toSafeNumber(meta.trend_days_available, 0));
@@ -418,66 +413,54 @@ function buildStatsMeta(root: Record<string, any>): StatsMetaView {
 
   if (unavailableSourcesText) {
     return {
-      generatedAtText,
       snapshotDateText,
       trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
       statusText: `部分统计源不可用：${unavailableSourcesText}`,
       statusTone: 'warning',
-      unavailableSourcesText,
     };
   }
 
   if (snapshotStatus === 'unavailable') {
     return {
-      generatedAtText,
       snapshotDateText,
       trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
       statusText: '趋势快照表不可用',
       statusTone: 'warning',
-      unavailableSourcesText,
     };
   }
 
   if (snapshotStatus === 'empty' || trendDaysAvailable <= 0) {
     return {
-      generatedAtText,
       snapshotDateText,
       trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
       statusText: '暂无趋势快照，建议执行维护任务',
       statusTone: 'muted',
-      unavailableSourcesText,
     };
   }
 
   if (snapshotLagDays !== null && snapshotLagDays > 0) {
     return {
-      generatedAtText,
       snapshotDateText,
       trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
       statusText: `趋势快照落后 ${snapshotLagDays} 天，建议执行维护任务`,
       statusTone: 'warning',
-      unavailableSourcesText,
     };
   }
 
   if (trendDaysExpected > 0 && trendDaysAvailable < trendDaysExpected) {
     return {
-      generatedAtText,
       snapshotDateText,
       trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected} 天`,
       statusText: `最近 ${trendDaysExpected} 天趋势仅覆盖 ${trendDaysAvailable} 天`,
       statusTone: 'warning',
-      unavailableSourcesText,
     };
   }
 
   return {
-    generatedAtText,
     snapshotDateText,
     trendCoverageText: `${trendDaysAvailable}/${trendDaysExpected || 7} 天`,
     statusText: '统计数据已同步',
     statusTone: 'fresh',
-    unavailableSourcesText,
   };
 }
 

@@ -22,9 +22,9 @@ export async function POST(request: Request) {
     const pageKey = await upsertPageRegistryItem(body);
     return NextResponse.json({ success: true, pageKey });
   } catch (error) {
-    console.error('??????????:', error);
+    console.error('保存页面注册表失败:', error);
     const resolved = resolvePageCenterAdminError(error, {
-      fallbackMessage: '??????????',
+      fallbackMessage: '保存页面注册表失败',
     });
     return NextResponse.json({ error: resolved.message }, { status: resolved.status });
   }

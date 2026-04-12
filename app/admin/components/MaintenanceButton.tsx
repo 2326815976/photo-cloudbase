@@ -21,6 +21,8 @@ type MaintenancePayload = {
   slider_captcha_challenges_cleaned?: unknown;
   booking_blackouts_cleaned?: unknown;
   analytics_daily_cleaned?: unknown;
+  analytics_snapshots_backfilled?: unknown;
+  analytics_backfilled_dates?: unknown;
   skipped_tasks?: unknown;
 };
 
@@ -97,6 +99,10 @@ function buildMaintenanceMessage(payload: MaintenancePayload): string {
   ];
 
   const extras: string[] = [];
+  const analyticsSnapshotsBackfilled = readCount(payload.analytics_snapshots_backfilled);
+  if (analyticsSnapshotsBackfilled > 0) {
+    extras.push(`趋势快照已回填 ${analyticsSnapshotsBackfilled} 天`);
+  }
   const warningList = readStringList(cleanup.storage_cleanup_warnings)
     .map(compactMaintenanceWarning)
     .filter(Boolean);

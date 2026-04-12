@@ -1,12 +1,14 @@
 ﻿'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/cloudbase/client';
 import { Camera, Plus, Trash2, Tag, Search, Pencil, X, Upload, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generatePoseImage } from '@/lib/utils/image-versions';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
+import AdminLoadingCard from '../components/AdminLoadingCard';
+import { useAutoLoadMore } from '../hooks/useAutoLoadMore';
 
 interface Pose {
   id: number;
@@ -24,6 +26,9 @@ interface PoseTag {
   sort_order?: number;
   created_at: string;
 }
+
+type RefreshLoadResult = 'success' | 'failed' | 'stale';
+type RefreshScope = 'poses' | 'tags' | 'all';
 
 function isDuplicateEntryError(error: any): boolean {
   const errorCode = String(error?.code ?? error?.errno ?? '').trim().toLowerCase();
@@ -242,10 +247,11 @@ export default function PosesPage() {
   const [posesError, setPosesError] = useState('');
   const [posesReady, setPosesReady] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const posesPerPage = 10;
+  const [poseVisibleCount, setPoseVisibleCount] = useState(posesPerPage);
+  const [totalCount, setTotalCount] = useState(0);
   const [selectedPoseIds, setSelectedPoseIds] = useState<number[]>([]);
+  const [pendingSelectAllPoses, setPendingSelectAllPoses] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showPoseModal, setShowPoseModal] = useState(false);
   const [editingPose, setEditingPose] = useState<Pose | null>(null);
@@ -288,7 +294,7 @@ export default function PosesPage() {
     return () => {
       posesLoadTokenRef.current += 1;
     };
-  }, [selectedTags, currentPage]);
+  }, [selectedTags, poseVisibleCount]);
 
   useEffect(() => {
     void loadTags();
@@ -298,8 +304,33 @@ export default function PosesPage() {
     };
   }, []);
 
+  const poseHasMoreVisible = poses.length < totalCount;
+
+  const handleAutoLoadPoses = useCallback(() => {
+    setPoseVisibleCount((prev) => prev + posesPerPage);
+  }, []);
+
+  useAutoLoadMore({
+    enabled: poseHasMoreVisible,
+    isLoading: posesLoading || posesRefreshing,
+    onLoadMore: handleAutoLoadPoses,
+  });
+
+  useEffect(() => {
+    if (!pendingSelectAllPoses || posesLoading || posesRefreshing || poses.length < totalCount) {
+      return;
+    }
+
+    setSelectedPoseIds(
+      poses
+        .map((pose) => Number(pose.id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    );
+    setPendingSelectAllPoses(false);
+  }, [pendingSelectAllPoses, poses, posesLoading, posesRefreshing, totalCount]);
+
   // 摆姿管理函数
-  const loadPoses = async () => {
+  const loadPoses = async (): Promise<RefreshLoadResult> => {
     const loadToken = posesLoadTokenRef.current + 1;
     posesLoadTokenRef.current = loadToken;
     const hasReadyPoses = posesReady;
@@ -321,7 +352,7 @@ export default function PosesPage() {
           setTotalCount(0);
         }
       }
-      return false;
+      return 'failed';
     }
 
     try {
@@ -329,7 +360,7 @@ export default function PosesPage() {
         .from('poses')
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .range((currentPage - 1) * posesPerPage, currentPage * posesPerPage - 1);
+        .range(0, Math.max(0, poseVisibleCount - 1));
 
       if (selectedTags.length > 0) {
         query = query.overlaps('tags', selectedTags);
@@ -338,7 +369,7 @@ export default function PosesPage() {
       const { data, error, count } = await query;
 
       if (loadToken !== posesLoadTokenRef.current) {
-        return false;
+        return 'stale';
       }
 
       if (error) {
@@ -347,14 +378,6 @@ export default function PosesPage() {
 
       const nextPoses = Array.isArray(data) ? data : [];
       const nextTotalCount = count || 0;
-      const maxPage = nextTotalCount > 0 ? Math.max(1, Math.ceil(nextTotalCount / posesPerPage)) : 1;
-
-      if (nextTotalCount > 0 && currentPage > maxPage) {
-        setPosesLoading(false);
-        setPosesRefreshing(false);
-        setCurrentPage(maxPage);
-        return true;
-      }
 
       setPoses(nextPoses);
       setTotalCount(nextTotalCount);
@@ -363,7 +386,7 @@ export default function PosesPage() {
       setPosesRefreshing(false);
       setPosesError('');
       setPosesReady(true);
-      return true;
+      return 'success';
     } catch (error) {
       if (loadToken === posesLoadTokenRef.current) {
         setPosesLoading(false);
@@ -375,7 +398,7 @@ export default function PosesPage() {
           setTotalCount(0);
         }
       }
-      return false;
+      return 'failed';
     }
   };
 
@@ -831,14 +854,19 @@ export default function PosesPage() {
   };
 
   const selectAllPoses = () => {
-    if (selectedPoseIds.length === poses.length) {
+    const poseAllSelected = totalCount > 0 && selectedPoseIds.length === totalCount;
+    if (poseAllSelected) {
+      setPendingSelectAllPoses(false);
       setSelectedPoseIds([]);
-    } else {
-      setSelectedPoseIds(poses.map(p => p.id));
+      return;
     }
+
+    setPendingSelectAllPoses(true);
+    setPoseVisibleCount(Math.max(totalCount, posesPerPage));
   };
 
   const clearPoseSelection = () => {
+    setPendingSelectAllPoses(false);
     setSelectedPoseIds([]);
     setIsSelectionMode(false);
   };
@@ -899,7 +927,7 @@ export default function PosesPage() {
   };
 
   // 标签管理函数
-  const loadTags = async () => {
+  const loadTags = async (): Promise<RefreshLoadResult> => {
     const loadToken = tagsLoadTokenRef.current + 1;
     tagsLoadTokenRef.current = loadToken;
     const hasReadyTags = tagsReady;
@@ -921,14 +949,14 @@ export default function PosesPage() {
           setSelectedTagIds([]);
         }
       }
-      return false;
+      return 'failed';
     }
 
     try {
       const data = await fetchOrderedPoseTags(dbClient);
 
       if (loadToken !== tagsLoadTokenRef.current) {
-        return false;
+        return 'stale';
       }
 
       const nextTags = Array.isArray(data) ? data : [];
@@ -942,7 +970,7 @@ export default function PosesPage() {
       setTagsRefreshing(false);
       setTagsError('');
       setTagsReady(true);
-      return true;
+      return 'success';
     } catch (error) {
       if (loadToken === tagsLoadTokenRef.current) {
         setTagsLoading(false);
@@ -954,26 +982,59 @@ export default function PosesPage() {
           setSelectedTagIds([]);
         }
       }
-      return false;
+      return 'failed';
     }
   };
 
-  const refreshPoseAdminData = async (options: { silent?: boolean } = {}) => {
-    const [posesLoaded, tagsLoaded] = await Promise.all([loadPoses(), loadTags()]);
+  const refreshPoseAdminData = async (options: { silent?: boolean; scope?: RefreshScope } = {}) => {
+    const scope = options.scope ?? (options.silent ? 'all' : activeTab === 'tags' ? 'tags' : 'all');
+    const loadTasks =
+      scope === 'poses'
+        ? [loadPoses()]
+        : scope === 'tags'
+          ? [loadTags()]
+          : [loadPoses(), loadTags()];
+
+    const loadResults = await Promise.all(loadTasks);
+    const failedCount = loadResults.filter((result) => result === 'failed').length;
+    const successCount = loadResults.filter((result) => result === 'success').length;
+
     if (options.silent) {
-      return posesLoaded && tagsLoaded;
+      return failedCount === 0;
     }
 
-    const successCount = [posesLoaded, tagsLoaded].filter(Boolean).length;
-    if (successCount === 2) {
-      setShowToast({ message: '摆姿管理已刷新', type: 'success' });
+    if (failedCount === 0 && successCount === 0) {
+      return true;
+    }
+
+    const successMessage =
+      scope === 'tags'
+        ? '标签已刷新'
+        : scope === 'poses'
+          ? '摆姿列表已刷新'
+          : '摆姿管理已刷新';
+    const partialMessage =
+      scope === 'tags'
+        ? '标签刷新失败，请稍后重试'
+        : scope === 'poses'
+          ? '摆姿列表已更新，但列表刷新失败'
+          : '摆姿管理已更新，但部分列表刷新失败';
+    const failedMessage =
+      scope === 'tags'
+        ? '标签刷新失败，请稍后重试'
+        : scope === 'poses'
+          ? '摆姿列表刷新失败，请稍后重试'
+          : '摆姿管理刷新失败，请稍后重试';
+
+    if (failedCount === 0 && successCount > 0) {
+      setShowToast({ message: successMessage, type: 'success' });
     } else if (successCount > 0) {
-      setShowToast({ message: '摆姿管理已更新，但部分列表刷新失败', type: 'warning' });
+      setShowToast({ message: partialMessage, type: 'warning' });
     } else {
-      setShowToast({ message: '摆姿管理刷新失败，请稍后重试', type: 'error' });
+      setShowToast({ message: failedMessage, type: 'error' });
     }
     setTimeout(() => setShowToast(null), 3000);
-    return successCount === 2;
+    return failedCount === 0;
   };
 
   const handleAddTag = async () => {
@@ -1417,7 +1478,8 @@ export default function PosesPage() {
   };
 
   const toggleTagFilter = (tagName: string) => {
-    setCurrentPage(1); // 重置到第一页
+    setPendingSelectAllPoses(false);
+    setPoseVisibleCount(posesPerPage);
     setSelectedTags(prev =>
       prev.includes(tagName)
         ? prev.filter(t => t !== tagName)
@@ -1533,7 +1595,7 @@ export default function PosesPage() {
                     onClick={selectAllPoses}
                     className="px-4 py-2 bg-white text-[#5D4037] rounded-full text-sm border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors"
                   >
-                    {selectedPoseIds.length === poses.length ? '取消全选' : `全选 (${selectedPoseIds.length}/${poses.length})`}
+                    {totalCount > 0 && selectedPoseIds.length === totalCount ? '取消全选' : `全选 (${selectedPoseIds.length}/${totalCount || poses.length})`}
                   </button>
                   <button
                     onClick={handleBatchDelete}
@@ -1562,20 +1624,12 @@ export default function PosesPage() {
           )}
 
           {posesLoading && !posesReady ? (
-            <div className="pose-state-card pose-state-card--loading schedule-state-card schedule-state-card--loading">
-              <div className="schedule-state-card__top">
-                <div className="schedule-state-card__badge schedule-state-card__badge--loading">
-                  <div className="pose-loading__spinner"></div>
-                </div>
-                <div className="schedule-state-card__copy">
-                  <p className="schedule-state-card__title">摆姿列表加载中</p>
-                  <p className="schedule-state-card__desc">正在同步最新的摆姿图片与标签数据，请稍候。</p>
-                </div>
-              </div>
-            </div>
+            <AdminLoadingCard description="正在同步最新的摆姿图片与标签数据，请稍候。" variant="inline" />
           ) : !posesReady ? (
-            <div className="pose-state-card">
-              <Camera className="pose-state-card__icon" />
+            <div className={`pose-state-card ${posesError ? 'pose-state-card--error' : 'pose-state-card--empty'}`}>
+              <div className={`pose-state-card__badge ${posesError ? 'pose-state-card__badge--error' : 'pose-state-card__badge--empty'}`}>
+                {posesError ? <AlertCircle className="pose-state-card__icon" /> : <Camera className="pose-state-card__icon" />}
+              </div>
               <p className="pose-state-card__title">{posesError ? '摆姿数据暂时不可用' : '暂无摆姿数据'}</p>
               <p className="pose-state-card__desc">{posesError || '上传摆姿后会展示在这里。'}</p>
               <button
@@ -1587,10 +1641,21 @@ export default function PosesPage() {
               </button>
             </div>
           ) : poses.length === 0 ? (
-            <div className="pose-state-card">
-              <Camera className="pose-state-card__icon" />
+            <div className={`pose-state-card ${selectedTags.length > 0 ? 'pose-state-card--search' : 'pose-state-card--empty'}`}>
+              <div className={`pose-state-card__badge ${selectedTags.length > 0 ? 'pose-state-card__badge--search' : 'pose-state-card__badge--empty'}`}>
+                {selectedTags.length > 0 ? <Search className="pose-state-card__icon" /> : <Camera className="pose-state-card__icon" />}
+              </div>
               <p className="pose-state-card__title">{selectedTags.length > 0 ? '当前筛选下暂无摆姿' : '暂无摆姿数据'}</p>
               <p className="pose-state-card__desc">{selectedTags.length > 0 ? '可以切换标签筛选或手动刷新列表。' : '上传摆姿后会展示在这里。'}</p>
+              {selectedTags.length > 0 ? (
+                <button
+                  onClick={() => setSelectedTags([])}
+                  disabled={posesLoading || posesRefreshing}
+                  className="pose-state-card__action"
+                >
+                  清空筛选
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="pose-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -1613,10 +1678,10 @@ export default function PosesPage() {
                   >
                     <div className="aspect-[3/4] relative group">
                       {isSelectionMode && (
-                        <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
+                        <div className={`absolute left-3 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-[8px] border-2 shadow-sm transition-colors ${
                           selectedPoseIds.includes(pose.id)
-                            ? 'bg-[#FFC857] border-[#FFC857]'
-                            : 'bg-white border-[#5D4037]/30'
+                            ? 'border-[#FFC857] bg-[#FFC857]'
+                            : 'border-[#5D4037]/30 bg-white/95'
                         }`}>
                           {selectedPoseIds.includes(pose.id) && (
                             <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1694,25 +1759,13 @@ export default function PosesPage() {
           )}
 
           {/* 分页 */}
-          {!posesLoading && totalCount > posesPerPage && (
-            <div className="flex items-center justify-center gap-2 mt-6">
-              <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
-              >
-                上一页
-              </button>
-              <span className="px-4 py-2 bg-[#FFC857]/20 rounded-full text-[#5D4037] font-medium">
-                第 {currentPage} 页 / 共 {Math.ceil(totalCount / posesPerPage)} 页
+          {!posesLoading && totalCount > 0 && (
+            <div className="mt-6 flex items-center justify-center gap-2">
+              <span className="inline-flex min-h-8 items-center rounded-full bg-[#FFC857]/20 px-4 py-2 text-sm font-medium text-[#5D4037]">
+                {poses.length < totalCount
+                  ? `已加载 ${poses.length} / ${totalCount} 个，继续下滑自动加载`
+                  : `已全部加载，共 ${totalCount} 个`}
               </span>
-              <button
-                onClick={() => setCurrentPage(currentPage + 1)}
-                disabled={currentPage >= Math.ceil(totalCount / posesPerPage)}
-                className="px-4 py-2 bg-white rounded-full border border-[#5D4037]/10 disabled:opacity-50 hover:bg-[#5D4037]/5 transition-colors"
-              >
-                下一页
-              </button>
             </div>
           )}
         </div>
@@ -1726,11 +1779,11 @@ export default function PosesPage() {
             {!isTagSelectionMode ? (
               <>
                 <button
-                  onClick={() => void refreshPoseAdminData()}
-                  disabled={posesLoading || posesRefreshing || tagsLoading || tagsRefreshing || tagSortingId !== 0}
+                  onClick={() => void refreshPoseAdminData({ scope: 'tags' })}
+                  disabled={tagsLoading || tagsRefreshing || tagSortingId !== 0}
                   className="flex items-center gap-2 px-4 py-2 bg-white text-[#5D4037] rounded-full font-medium border border-[#5D4037]/20 hover:bg-[#5D4037]/5 transition-colors disabled:opacity-50"
                 >
-                  {posesLoading || posesRefreshing || tagsLoading || tagsRefreshing ? '刷新中' : '刷新'}
+                  {tagsLoading || tagsRefreshing ? '刷新中' : '刷新'}
                 </button>
                 <button
                   onClick={() => setIsTagSelectionMode(true)}
@@ -1780,18 +1833,16 @@ export default function PosesPage() {
           )}
 
           {tagsLoading && !tagsReady ? (
-            <div className="pose-state-card pose-state-card--loading">
-              <div className="pose-loading__spinner mx-auto"></div>
-              <p className="pose-state-card__title">标签列表加载中</p>
-              <p className="pose-state-card__desc">正在同步标签排序与使用情况，请稍候。</p>
-            </div>
+            <AdminLoadingCard description="正在同步标签排序与使用情况，请稍候。" variant="compact" />
           ) : !tagsReady ? (
-            <div className="pose-state-card">
-              <Tag className="pose-state-card__icon" />
+            <div className={`pose-state-card ${tagsError ? 'pose-state-card--error' : 'pose-state-card--empty'}`}>
+              <div className={`pose-state-card__badge ${tagsError ? 'pose-state-card__badge--error' : 'pose-state-card__badge--empty'}`}>
+                {tagsError ? <AlertCircle className="pose-state-card__icon" /> : <Tag className="pose-state-card__icon" />}
+              </div>
               <p className="pose-state-card__title">{tagsError ? '标签数据暂时不可用' : '暂无标签数据'}</p>
               <p className="pose-state-card__desc">{tagsError || '创建标签后可用于摆姿筛选与管理。'}</p>
               <button
-                onClick={() => void refreshPoseAdminData()}
+                onClick={() => void refreshPoseAdminData({ scope: 'tags' })}
                 disabled={tagsLoading || tagsRefreshing || tagSortingId !== 0}
                 className="pose-state-card__action"
               >
@@ -1799,8 +1850,10 @@ export default function PosesPage() {
               </button>
             </div>
           ) : tags.length === 0 ? (
-            <div className="pose-state-card">
-              <Tag className="pose-state-card__icon" />
+            <div className="pose-state-card pose-state-card--empty">
+              <div className="pose-state-card__badge pose-state-card__badge--empty">
+                <Tag className="pose-state-card__icon" />
+              </div>
               <p className="pose-state-card__title">暂无标签数据</p>
               <p className="pose-state-card__desc">创建标签后可用于摆姿筛选与管理。</p>
             </div>
@@ -1817,7 +1870,7 @@ export default function PosesPage() {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
-                      className={`relative overflow-hidden rounded-[26px] border bg-[linear-gradient(180deg,#FFFFFF_0%,#FFFDF7_100%)] px-4 py-4 shadow-[0_10px_24px_rgba(93,64,55,0.07)] transition-all ${
+                      className={`relative min-w-0 w-full overflow-hidden rounded-[26px] border bg-[linear-gradient(180deg,#FFFFFF_0%,#FFFDF7_100%)] px-3.5 py-3.5 shadow-[0_10px_24px_rgba(93,64,55,0.07)] transition-all sm:px-4 sm:py-4 ${
                         isTagSelectionMode
                           ? isSelected
                             ? 'border-[#FFC857] bg-[#FFF8E6] shadow-[0_12px_30px_rgba(255,200,87,0.16)]'
@@ -1829,7 +1882,7 @@ export default function PosesPage() {
                     >
                       <div className="flex flex-col gap-3">
                         {isTagSelectionMode && (
-                          <div className={`absolute left-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors ${
+                          <div className={`absolute left-3 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border-2 transition-colors ${
                             isSelected
                               ? 'border-[#FFC857] bg-[#FFC857] text-white shadow-sm'
                               : 'border-[#5D4037]/20 bg-white text-transparent'
@@ -1842,20 +1895,20 @@ export default function PosesPage() {
 
                         <div className={`flex items-start justify-between gap-2.5 ${isTagSelectionMode ? 'pl-7' : ''}`}>
                           <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FFBE55] to-[#FFA63D] shadow-[0_7px_18px_rgba(255,184,85,0.24)]">
-                              <Tag className="h-5 w-5 text-white" />
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FFBE55] to-[#FFA63D] shadow-[0_7px_18px_rgba(255,184,85,0.24)] sm:h-12 sm:w-12">
+                              <Tag className="h-[18px] w-[18px] text-white sm:h-5 sm:w-5" />
                             </div>
                             <div className="min-w-0 flex-1 pt-0.5">
                               <div className="flex flex-col gap-1">
                                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
-                                  <h3 className="max-w-full break-all text-[22px] font-bold leading-none text-[#5D4037]">
+                                  <h3 className="max-w-full break-all text-[20px] font-bold leading-[1.05] text-[#5D4037] sm:text-[22px]">
                                     {tag.name}
                                   </h3>
                                   <span className="inline-flex items-center rounded-full bg-[#FFF1C7] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[#A46A1D]">
                                     #{tag.sortIndex}
                                   </span>
                                 </div>
-                                <span className="text-[13px] leading-none text-[#8D6E63]">
+                                <span className="text-[12px] leading-none text-[#8D6E63] sm:text-[13px]">
                                   使用 {tag.usage_count} 次
                                 </span>
                               </div>
@@ -1947,17 +2000,19 @@ export default function PosesPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="relative bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-[#5D4037]">
+              <div className="mb-6 flex items-start justify-between gap-3">
+                <h2 className="min-w-0 flex-1 text-xl font-bold text-[#5D4037]">
                   {editingPose ? '编辑摆姿' : '新增摆姿'}
                 </h2>
                 <button
                   onClick={() => setShowPoseModal(false)}
+                  type="button"
                   className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭摆姿弹窗"
                 >
-                  <X className="action-icon-svg" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -2158,15 +2213,17 @@ export default function PosesPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="relative bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-[#5D4037]">新增标签</h2>
+              <div className="mb-6 flex items-start justify-between gap-3">
+                <h2 className="min-w-0 flex-1 text-xl font-bold text-[#5D4037]">新增标签</h2>
                 <button
                   onClick={() => setShowTagModal(false)}
+                  type="button"
                   className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭新增标签弹窗"
                 >
-                  <X className="action-icon-svg" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -2218,18 +2275,20 @@ export default function PosesPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 w-full max-w-md mx-4"
+              className="relative bg-white rounded-2xl p-6 w-full max-w-md mx-4"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-[#5D4037]">修改标签</h2>
+              <div className="mb-6 flex items-start justify-between gap-3">
+                <h2 className="min-w-0 flex-1 text-xl font-bold text-[#5D4037]">修改标签</h2>
                 <button
                   onClick={() => {
                     setEditingTag(null);
                     setEditingTagName('');
                   }}
+                  type="button"
                   className="icon-button action-icon-btn action-icon-btn--close"
+                  aria-label="关闭编辑标签弹窗"
                 >
-                  <X className="action-icon-svg" />
+                  <X className="action-icon-svg" aria-hidden="true" />
                 </button>
               </div>
 
@@ -2276,7 +2335,7 @@ export default function PosesPage() {
           >
             <button
               onClick={() => setPreviewImage(null)}
-              className="icon-button action-icon-btn action-icon-btn--close absolute top-4 right-4"
+              className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
             >
               <X className="action-icon-svg" />
             </button>
@@ -2540,4 +2599,3 @@ export default function PosesPage() {
     </div>
   );
 }
-

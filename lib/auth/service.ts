@@ -89,6 +89,202 @@ export async function findUserByPhone(phone: string): Promise<Record<string, any
   return result.rows[0] ?? null;
 }
 
+export async function findUserById(userId: string): Promise<Record<string, any> | null> {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) {
+    return null;
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT
+        u.id,
+        u.email,
+        u.phone,
+        u.password_hash,
+        CASE
+          WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+          ELSE 'user'
+        END AS role,
+        p.name
+      FROM users u
+      LEFT JOIN profiles p ON p.id = u.id
+      WHERE u.id = {{user_id}} AND u.deleted_at <=> NULL
+      LIMIT 1
+    `,
+    {
+      user_id: normalizedUserId,
+    }
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function updateUserProfile(
+  userId: string,
+  input: {
+    name?: string;
+    phone?: string | null;
+    wechat?: string | null;
+  }
+): Promise<{ user: AuthUser | null; error: string | null }> {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) {
+    return {
+      user: null,
+      error: 'user_not_found',
+    };
+  }
+
+  const userRecord = await findUserById(normalizedUserId);
+  if (!userRecord) {
+    return {
+      user: null,
+      error: 'user_not_found',
+    };
+  }
+
+  const normalizedName = String(input.name ?? '').trim();
+  if (!normalizedName) {
+    return {
+      user: null,
+      error: 'name_required',
+    };
+  }
+
+  const normalizedPhone = normalizePhone(String(input.phone ?? ''));
+  const nextPhone = normalizedPhone || null;
+  const nextWechat = String(input.wechat ?? '').trim() || null;
+
+  if (nextPhone) {
+    const existingUser = await findUserByPhone(nextPhone);
+    if (existingUser && String(existingUser.id || '').trim() !== normalizedUserId) {
+      return {
+        user: null,
+        error: 'phone_already_in_use',
+      };
+    }
+  }
+
+  const previousPhone = userRecord.phone ? String(userRecord.phone).trim() : null;
+  const shouldUpdateUsersPhone = previousPhone !== nextPhone;
+
+  const profileResult = await executeSQL(
+    `
+      SELECT email, role
+      FROM profiles
+      WHERE id = {{user_id}}
+      LIMIT 1
+    `,
+    { user_id: normalizedUserId }
+  );
+  const currentProfile = profileResult.rows[0] ?? null;
+  const nextProfileRole =
+    String((currentProfile && currentProfile.role) || '').trim() ||
+    (userRecord.role === 'admin' ? 'admin' : 'user');
+  const nextProfileEmail =
+    currentProfile && currentProfile.email !== undefined && currentProfile.email !== null
+      ? String(currentProfile.email)
+      : userRecord.email
+        ? String(userRecord.email)
+        : null;
+
+  try {
+    if (shouldUpdateUsersPhone) {
+      await executeSQL(
+        `
+          UPDATE users
+          SET phone = {{phone}}, updated_at = ${NOW_UTC8_EXPR}
+          WHERE id = {{user_id}} AND deleted_at <=> NULL
+        `,
+        {
+          phone: nextPhone,
+          user_id: normalizedUserId,
+        }
+      );
+    }
+
+    if (currentProfile) {
+      await executeSQL(
+        `
+          UPDATE profiles
+          SET
+            name = {{name}},
+            phone = {{phone}},
+            wechat = {{wechat}},
+            updated_at = ${NOW_UTC8_EXPR}
+          WHERE id = {{user_id}}
+        `,
+        {
+          name: normalizedName,
+          phone: nextPhone,
+          wechat: nextWechat,
+          user_id: normalizedUserId,
+        }
+      );
+    } else {
+      await executeSQL(
+        `
+          INSERT INTO profiles (
+            id, email, name, role, phone, wechat, created_at, updated_at
+          ) VALUES (
+            {{id}}, {{email}}, {{name}}, {{role}}, {{phone}}, {{wechat}}, ${NOW_UTC8_EXPR}, ${NOW_UTC8_EXPR}
+          )
+        `,
+        {
+          id: normalizedUserId,
+          email: nextProfileEmail,
+          name: normalizedName,
+          role: nextProfileRole === 'admin' ? 'admin' : 'user',
+          phone: nextPhone,
+          wechat: nextWechat,
+        }
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+
+    if (shouldUpdateUsersPhone) {
+      try {
+        await executeSQL(
+          `
+            UPDATE users
+            SET phone = {{phone}}, updated_at = ${NOW_UTC8_EXPR}
+            WHERE id = {{user_id}} AND deleted_at <=> NULL
+          `,
+          {
+            phone: previousPhone,
+            user_id: normalizedUserId,
+          }
+        );
+      } catch {
+        // ignore cleanup failure, keep original error semantics
+      }
+    }
+
+    if (/duplicate entry|1062|er_dup_entry/i.test(message)) {
+      return {
+        user: null,
+        error: 'phone_already_in_use',
+      };
+    }
+
+    throw error;
+  }
+
+  const updatedUser = await findUserById(normalizedUserId);
+  const fallbackUser = {
+    ...userRecord,
+    phone: nextPhone,
+    name: normalizedName,
+  };
+
+  return {
+    user: toAuthUser(updatedUser || fallbackUser),
+    error: null,
+  };
+}
+
 export async function registerUserWithPhone(phone: string, password: string): Promise<{ user: AuthUser | null; error: string | null }> {
   const normalizedPhone = normalizePhone(phone);
 
@@ -463,6 +659,33 @@ export async function updateUserPassword(userId: string, newPassword: string): P
   await revokeSessionsByUserId(userId);
 
   return { error: null };
+}
+
+export async function verifyUserPassword(
+  userId: string,
+  password: string
+): Promise<{ valid: boolean; error: string | null }> {
+  const result = await executeSQL(
+    `
+      SELECT password_hash
+      FROM users
+      WHERE id = {{user_id}} AND deleted_at <=> NULL
+      LIMIT 1
+    `,
+    { user_id: userId }
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return { valid: false, error: 'user_not_found' };
+  }
+
+  const currentHash = String(row.password_hash ?? '');
+  if (!currentHash || !verifyPassword(password, currentHash)) {
+    return { valid: false, error: 'invalid_current_password' };
+  }
+
+  return { valid: true, error: null };
 }
 
 export async function createPasswordResetToken(email: string): Promise<{ token: string | null; error: string | null }> {
