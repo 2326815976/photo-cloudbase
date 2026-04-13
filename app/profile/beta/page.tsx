@@ -1,9 +1,20 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, KeyRound, LogIn, Sparkles } from 'lucide-react';
+import { motion } from 'framer-motion';
+import {
+  AlertCircle,
+  ArrowLeft,
+  CalendarDays,
+  Clipboard,
+  LockKeyhole,
+  Sparkles,
+} from 'lucide-react';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 interface BetaFeatureRow {
   binding_id: string;
@@ -14,31 +25,54 @@ interface BetaFeatureRow {
   feature_code: string;
   expires_at: string | null;
   route_path: string;
+  route_title?: string;
+  route_description?: string | null;
   route_path_web?: string;
   preview_route_path_web?: string;
 }
+
+type MessageTone = 'error' | 'success' | 'info';
 
 function extractDateText(value: string | null | undefined) {
   const matched = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
   return matched ? matched[1] : '';
 }
 
+function normalizeBetaCodeInput(value: string) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 8);
+}
+
 export default function ProfileBetaPage() {
   const router = useRouter();
+  const { title: managedTitle } = useManagedPageMeta('profile-beta', '内测功能');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const [featureRows, setFeatureRows] = useState<BetaFeatureRow[]>([]);
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<MessageTone>('info');
 
   const orderedRows = useMemo(() => featureRows, [featureRows]);
+
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.push('/profile');
+  };
 
   const loadRows = async () => {
     const response = await fetch('/api/page-center/beta/features?channel=web', { cache: 'no-store' });
     const payload = (await response.json()) as { data?: BetaFeatureRow[]; error?: string };
     if (!response.ok) {
-      throw new Error(payload.error || '读取内测页面失败');
+      throw new Error(payload.error || '读取内测功能失败');
     }
     setFeatureRows(Array.isArray(payload.data) ? payload.data : []);
   };
@@ -59,6 +93,7 @@ export default function ProfileBetaPage() {
         }
       } catch (error) {
         if (!cancelled) {
+          setMessageTone('error');
           setMessage(error instanceof Error ? error.message : '读取账号状态失败');
         }
       } finally {
@@ -75,9 +110,15 @@ export default function ProfileBetaPage() {
   }, []);
 
   const handleBind = async () => {
-    const featureCode = codeInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const featureCode = normalizeBetaCodeInput(codeInput);
     if (!featureCode) {
+      setMessageTone('error');
       setMessage('请输入内测码');
+      return;
+    }
+    if (featureCode.length !== 8) {
+      setMessageTone('error');
+      setMessage('内测码必须是 8 位大写字母或数字');
       return;
     }
 
@@ -101,113 +142,272 @@ export default function ProfileBetaPage() {
         return;
       }
 
+      setMessageTone('success');
       setMessage('内测码绑定成功，已为你开放页面入口');
       await loadRows();
     } catch (error) {
+      setMessageTone('error');
       setMessage(error instanceof Error ? error.message : '绑定内测码失败');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handlePasteCode = async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+      setMessageTone('error');
+      setMessage('当前浏览器暂不支持粘贴，请手动输入');
+      return;
+    }
+
+    try {
+      const text = await navigator.clipboard.readText();
+      const normalized = normalizeBetaCodeInput(text);
+      if (!normalized) {
+        setMessageTone('error');
+        setMessage('剪贴板为空');
+        return;
+      }
+      setCodeInput(normalized);
+      setMessageTone('info');
+      setMessage('已从剪贴板粘贴内测码');
+    } catch {
+      setMessageTone('error');
+      setMessage('粘贴失败，请重试');
+    }
+  };
+
+  const renderMessage = () => {
+    if (!message) {
+      return null;
+    }
+
+    const toneClassName =
+      messageTone === 'error'
+        ? 'border-red-200 bg-red-50/90 text-red-600'
+        : messageTone === 'success'
+          ? 'border-emerald-200 bg-emerald-50/90 text-emerald-600'
+          : 'border-[#FFC857]/30 bg-[#FFF7DB] text-[#8D6E63]';
+
+    return (
+      <div className={`mt-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm ${toneClassName}`}>
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <p className="leading-6">{message}</p>
+      </div>
+    );
+  };
+
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-6 pb-24 pt-6">
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-[#5D4037]" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            页面内测中心
-          </h1>
-          <p className="mt-2 text-sm text-[#5D4037]/65">绑定页面内测码后，可直接进入无底栏页面。</p>
-        </div>
-        <div className="rounded-full bg-[#FFC857]/25 px-3 py-1 text-xs font-bold text-[#8D6E63]">
-          <Sparkles className="mr-1 inline h-3.5 w-3.5" />
-          内测
-        </div>
-      </div>
-
-      <div className="mb-5 rounded-[28px] border border-[#5D4037]/10 bg-white/85 p-5 shadow-[0_10px_24px_rgba(93,64,55,0.08)]">
-        <label className="mb-3 block text-sm font-semibold text-[#5D4037]">输入页面内测码</label>
-        <div className="flex gap-3">
-          <input
-            value={codeInput}
-            onChange={(event) => setCodeInput(event.target.value.toUpperCase())}
-            maxLength={8}
-            placeholder="例如：A1B2C3D4"
-            className="h-12 flex-1 rounded-full border border-[#5D4037]/15 bg-[#FFFBF0] px-4 text-sm text-[#5D4037] outline-none focus:border-[#FFC857]"
-          />
+    <div className="flex h-full w-full flex-col">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex-none border-b-2 border-dashed border-[#5D4037]/15 bg-[#FFFBF0]/95 backdrop-blur-md shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
+      >
+        <div className="flex items-center gap-3 px-4 py-3">
           <button
             type="button"
-            onClick={() => void handleBind()}
-            disabled={submitting || loading || !isLoggedIn}
-            className="h-12 rounded-full border-2 border-[#5D4037] bg-[#FFC857] px-5 font-bold text-[#5D4037] shadow-[4px_4px_0_#5D4037] transition disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleBack}
+            className="icon-button action-icon-btn action-icon-btn--back"
+            aria-label="返回我的"
           >
-            {submitting ? '绑定中...' : '绑定'}
+            <ArrowLeft className="h-5 w-5 text-[#5D4037]" />
           </button>
+          <div className="min-w-0 flex-1">
+            <h1
+              className="truncate text-2xl font-bold leading-none text-[#5D4037]"
+              style={{ fontFamily: "'ZQKNNY', cursive" }}
+            >
+              {managedTitle}
+            </h1>
+          </div>
         </div>
-        {message ? <p className="mt-3 text-sm text-[#5D4037]/70">{message}</p> : null}
-      </div>
+      </motion.div>
 
-      {loading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-[#5D4037]/60">正在加载内测页面...</div>
-      ) : !isLoggedIn ? (
-        <div className="rounded-[32px] border border-[#5D4037]/10 bg-white p-8 text-center shadow-[0_10px_30px_rgba(93,64,55,0.08)]">
-          <LogIn className="mx-auto mb-4 h-14 w-14 text-[#FFC857]" />
-          <h2 className="text-lg font-bold text-[#5D4037]">请先登录后再绑定内测页面</h2>
-          <p className="mt-2 text-sm text-[#5D4037]/60">登录后即可通过页面内测码绑定并进入对应页面。</p>
-          <button
-            type="button"
-            onClick={() => router.push('/login')}
-            className="mt-6 h-12 rounded-full border-2 border-[#5D4037] bg-[#FFC857] px-6 font-bold text-[#5D4037] shadow-[4px_4px_0_#5D4037]"
-          >
-            立即登录
-          </button>
-        </div>
-      ) : orderedRows.length === 0 ? (
-        <div className="rounded-[32px] border border-dashed border-[#5D4037]/18 bg-white/70 p-8 text-center text-sm text-[#5D4037]/65">
-          当前还没有已绑定的页面内测功能。
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {orderedRows.map((row) => {
-            const expiresText = extractDateText(row.expires_at);
-            const targetPath = row.route_path_web || row.route_path;
-            return (
-              <div
-                key={`${row.feature_id}-${row.binding_id}`}
-                className="rounded-[28px] border border-[#5D4037]/10 bg-white p-5 shadow-[0_10px_24px_rgba(93,64,55,0.08)]"
+      <PreviewAwareScrollArea
+        className="flex-1 overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle at 6% 0%, rgba(255, 200, 87, 0.15), transparent 38%), radial-gradient(circle at 94% 16%, rgba(255, 153, 102, 0.1), transparent 36%)',
+        }}
+      >
+        <div className="mx-auto w-full max-w-[660px]">
+          {loading ? (
+            <MiniProgramRecoveryScreen
+              title="拾光中..."
+              description="正在加载内测功能"
+              className="min-h-[280px] rounded-[24px] border border-[#5D4037]/10 bg-white/90 px-4 py-7 shadow-[0_10px_24px_rgba(93,64,55,0.08)] sm:rounded-[28px] sm:px-5 sm:py-8"
+            />
+          ) : !isLoggedIn ? (
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.04 }}
+              className="rounded-[24px] border border-[#5D4037]/10 bg-white px-4 py-7 text-center shadow-[0_10px_24px_rgba(93,64,55,0.08)] sm:rounded-[28px] sm:px-5 sm:py-8"
+            >
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FFC857]/18 sm:h-16 sm:w-16">
+                <LockKeyhole className="h-6 w-6 text-[#5D4037] sm:h-7 sm:w-7" />
+              </div>
+              <h2 className="mt-4 text-[18px] font-bold text-[#5D4037] sm:text-[20px]">请先登录</h2>
+              <p className="mt-2 text-[13px] leading-6 text-[#5D4037]/60 sm:text-sm">
+                登录后可输入管理员提供的内测码，解锁你的专属内测功能。
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push('/login')}
+                className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-[linear-gradient(180deg,#FFD86C_0%,#FFC857_100%)] px-6 text-[13px] font-bold text-[#5D4037] shadow-[0_8px_16px_rgba(255,200,87,0.3)] transition hover:translate-y-[-1px] sm:h-11 sm:px-7 sm:text-sm"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-[#5D4037]">{row.feature_name}</h3>
-                    {row.feature_description ? (
-                      <p className="mt-2 text-sm text-[#5D4037]/65">{row.feature_description}</p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#8D6E63]">
-                      <span className="rounded-full bg-[#FFC857]/18 px-3 py-1">内测码：{row.feature_code || '已绑定'}</span>
-                      <span className="rounded-full bg-[#5D4037]/8 px-3 py-1">
-                        {expiresText ? `有效期至 ${expiresText}` : '长期有效'}
-                      </span>
-                    </div>
+                前往登录
+              </button>
+            </motion.div>
+          ) : (
+            <div className="flex flex-col gap-3 sm:gap-3.5">
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="relative overflow-hidden rounded-[22px] border border-[#5D4037]/10 bg-white px-3.5 py-3.5 shadow-[0_10px_24px_rgba(93,64,55,0.1)] sm:rounded-[24px] sm:px-4 sm:py-4"
+              >
+                <div className="absolute inset-x-0 top-0 h-[5px] bg-[linear-gradient(90deg,#FFC857_0%,#FFB347_100%)] sm:h-[6px]" />
+                <div className="flex items-start gap-2.5 max-[379px]:flex-col max-[379px]:items-start sm:gap-3">
+                  <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FFC857]/20 sm:mt-1 sm:h-11 sm:w-11">
+                    <Sparkles className="h-5 w-5 text-[#F4A524] sm:h-[22px] sm:w-[22px]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-[18px] font-bold leading-none text-[#5D4037] sm:text-[20px]">
+                      输入内测码
+                    </h2>
+                    <p className="mt-1 text-[12px] leading-5 text-[#5D4037]/58 sm:mt-1.5 sm:text-[13px] sm:leading-6">
+                      绑定后会在下方列表显示你可使用的内测功能
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 grid grid-cols-1 gap-2.5 min-[520px]:grid-cols-[minmax(0,1fr)_104px] min-[520px]:items-center sm:mt-4 sm:min-[520px]:grid-cols-[minmax(0,1fr)_116px]">
+                  <div className="relative min-w-0">
+                    <input
+                      value={codeInput}
+                      onChange={(event) => setCodeInput(normalizeBetaCodeInput(event.target.value))}
+                      maxLength={8}
+                      placeholder="请输入管理员提供的内测码"
+                      className="h-[42px] w-full rounded-[15px] border border-[#5D4037]/15 bg-[#FFFDF7] pl-3.5 pr-11 text-[14px] text-[#5D4037] outline-none transition placeholder:text-[#5D4037]/36 focus:border-[#FFC857] focus:shadow-[0_0_0_3px_rgba(255,200,87,0.12)] sm:h-11 sm:rounded-[16px] sm:pl-4 sm:pr-12 sm:text-[15px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handlePasteCode()}
+                      className="absolute right-2.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#FFC857]/18 text-[#8D6E63] transition hover:bg-[#FFC857]/28 sm:right-3 sm:h-[34px] sm:w-[34px]"
+                      aria-label="粘贴内测码"
+                    >
+                      <Clipboard className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                    </button>
                   </div>
                   <button
                     type="button"
-                    onClick={() => router.push(targetPath)}
-                    className="inline-flex h-10 items-center gap-2 rounded-full border border-[#5D4037]/18 px-4 text-sm font-semibold text-[#5D4037] transition hover:bg-[#FFC857]/12"
+                    onClick={() => void handleBind()}
+                    disabled={submitting || loading}
+                    className="inline-flex h-[42px] w-full items-center justify-center rounded-[15px] bg-[linear-gradient(180deg,#FFD86C_0%,#FFC857_100%)] px-5 text-[15px] font-bold text-[#5D4037] shadow-[0_8px_18px_rgba(255,200,87,0.3)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60 sm:h-11 sm:rounded-[16px] sm:px-6 sm:text-base"
                   >
-                    进入页面
-                    <ArrowRight className="h-4 w-4" />
+                    {submitting ? '绑定中...' : '绑定'}
                   </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
-      <div className="mt-6 flex items-center justify-center text-xs text-[#5D4037]/45">
-        <KeyRound className="mr-1 h-3.5 w-3.5" />
-        页面处于内测或查看模式时，不显示底部菜单栏。
-      </div>
+                <p className="mt-2.5 text-[12px] text-[#5D4037]/48 sm:text-[13px]">仅支持 8 位大写字母或数字</p>
+                {renderMessage()}
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.04 }}
+                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
+              >
+                <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#FFC857]/18 sm:h-10 sm:w-10">
+                    <Sparkles className="h-4 w-4 text-[#F4A524] sm:h-[18px] sm:w-[18px]" />
+                  </div>
+                  <h2
+                    className="truncate text-[22px] font-black leading-none text-[#5D4037] sm:text-[26px]"
+                    style={{ fontFamily: "'ZQKNNY', cursive" }}
+                  >
+                    已解锁功能
+                  </h2>
+                </div>
+                <div className="shrink-0 rounded-full bg-[#5D4037]/8 px-2.5 py-1 text-[11px] text-[#5D4037]/62 sm:px-3 sm:py-1.5 sm:text-xs">
+                  共 {orderedRows.length} 个
+                </div>
+              </motion.div>
+
+              {orderedRows.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.08 }}
+                  className="rounded-[22px] border border-[#5D4037]/10 bg-white px-4 py-7 text-center shadow-[0_10px_24px_rgba(93,64,55,0.1)] sm:rounded-[24px] sm:px-5 sm:py-8"
+                >
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FFC857]/16 sm:h-16 sm:w-16">
+                    <Sparkles className="h-6 w-6 text-[#8D6E63] sm:h-7 sm:w-7" />
+                  </div>
+                  <h3 className="mt-4 text-[18px] font-bold text-[#5D4037] sm:text-[20px]">暂无已解锁功能</h3>
+                  <p className="mt-2 text-[13px] leading-6 text-[#5D4037]/58 sm:text-sm">
+                    输入有效内测码后，这里会展示功能入口
+                  </p>
+                </motion.div>
+              ) : (
+                <div className="flex flex-col gap-3 sm:gap-3.5">
+                  {orderedRows.map((row, index) => {
+                    const expiresText = extractDateText(row.expires_at);
+                    const targetPath = row.route_path_web || row.route_path;
+                    return (
+                      <motion.section
+                        key={`${row.feature_id}-${row.binding_id}`}
+                        initial={{ opacity: 0, y: 18 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.08 + index * 0.04 }}
+                        className="rounded-[20px] border border-[#5D4037]/10 bg-white px-3.5 py-3.5 shadow-[0_10px_24px_rgba(93,64,55,0.1)] sm:rounded-[22px] sm:px-4 sm:py-4"
+                      >
+                        <div className="flex flex-col gap-3">
+                          <div className="flex flex-col gap-2.5 min-[440px]:flex-row min-[440px]:items-start min-[440px]:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-start gap-2">
+                                <h3 className="text-[17px] font-black leading-tight text-[#5D4037] sm:text-[19px]">
+                                  {row.feature_name}
+                                </h3>
+                                <span className="shrink-0 rounded-full bg-[#FFC857]/18 px-2.5 py-1 text-[11px] font-semibold text-[#5D4037] sm:px-3 sm:py-1.5 sm:text-xs">
+                                  内测
+                                </span>
+                              </div>
+                              <p className="mt-1.5 text-[13px] leading-5 text-[#5D4037]/74 sm:text-sm sm:leading-6">
+                                {row.feature_description || row.route_description || '已为你开放对应内测页面入口'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="h-px bg-[#5D4037]/10" />
+
+                          <div className="flex flex-col gap-2.5 min-[520px]:flex-row min-[520px]:items-center min-[520px]:justify-between">
+                            <div className="flex min-w-0 items-center gap-2 text-[#5D4037]/58">
+                              <CalendarDays className="h-4 w-4 shrink-0 sm:h-[18px] sm:w-[18px]" />
+                              <span className="truncate text-[12px] sm:text-[13px]">
+                                {expiresText ? `有效期至：${expiresText}` : '有效期：长期有效'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => router.push(targetPath)}
+                              className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[13px] bg-[linear-gradient(180deg,#FFD86C_0%,#FFC857_100%)] px-4 text-[13px] font-bold text-[#5D4037] shadow-[0_8px_16px_rgba(255,200,87,0.28)] transition hover:translate-y-[-1px] min-[520px]:w-auto sm:h-[42px] sm:rounded-[14px] sm:px-5 sm:text-sm"
+                            >
+                              <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                              进入功能
+                            </button>
+                          </div>
+                        </div>
+                      </motion.section>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </PreviewAwareScrollArea>
     </div>
   );
 }

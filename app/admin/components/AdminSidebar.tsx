@@ -31,7 +31,7 @@ const BRAND_SUBTITLE = '后台功能导航';
 const CURRENT_ADMIN_TEXT = '当前管理员';
 const OPEN_MENU_TEXT = '打开菜单';
 const CLOSE_MENU_TEXT = '关闭菜单';
-const BACK_HOME_TEXT = '返回首页';
+const BACK_HOME_TEXT = '返回个人中心';
 const LOGOUT_TEXT = '退出登录';
 const LOGOUT_TITLE = '确认退出管理后台？';
 const LOGOUT_DESCRIPTION = '退出后将清理当前登录会话，需要重新登录才能继续管理内容。';
@@ -166,7 +166,7 @@ function SidebarFooter({
       </div>
 
       <Link
-        href="/"
+        href="/profile"
         onClick={onAfterNavigate}
         className="admin-sidebar-home-btn mb-2 flex h-11 w-full items-center justify-center rounded-[18px] border border-[#5D4037]/8 bg-[#EBE6DD] text-sm font-bold text-[#5D4037] transition-opacity hover:opacity-90 active:scale-[0.98]"
       >

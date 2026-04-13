@@ -8,7 +8,12 @@ import type {
   PageCenterOverviewItem,
   PagePublishState,
 } from '@/lib/page-center/config';
-import { isSecondaryPageKey, resolveSecondaryParentPageKey } from '@/lib/page-center/config';
+import {
+  isProfileAuthenticatedSecondaryPageKey,
+  isProfileGuestSecondaryPageKey,
+  isSecondaryPageKey,
+  resolveSecondaryParentPageKey,
+} from '@/lib/page-center/config';
 import { canPageShowInNav } from '@/lib/page-center/capabilities';
 import {
   buildRegistryOptionPatch,
@@ -99,6 +104,31 @@ const CHANNEL_META: Record<
     previewHint: '查看与内测均走无底栏路由；上线后进入小程序底部菜单并支持顺序调整，第 1 项自动作为首页。',
   },
 };
+
+const MINIPROGRAM_HIDDEN_PAGE_KEYS = new Set(['login', 'register']);
+
+function shouldHidePageForChannel(pageKey: string, channel: AppChannel) {
+  const normalizedPageKey = String(pageKey || '').trim();
+  return channel === 'miniprogram' && MINIPROGRAM_HIDDEN_PAGE_KEYS.has(normalizedPageKey);
+}
+
+function isProfileGuestSecondaryPageForChannel(pageKey: string, channel: AppChannel) {
+  return !shouldHidePageForChannel(pageKey, channel) && isProfileGuestSecondaryPageKey(pageKey);
+}
+
+function getCollectionSectionDescription(channel: AppChannel, shortTitle: string) {
+  if (channel === 'miniprogram') {
+    return `维护当前${shortTitle}端页面集合。一级页面可展开查看所属二级菜单；“我的”页仅保留登录后菜单排序，微信登录入口不再作为独立二级页维护。`;
+  }
+  return `维护当前${shortTitle}端页面集合。一级页面可展开查看所属二级菜单；“我的”页已区分登录前流程页与登录后菜单，登录后入口支持单独排序。`;
+}
+
+function getSecondaryOrderHelperText(channel: AppChannel) {
+  if (channel === 'miniprogram') {
+    return '这里的顺序会同步到登录后的「我的」页列表。只有登录后菜单会参与这里的排序。';
+  }
+  return '这里的顺序会同步到登录后的「我的」页列表。登录前流程页不会参与这里的排序。';
+}
 
 const STATE_FILTER_OPTIONS: Array<{ value: StateFilter; label: string }> = [
   { value: 'all', label: '全部' },
@@ -410,6 +440,94 @@ function sortNavRows(rows: PageCenterOverviewItem[], channel: AppChannel) {
     });
 }
 
+function compareSecondaryRows(
+  left: PageCenterOverviewItem,
+  right: PageCenterOverviewItem,
+  channel: AppChannel
+) {
+  const leftView = left.channels[channel];
+  const rightView = right.channels[channel];
+  if (leftView.navOrder !== rightView.navOrder) {
+    return leftView.navOrder - rightView.navOrder;
+  }
+  return left.pageName.localeCompare(right.pageName, 'zh-CN');
+}
+
+function sortSecondaryRows(rows: PageCenterOverviewItem[], channel: AppChannel) {
+  return rows.slice().sort((left, right) => compareSecondaryRows(left, right, channel));
+}
+
+function buildSecondaryChildGroups(
+  parent: PageCenterOverviewItem,
+  children: PageCenterOverviewItem[],
+  channel: AppChannel
+) {
+  const orderedChildren = sortSecondaryRows(children, channel);
+  if (parent.pageKey !== 'profile') {
+    return orderedChildren.length > 0
+      ? [
+          {
+            key: `${parent.pageKey}:all`,
+            title: '',
+            description: '',
+            rows: orderedChildren,
+          },
+        ]
+      : [];
+  }
+
+  const guestRows = orderedChildren.filter((item) =>
+    isProfileGuestSecondaryPageForChannel(item.pageKey, channel)
+  );
+  const authenticatedRows = orderedChildren.filter((item) =>
+    isProfileAuthenticatedSecondaryPageKey(item.pageKey)
+  );
+  const otherRows = orderedChildren.filter(
+    (item) =>
+      !isProfileGuestSecondaryPageForChannel(item.pageKey, channel) &&
+      !isProfileAuthenticatedSecondaryPageKey(item.pageKey)
+  );
+
+  return [
+    guestRows.length > 0
+      ? {
+          key: `${parent.pageKey}:guest`,
+          title: '认证流程页',
+          description: '用于登录前流程，不参与登录后“我的”菜单排序。',
+          rows: guestRows,
+        }
+      : null,
+    authenticatedRows.length > 0
+      ? {
+          key: `${parent.pageKey}:authenticated`,
+          title: '登录后菜单',
+          description: '这里的入口会出现在登录后的“我的”页内，并支持单独调整展示顺序。',
+          rows: authenticatedRows,
+        }
+      : null,
+    otherRows.length > 0
+      ? {
+          key: `${parent.pageKey}:other`,
+          title: '其他二级页',
+          description: '当前仍属于该一级页的二级页面。',
+          rows: otherRows,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; title: string; description: string; rows: PageCenterOverviewItem[] }>;
+}
+
+function sortProfileAuthenticatedSecondaryRows(rows: PageCenterOverviewItem[], channel: AppChannel) {
+  return rows
+    .filter(
+      (item) =>
+        resolveSecondaryParentPageKey(item.pageKey) === 'profile' &&
+        isProfileAuthenticatedSecondaryPageKey(item.pageKey) &&
+        item.channels[channel].publishState === 'online'
+    )
+    .slice()
+    .sort((left, right) => compareSecondaryRows(left, right, channel));
+}
+
 function buildDisplayedNavRows(rows: PageCenterOverviewItem[], channel: AppChannel) {
   return sortNavRows(rows, channel);
 }
@@ -424,20 +542,22 @@ function buildPreviewRows(
   channel: AppChannel,
   forms: Record<string, RuleForm>
 ): PageCenterOverviewItem[] {
-  return rows.map((item) => {
-    const key = `${item.pageKey}:${channel}`;
-    const nextView = {
-      ...item.channels[channel],
-      ...normalizeRuleForm(item, channel, forms[key] || buildRuleFormMap([item])[key]),
-    };
-    return {
-      ...item,
-      channels: {
-        ...item.channels,
-        [channel]: nextView,
-      },
-    };
-  });
+  return rows
+    .filter((item) => !shouldHidePageForChannel(item.pageKey, channel))
+    .map((item) => {
+      const key = `${item.pageKey}:${channel}`;
+      const nextView = {
+        ...item.channels[channel],
+        ...normalizeRuleForm(item, channel, forms[key] || buildRuleFormMap([item])[key]),
+      };
+      return {
+        ...item,
+        channels: {
+          ...item.channels,
+          [channel]: nextView,
+        },
+      };
+    });
 }
 
 function normalizeRuleForm(
@@ -681,8 +801,12 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   const previewRows = useMemo(() => buildPreviewRows(rows, channel, forms), [channel, forms, rows]);
 
   const navRows = useMemo(() => buildDisplayedNavRows(previewRows, channel), [previewRows, channel]);
+  const profileAuthenticatedSecondaryRows = useMemo(
+    () => sortProfileAuthenticatedSecondaryRows(previewRows, channel),
+    [previewRows, channel]
+  );
 
-  const savedRowMap = useMemo(() => new Map(rows.map((item) => [item.pageKey, item])), [rows]);
+  const savedRowMap = useMemo(() => new Map(previewRows.map((item) => [item.pageKey, item])), [previewRows]);
   const modalRow = useMemo(() => {
     if (!actionModal) {
       return null;
@@ -776,8 +900,11 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
       currentRows.push(item);
       nextMap.set(parentPageKey, currentRows);
     });
+    nextMap.forEach((items, parentPageKey) => {
+      nextMap.set(parentPageKey, sortSecondaryRows(items, channel));
+    });
     return nextMap;
-  }, [filteredRows]);
+  }, [channel, filteredRows]);
   const collectionGroups = useMemo(
     () =>
       previewRows
@@ -789,10 +916,11 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
           return {
             parent: item,
             children,
+            childGroups: buildSecondaryChildGroups(item, children, channel),
             isExpanded,
           };
         }),
-    [expandedPageKey, hasActiveFilter, previewRows, secondaryRowsByParent, visibleRowKeys]
+    [channel, expandedPageKey, hasActiveFilter, previewRows, secondaryRowsByParent, visibleRowKeys]
   );
   const pageSections = useMemo(
     () =>
@@ -801,17 +929,17 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
             {
               key: 'collection',
               title: '页面集合',
-              description: `维护当前${channelMeta.shortTitle}端页面集合。一级页面可展开查看所属二级菜单，当前已支持在“我的”“提取”页下维护二级入口，便于统一定位与精准屏蔽。`,
+              description: getCollectionSectionDescription(channel, channelMeta.shortTitle),
               groups: collectionGroups,
             },
           ]
         : [],
-    [channelMeta.shortTitle, collectionGroups]
+    [channel, channelMeta.shortTitle, collectionGroups]
   );
 
   const workspaceSummary = useMemo(
     () =>
-      rows.reduce(
+      previewRows.reduce(
         (stats, item) => {
           const view = item.channels[channel];
           stats.total += 1;
@@ -824,7 +952,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
         },
         { total: 0, online: 0, beta: 0, offline: 0, nav: 0, betaCodes: 0 }
       ),
-    [channel, rows]
+    [channel, previewRows]
   );
 
 
@@ -1046,18 +1174,29 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     );
   };
 
-  const moveNavOrder = async (pageKey: string, direction: 'up' | 'down') => {
-    const currentIndex = navRows.findIndex((item) => item.pageKey === pageKey);
+  const moveNavOrder = async (
+    pageKey: string,
+    direction: 'up' | 'down',
+    orderedRows: PageCenterOverviewItem[] = navRows,
+    options?: {
+      savingKeyPrefix?: string;
+      successText?: string;
+      errorText?: string;
+      enforceHomeConstraint?: boolean;
+    }
+  ) => {
+    const currentIndex = orderedRows.findIndex((item) => item.pageKey === pageKey);
     if (currentIndex < 0) return;
 
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= navRows.length) return;
+    if (targetIndex < 0 || targetIndex >= orderedRows.length) return;
 
-    const currentItem = navRows[currentIndex];
-    const targetItem = navRows[targetIndex];
+    const currentItem = orderedRows[currentIndex];
+    const targetItem = orderedRows[targetIndex];
     if (
-      isMiniProgramForcedHomeEntry(currentItem.pageKey, channel, hideAudit) ||
-      isMiniProgramForcedHomeEntry(targetItem.pageKey, channel, hideAudit)
+      (options?.enforceHomeConstraint ?? true) &&
+      (isMiniProgramForcedHomeEntry(currentItem.pageKey, channel, hideAudit) ||
+        isMiniProgramForcedHomeEntry(targetItem.pageKey, channel, hideAudit))
     ) {
       showToast('当前页面菜单顺序暂不可调整。');
       return;
@@ -1065,14 +1204,18 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     const currentForm = normalizeRuleForm(currentItem, channel, getForm(currentItem));
     const targetForm = normalizeRuleForm(targetItem, channel, getForm(targetItem));
 
-    setSavingKey(`${pageKey}:${channel}:move:${direction}`);
+    setSavingKey(`${pageKey}:${channel}:${options?.savingKeyPrefix || 'move'}:${direction}`);
     try {
       await requestSaveRule(currentItem, { ...currentForm, navOrder: targetForm.navOrder });
       await requestSaveRule(targetItem, { ...targetForm, navOrder: currentForm.navOrder });
       await loadOverview();
-      showToast(`${currentItem.pageName} 的菜单顺序已调整`);
+      showToast(options?.successText || `${currentItem.pageName} 的菜单顺序已调整`);
     } catch (error) {
-      showToast(sanitizePageCenterUiMessage(error instanceof Error ? error.message : '调整菜单顺序失败'));
+      showToast(
+        sanitizePageCenterUiMessage(
+          error instanceof Error ? error.message : options?.errorText || '调整菜单顺序失败'
+        )
+      );
     } finally {
       setSavingKey('');
     }
@@ -1344,11 +1487,6 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
         <section className="space-y-4">
           {pageSections.map((section) => (
             <div key={section.key} className="space-y-3">
-              <div className="booking-panel rounded-[24px] border border-[#5D4037]/8 bg-[#FFF8F2] p-5">
-                <div className="text-lg font-black text-[#5D4037]">{section.title}</div>
-                <p className="mt-1 text-sm leading-6 text-[#8D6E63]">{section.description}</p>
-              </div>
-
               {section.groups.map((group) => {
                 const item = group.parent;
                 const view = item.channels[channel];
@@ -1440,8 +1578,23 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                         </button>
 
                         {group.isExpanded ? (
-                          <div className="mt-4 space-y-3 border-t border-[#5D4037]/8 pt-4">
-                            {group.children.map((child) => {
+                          <div className="mt-4 space-y-4 border-t border-[#5D4037]/8 pt-4">
+                            {group.childGroups.map((childGroup) => (
+                              <div key={childGroup.key} className="space-y-3">
+                                {childGroup.title || childGroup.description ? (
+                                  <div className="rounded-[18px] border border-[#5D4037]/8 bg-white/80 px-4 py-3">
+                                    {childGroup.title ? (
+                                      <div className="text-sm font-bold text-[#5D4037]">{childGroup.title}</div>
+                                    ) : null}
+                                    {childGroup.description ? (
+                                      <p className="mt-1 text-xs leading-5 text-[#8D6E63]">
+                                        {childGroup.description}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+
+                                {childGroup.rows.map((child) => {
                               const childView = child.channels[channel];
                               const childStateMeta = getDisplayStateMeta(child, channel);
                               const childQuickAction = resolveQuickStateAction(child, channel, hideAudit);
@@ -1502,7 +1655,9 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                   </div>
                                 </div>
                               );
-                            })}
+                                })}
+                              </div>
+                            ))}
                           </div>
                         ) : null}
                       </div>
@@ -1603,10 +1758,16 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
               ) : (() => {
                 const savedView = savedRowMap.get(modalRow.pageKey)?.channels[channel] || modalRow.channels[channel];
                 const isSecondaryPage = isSecondaryPageKey(modalRow.pageKey);
-                const currentNavIndex = navRows.findIndex((item) => item.pageKey === modalRow.pageKey);
+                const isAuthenticatedProfileSecondaryPage =
+                  isSecondaryPage && isProfileAuthenticatedSecondaryPageKey(modalRow.pageKey);
+                const activeOrderRows = isAuthenticatedProfileSecondaryPage
+                  ? profileAuthenticatedSecondaryRows
+                  : navRows;
+                const currentNavIndex = activeOrderRows.findIndex((item) => item.pageKey === modalRow.pageKey);
                 const canMoveUp = currentNavIndex > 0;
-                const canMoveDown = currentNavIndex >= 0 && currentNavIndex < navRows.length - 1;
-                const forcedHome = isMiniProgramForcedHomeEntry(modalRow.pageKey, channel, hideAudit);
+                const canMoveDown = currentNavIndex >= 0 && currentNavIndex < activeOrderRows.length - 1;
+                const forcedHome =
+                  !isSecondaryPage && isMiniProgramForcedHomeEntry(modalRow.pageKey, channel, hideAudit);
                 const usableBetaCount = modalBetaCodes.filter((item) => item.isUsable).length;
                 const canSwitchToBeta = !Boolean(modalForcedState && modalForcedState !== 'beta') && usableBetaCount > 0;
                 const canSwitchToOnline =
@@ -1649,7 +1810,9 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                   ? modalRow.channels[channel].publishState === 'online'
                     ? '当前动态详情页已启用。实际页面顶部优先显示相册名；相册未命名时，才回退使用这里的默认名称。'
                     : '显示后允许进入动态详情页。实际页面顶部优先显示相册名；相册未命名时，才回退使用这里的默认名称。'
-                  : onlineSectionDesc;
+                  : isAuthenticatedProfileSecondaryPage
+                    ? `${onlineSectionDesc} 这里的顺序会同步到登录后的「我的」页菜单。`
+                    : onlineSectionDesc;
                 return (
                   <div className="space-y-4">
                     <section className={sectionClass}>
@@ -1848,11 +2011,83 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                               </div>
                             </div>
                           </div>
+                          {isAuthenticatedProfileSecondaryPage ? (
+                            <>
+                              <div className="page-center-modal__order-pills mt-4">
+                                {activeOrderRows.length > 0 ? activeOrderRows.map((row, index) => (
+                                  <span key={row.pageKey} className={`rounded-full px-3 py-2 text-xs font-semibold ${row.pageKey === modalRow.pageKey ? 'border-2 border-[#5D4037] bg-[#FFC857] text-[#5D4037]' : 'border border-[#5D4037]/12 bg-white text-[#8D6E63]'}`}>
+                                    {index + 1}. {resolveDisplayedNavLabel(row, channel)}
+                                  </span>
+                                )) : <span className="text-sm text-[#8D6E63]">当前还没有可排序的登录后入口。</span>}
+                              </div>
+                              <div className="mt-2 text-xs leading-5 text-[#8D6E63]">
+                                {getSecondaryOrderHelperText(channel)}
+                              </div>
+                            </>
+                          ) : null}
+                          <div className="page-center-modal__online-actions mt-4">
+                            {isAuthenticatedProfileSecondaryPage ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void moveNavOrder(
+                                      modalRow.pageKey,
+                                      'up',
+                                      profileAuthenticatedSecondaryRows,
+                                      {
+                                        savingKeyPrefix: 'secondary-move',
+                                        successText: `${modalRow.pageName} 的登录后菜单顺序已调整`,
+                                        errorText: '调整登录后菜单顺序失败',
+                                        enforceHomeConstraint: false,
+                                      }
+                                    )
+                                  }
+                                  disabled={currentNavIndex < 0 || !canMoveUp || savingKey === `${modalRow.pageKey}:${channel}:secondary-move:up`}
+                                  className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"
+                                >
+                                  <ArrowUp className="h-4 w-4" />
+                                  前移
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void moveNavOrder(
+                                      modalRow.pageKey,
+                                      'down',
+                                      profileAuthenticatedSecondaryRows,
+                                      {
+                                        savingKeyPrefix: 'secondary-move',
+                                        successText: `${modalRow.pageName} 的登录后菜单顺序已调整`,
+                                        errorText: '调整登录后菜单顺序失败',
+                                        enforceHomeConstraint: false,
+                                      }
+                                    )
+                                  }
+                                  disabled={currentNavIndex < 0 || !canMoveDown || savingKey === `${modalRow.pageKey}:${channel}:secondary-move:down`}
+                                  className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"
+                                >
+                                  <ArrowDown className="h-4 w-4" />
+                                  后移
+                                </button>
+                              </>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickStateAction(modalRow, 'online')}
+                              disabled={!canSwitchToOnline || savingKey === `${modalRow.pageKey}:${channel}:state:online`}
+                              className={PAGE_CENTER_MODAL_ONLINE_BUTTON_CLASS}
+                            >
+                              {savingKey === `${modalRow.pageKey}:${channel}:state:online`
+                                ? '保存中...'
+                                : onlineActionLabel}
+                            </button>
+                          </div>
                         </>
                       ) : (
                         <>
                           <div className="page-center-modal__order-pills mt-4">
-                            {navRows.length > 0 ? navRows.map((row, index) => (
+                            {activeOrderRows.length > 0 ? activeOrderRows.map((row, index) => (
                               <span key={row.pageKey} className={`rounded-full px-3 py-2 text-xs font-semibold ${row.pageKey === modalRow.pageKey ? 'border-2 border-[#5D4037] bg-[#FFC857] text-[#5D4037]' : 'border border-[#5D4037]/12 bg-white text-[#8D6E63]'}`}>
                                 {index + 1}. {resolveDisplayedNavLabel(row, channel)}
                               </span>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, MessageSquare, Phone, Save, User } from 'lucide-react';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import {
@@ -178,38 +179,12 @@ export default function EditProfilePage() {
           </div>
         </motion.div>
 
-        <div className="flex-1 flex items-center justify-center px-6">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center gap-6"
-          >
-            <div className="relative">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-                className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-              />
-              <motion.div
-                animate={{ rotate: -360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <User className="w-8 h-8 text-[#FFC857]" />
-              </div>
-            </div>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="text-center"
-            >
-              <p className="text-lg font-medium text-[#5D4037] mb-2">{managedTitle}</p>
-              <p className="text-sm text-[#5D4037]/60">正在加载个人资料</p>
-            </motion.div>
-          </motion.div>
+        <div className="flex-1 px-6 py-6">
+          <MiniProgramRecoveryScreen
+            title="拾光中..."
+            description="正在加载个人资料"
+            className="h-full min-h-0"
+          />
         </div>
       </div>
     );

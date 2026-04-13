@@ -3,8 +3,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Calendar, Info, LayoutDashboard, Lock, LogOut, User } from 'lucide-react';
+import { Calendar, Info, LayoutDashboard, Lock, LogOut, Sparkles, User } from 'lucide-react';
 import LogoutConfirmModal from '@/components/LogoutConfirmModal';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
@@ -54,10 +55,13 @@ export default function ProfilePage() {
     const pageAccessItems = Array.isArray(shellRuntime?.pageAccessItems)
       ? shellRuntime.pageAccessItems
       : [];
-    return pageAccessItems.reduce<Record<string, { publishState: string; navText: string; headerTitle: string }>>(
+    return pageAccessItems.reduce<
+      Record<string, { publishState: string; navOrder: number; navText: string; headerTitle: string }>
+    >(
       (map, item) => {
         map[item.pageKey] = {
           publishState: String(item.publishState || '').trim(),
+          navOrder: Number.isFinite(Number(item.navOrder)) ? Number(item.navOrder) : 99,
           navText: String(item.navText || '').trim(),
           headerTitle: String(item.headerTitle || '').trim(),
         };
@@ -75,10 +79,19 @@ export default function ProfilePage() {
     return current.navText || current.headerTitle || fallbackTitle;
   };
 
+  const resolveVisibleOrder = (pageKey: string, fallbackOrder: number) => {
+    const current = managedPageMap[pageKey];
+    if (!current || current.publishState !== 'online') {
+      return fallbackOrder;
+    }
+    return Number.isFinite(Number(current.navOrder)) ? Number(current.navOrder) : fallbackOrder;
+  };
+
   const profileMenuItems = useMemo(() => {
     return [
       {
         key: 'profile-edit',
+        order: resolveVisibleOrder('profile-edit', 110),
         title: resolveVisibleTitle('profile-edit', '编辑个人资料'),
         description: '修改用户名、手机号、微信号',
         path: '/profile/edit',
@@ -91,6 +104,7 @@ export default function ProfilePage() {
       },
       {
         key: 'profile-bookings',
+        order: resolveVisibleOrder('profile-bookings', 120),
         title: resolveVisibleTitle('profile-bookings', '我的预约记录'),
         description: '查看所有约拍记录',
         path: '/profile/bookings',
@@ -102,7 +116,21 @@ export default function ProfilePage() {
         titleClassName: 'text-sm font-medium text-[#5D4037]',
       },
       {
+        key: 'profile-beta',
+        order: resolveVisibleOrder('profile-beta', 130),
+        title: resolveVisibleTitle('profile-beta', '内测功能'),
+        description: '输入内测码，解锁并进入专属内测页面',
+        path: '/profile/beta',
+        Icon: Sparkles,
+        iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
+        iconClassName: 'w-5 h-5 text-[#FFC857]',
+        buttonClassName:
+          'w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all',
+        titleClassName: 'text-sm font-medium text-[#5D4037]',
+      },
+      {
         key: 'about',
+        order: resolveVisibleOrder('about', 140),
         title: !isAdmin ? resolveVisibleTitle('about', '关于') : '',
         description: '查看作者联系方式与留言',
         path: '/profile/about',
@@ -115,6 +143,7 @@ export default function ProfilePage() {
       },
       {
         key: 'profile-change-password',
+        order: resolveVisibleOrder('profile-change-password', 150),
         title: resolveVisibleTitle('profile-change-password', '修改密码'),
         description: '更新账户安全信息',
         path: '/profile/change-password',
@@ -127,6 +156,7 @@ export default function ProfilePage() {
       },
       {
         key: 'profile-delete-account',
+        order: resolveVisibleOrder('profile-delete-account', 160),
         title: resolveVisibleTitle('profile-delete-account', '删除账户'),
         description: '永久删除账户和所有数据',
         path: '/profile/delete-account',
@@ -137,7 +167,14 @@ export default function ProfilePage() {
           'w-full bg-white rounded-2xl p-4 shadow-sm border border-[#5D4037]/10 flex items-center gap-3 text-left hover:shadow-md hover:border-red-500/30 transition-all',
         titleClassName: 'text-sm font-medium text-red-600',
       },
-    ].filter((item) => item.title);
+    ]
+      .filter((item) => item.title)
+      .sort((left, right) => {
+        if (left.order !== right.order) {
+          return left.order - right.order;
+        }
+        return left.key.localeCompare(right.key, 'zh-CN');
+      });
   }, [isAdmin, managedPageMap]);
 
   const guestMenuItems = useMemo(
@@ -209,51 +246,7 @@ export default function ProfilePage() {
   }, []);
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="flex flex-col items-center gap-6"
-        >
-          {/* 时光中动画 */}
-          <div className="relative">
-            {/* 外圈旋转 */}
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            {/* 内圈反向旋转 */}
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            {/* 中心图标 */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Lock className="w-8 h-8 text-[#FFC857]" />
-            </div>
-          </div>
-
-          {/* 加载文字 */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
-          >
-            <p className="text-lg font-medium text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              {loadingTitle}
-            </p>
-            <p className="text-sm text-[#5D4037]/60">
-              {loadingDescription}
-            </p>
-          </motion.div>
-        </motion.div>
-      </div>
-    );
+    return <MiniProgramRecoveryScreen title="拾光中..." description={loadingDescription} className="h-screen" />;
   }
 
   if (!isLoggedIn) {
@@ -395,7 +388,7 @@ export default function ProfilePage() {
             <motion.button
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.28 }}
+              transition={{ delay: 0.25 + profileMenuItems.length * 0.05 }}
               whileTap={{ scale: 0.98 }}
               whileHover={{ x: 4 }}
               onClick={() => router.push('/admin')}

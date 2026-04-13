@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Phone, Lock, Eye, EyeOff } from 'lucide-react';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
@@ -45,10 +46,6 @@ function LoginForm() {
   const registerEntry = useMemo(() => {
     return resolveManagedGuestEntry(pageAccessItems, 'register', '/register', '注册');
   }, [pageAccessItems]);
-  const forgotEntry = useMemo(() => {
-    return resolveManagedGuestEntry(pageAccessItems, 'forgot-password', '/auth/forgot-password', '忘记密码');
-  }, [pageAccessItems]);
-
   const isValidRedirectPath = (path: string): boolean => {
     if (!path.startsWith('/')) return false;
     if (path.includes('://') || path.startsWith('//')) return false;
@@ -192,18 +189,6 @@ function LoginForm() {
             </button>
           </div>
 
-          {forgotEntry && (
-            <div className="flex justify-end px-1 -mt-1">
-              <button
-                type="button"
-                onClick={() => router.push(forgotEntry.href)}
-                className="text-xs text-[#5D4037]/55 hover:text-[#5D4037] transition-colors"
-              >
-                {forgotEntry.label}
-              </button>
-            </div>
-          )}
-
           {/* 错误提示 */}
           <AnimatePresence>
             {error && (
@@ -258,9 +243,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-[#FFFBF0] flex items-center justify-center">
-        <div className="text-[#5D4037]">拾光中...</div>
-      </div>
+      <MiniProgramRecoveryScreen title="拾光中..." description="正在加载登录页面" className="min-h-screen" />
     }>
       <LoginForm />
     </Suspense>

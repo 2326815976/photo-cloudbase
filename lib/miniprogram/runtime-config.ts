@@ -10,8 +10,8 @@ export const MINIPROGRAM_TAB_PAGE_OPTIONS = [
     key: 'album',
     iconKey: 'album',
     pagePath: 'pages/album/index',
-    defaultText: '返图',
-    defaultGuestText: '返图',
+    defaultText: '提取',
+    defaultGuestText: '提取',
   },
   {
     key: 'gallery',
@@ -67,6 +67,7 @@ export interface MiniProgramManagedPageAccessItem {
   routePath: string;
   previewRoutePath: string;
   publishState: 'offline' | 'beta' | 'online';
+  navOrder: number;
   navText: string;
   guestNavText: string;
   headerTitle: string;
@@ -131,7 +132,15 @@ function normalizeIconKey(value: unknown, fallback: MiniProgramIconKey): MiniPro
 }
 
 function toText(value: unknown): string {
-  return String(value ?? '').trim();
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return '';
+  }
+  const normalized = text.toLowerCase();
+  if (normalized === 'null' || normalized === 'undefined' || normalized === 'nil' || normalized === 'none') {
+    return '';
+  }
+  return text;
 }
 
 function toBoolean(value: unknown, fallback: boolean): boolean {
@@ -220,6 +229,7 @@ function normalizeManagedPageAccessMap(
       routePath: toText(current.routePath),
       previewRoutePath: toText(current.previewRoutePath),
       publishState: publishState === 'online' || publishState === 'beta' ? publishState : 'offline',
+      navOrder: Number.isFinite(Number(current.navOrder)) ? Number(current.navOrder) : 99,
       navText: toText(current.navText),
       guestNavText: toText(current.guestNavText),
       headerTitle: toText(current.headerTitle),
@@ -275,8 +285,8 @@ export function buildStandardTabBarItems(): MiniProgramTabBarItem[] {
       key: 'album',
       iconKey: 'album',
       pagePath: 'pages/album/index',
-      text: '返图',
-      guestText: '返图',
+      text: '提取',
+      guestText: '提取',
       enabled: true,
     },
     {

@@ -6,6 +6,7 @@ import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
 
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
@@ -563,45 +564,7 @@ export default function BookingPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="flex flex-col items-center gap-6"
-        >
-          <div className="relative">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Camera className="w-8 h-8 text-[#FFC857]" />
-            </div>
-          </div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
-          >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              {loadingTitle}
-            </p>
-            <p className="text-sm text-[#5D4037]/60">
-              {loadingDescription}
-            </p>
-          </motion.div>
-        </motion.div>
-      </div>
-    );
+    return <MiniProgramRecoveryScreen title="拾光中..." description={loadingDescription} className="h-screen" />;
   }
 
   return (
@@ -899,5 +862,4 @@ export default function BookingPage() {
     </div>
   );
 }
-
 

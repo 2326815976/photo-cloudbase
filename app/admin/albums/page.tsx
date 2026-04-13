@@ -2299,7 +2299,7 @@ const copyAccessKey = async (accessKey: string) => {
                   <img
                     src={editingCover.cover_url}
                     alt="当前封面"
-                    className="w-full h-32 object-cover rounded-lg"
+                    className="album-upload-preview__cover"
                   />
                 </div>
               )}

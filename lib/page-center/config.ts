@@ -113,6 +113,7 @@ export interface WebPageAccessItem {
   publishState: PagePublishState;
   supportsBeta: boolean;
   supportsPreview: boolean;
+  navOrder: number;
   navText: string;
   guestNavText: string;
   headerTitle: string;
@@ -139,28 +140,44 @@ export interface MiniProgramPageCenterRuntimeResult {
 
 export const PAGE_CENTER_CHANNELS: AppChannel[] = ['web', 'miniprogram'];
 export const PAGE_PUBLISH_STATES: PagePublishState[] = ['offline', 'beta', 'online'];
+export const PROFILE_GUEST_SECONDARY_PAGE_KEYS = [
+  'login',
+  'register',
+] as const;
+export const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS = [
+  'profile-edit',
+  'profile-bookings',
+  'profile-beta',
+  'about',
+  'profile-change-password',
+  'profile-delete-account',
+] as const;
 export const PROFILE_SECONDARY_PAGE_KEYS = [
   'login',
   'register',
-  'forgot-password',
-  'reset-password',
   'profile-edit',
   'profile-bookings',
+  'profile-beta',
   'profile-change-password',
   'about',
   'profile-delete-account',
 ] as const;
 
 export const ALBUM_SECONDARY_PAGE_KEYS = ['album-detail'] as const;
+export const REMOVED_APP_PAGE_KEYS = ['forgot-password', 'reset-password'] as const;
+const PROFILE_GUEST_SECONDARY_PAGE_KEY_SET = new Set<string>(PROFILE_GUEST_SECONDARY_PAGE_KEYS);
+const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEY_SET = new Set<string>(
+  PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS
+);
+const REMOVED_APP_PAGE_KEY_SET = new Set<string>(REMOVED_APP_PAGE_KEYS);
 
 export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   login: 'profile',
   register: 'profile',
-  'forgot-password': 'profile',
-  'reset-password': 'profile',
   about: 'profile',
   'profile-edit': 'profile',
   'profile-bookings': 'profile',
+  'profile-beta': 'profile',
   'profile-change-password': 'profile',
   'profile-delete-account': 'profile',
   'album-detail': 'album',
@@ -183,6 +200,18 @@ export function isProfileSecondaryPageKey(input: unknown): boolean {
 
 export function isAlbumSecondaryPageKey(input: unknown): boolean {
   return resolveSecondaryParentPageKey(input) === 'album';
+}
+
+export function isProfileGuestSecondaryPageKey(input: unknown): boolean {
+  return PROFILE_GUEST_SECONDARY_PAGE_KEY_SET.has(normalizeText(input));
+}
+
+export function isProfileAuthenticatedSecondaryPageKey(input: unknown): boolean {
+  return PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEY_SET.has(normalizeText(input));
+}
+
+export function isRemovedAppPageKey(input: unknown): boolean {
+  return REMOVED_APP_PAGE_KEY_SET.has(normalizeText(input));
 }
 
 export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
@@ -331,44 +360,6 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     isBuiltIn: true,
   },
   {
-    pageKey: 'forgot-password',
-    pageName: '忘记密码',
-    pageDescription: '登录页访客找回密码说明',
-    routePathWeb: '/auth/forgot-password',
-    routePathMiniProgram: 'pages/auth/forgot-password/index',
-    previewRoutePathWeb: '/auth/forgot-password?presentation=preview&page_key=forgot-password',
-    previewRoutePathMiniProgram:
-      '/pages/auth/forgot-password/index?presentation=preview&page_key=forgot-password',
-    tabKey: null,
-    iconKey: null,
-    defaultTabText: '忘记密码',
-    defaultGuestTabText: '忘记密码',
-    isNavCandidateWeb: false,
-    isTabCandidateMiniProgram: false,
-    supportsBeta: false,
-    supportsPreview: true,
-    isBuiltIn: true,
-  },
-  {
-    pageKey: 'reset-password',
-    pageName: '重置密码',
-    pageDescription: '访客态密码重置说明页',
-    routePathWeb: '/auth/reset-password',
-    routePathMiniProgram: 'pages/auth/reset-password/index',
-    previewRoutePathWeb: '/auth/reset-password?presentation=preview&page_key=reset-password',
-    previewRoutePathMiniProgram:
-      '/pages/auth/reset-password/index?presentation=preview&page_key=reset-password',
-    tabKey: null,
-    iconKey: null,
-    defaultTabText: '重置密码',
-    defaultGuestTabText: '重置密码',
-    isNavCandidateWeb: false,
-    isTabCandidateMiniProgram: false,
-    supportsBeta: false,
-    supportsPreview: true,
-    isBuiltIn: true,
-  },
-  {
     pageKey: 'about',
     pageName: '关于',
     pageDescription: '关于页面',
@@ -416,6 +407,24 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     iconKey: null,
     defaultTabText: '我的预约记录',
     defaultGuestTabText: '我的预约记录',
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'profile-beta',
+    pageName: '内测功能',
+    pageDescription: '我的页内测功能入口',
+    routePathWeb: '/profile/beta',
+    routePathMiniProgram: 'pages/profile/beta/index',
+    previewRoutePathWeb: '/profile/beta?presentation=preview&page_key=profile-beta',
+    previewRoutePathMiniProgram: '/pages/profile/beta/index?presentation=preview&page_key=profile-beta',
+    tabKey: null,
+    iconKey: null,
+    defaultTabText: '内测功能',
+    defaultGuestTabText: '内测功能',
     isNavCandidateWeb: false,
     isTabCandidateMiniProgram: false,
     supportsBeta: false,
@@ -476,16 +485,15 @@ export const DEFAULT_SECONDARY_PAGE_RULES: Array<
     'pageKey' | 'publishState' | 'showInNav' | 'navOrder' | 'navText' | 'guestNavText' | 'headerTitle' | 'headerSubtitle' | 'isHomeEntry' | 'notes'
   >
 > = [
-  { pageKey: 'login', publishState: 'online', showInNav: false, navOrder: 99, navText: '登录', guestNavText: '登录', headerTitle: '登录', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'register', publishState: 'online', showInNav: false, navOrder: 99, navText: '注册', guestNavText: '注册', headerTitle: '注册', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'forgot-password', publishState: 'online', showInNav: false, navOrder: 99, navText: '忘记密码', guestNavText: '忘记密码', headerTitle: '忘记密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'reset-password', publishState: 'online', showInNav: false, navOrder: 99, navText: '重置密码', guestNavText: '重置密码', headerTitle: '重置密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'profile-edit', publishState: 'online', showInNav: false, navOrder: 99, navText: '编辑个人资料', guestNavText: '编辑个人资料', headerTitle: '编辑个人资料', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'profile-bookings', publishState: 'online', showInNav: false, navOrder: 99, navText: '我的预约记录', guestNavText: '我的预约记录', headerTitle: '我的预约记录', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'profile-change-password', publishState: 'online', showInNav: false, navOrder: 99, navText: '修改密码', guestNavText: '修改密码', headerTitle: '修改密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'about', publishState: 'online', showInNav: false, navOrder: 99, navText: '关于', guestNavText: '关于', headerTitle: '关于', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'profile-delete-account', publishState: 'online', showInNav: false, navOrder: 99, navText: '删除账户', guestNavText: '删除账户', headerTitle: '删除账户', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'album-detail', publishState: 'online', showInNav: false, navOrder: 99, navText: '专属返图空间', guestNavText: '专属返图空间', headerTitle: '专属返图空间', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'login', publishState: 'online', showInNav: false, navOrder: 10, navText: '登录', guestNavText: '登录', headerTitle: '登录', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'register', publishState: 'online', showInNav: false, navOrder: 20, navText: '注册', guestNavText: '注册', headerTitle: '注册', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-edit', publishState: 'online', showInNav: false, navOrder: 110, navText: '编辑个人资料', guestNavText: '编辑个人资料', headerTitle: '编辑个人资料', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-bookings', publishState: 'online', showInNav: false, navOrder: 120, navText: '我的预约记录', guestNavText: '我的预约记录', headerTitle: '我的预约记录', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-beta', publishState: 'online', showInNav: false, navOrder: 130, navText: '内测功能', guestNavText: '内测功能', headerTitle: '内测功能', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'about', publishState: 'online', showInNav: false, navOrder: 140, navText: '关于', guestNavText: '关于', headerTitle: '关于', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-change-password', publishState: 'online', showInNav: false, navOrder: 150, navText: '修改密码', guestNavText: '修改密码', headerTitle: '修改密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile-delete-account', publishState: 'online', showInNav: false, navOrder: 160, navText: '删除账户', guestNavText: '删除账户', headerTitle: '删除账户', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'album-detail', publishState: 'online', showInNav: false, navOrder: 110, navText: '专属返图空间', guestNavText: '专属返图空间', headerTitle: '专属返图空间', headerSubtitle: '', isHomeEntry: false, notes: '' },
 ];
 
 export const PAGE_KEY_MAP = new Map(BUILT_IN_APP_PAGES.map((item) => [item.pageKey, item]));
@@ -501,7 +509,15 @@ export function normalizeMiniProgramPath(input: unknown): string {
 }
 
 export function normalizeText(input: unknown): string {
-  return String(input ?? '').trim();
+  const text = String(input ?? '').trim();
+  if (!text) {
+    return '';
+  }
+  const normalized = text.toLowerCase();
+  if (normalized === 'null' || normalized === 'undefined' || normalized === 'nil' || normalized === 'none') {
+    return '';
+  }
+  return text;
 }
 
 export function normalizeBoolean(input: unknown, fallback = false): boolean {
@@ -660,7 +676,7 @@ export function resolvePageRuleView(
     channel,
     publishState: resolved?.publishState || 'offline',
     showInNav: isSecondaryPage ? false : Boolean(resolved?.showInNav),
-    navOrder: isSecondaryPage ? 99 : normalizeNumber(resolved?.navOrder, 99),
+    navOrder: normalizeNumber(resolved?.navOrder, 99),
     navText,
     guestNavText,
     headerTitle: isSecondaryPage ? navText : normalizeText(resolved?.headerTitle),

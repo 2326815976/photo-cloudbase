@@ -292,7 +292,7 @@ export default function AlbumLoginPage() {
   if (pageLoading) {
     return (
       <MiniProgramRecoveryScreen
-        title={loadingTitle}
+        title={COPY.loadingTitle}
         description={loadingDescription}
         className="h-[100dvh]"
       />

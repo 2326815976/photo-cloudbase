@@ -92,6 +92,7 @@ export default function AdminAboutPage() {
   const [aboutQrPreviewFailed, setAboutQrPreviewFailed] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const qrInputRef = useRef<HTMLInputElement | null>(null);
+  const authorMessageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const aboutLoadTokenRef = useRef(0);
   useBeforeUnloadGuard(uploadingQr);
 
@@ -106,6 +107,17 @@ export default function AdminAboutPage() {
   useEffect(() => {
     setAboutQrPreviewFailed(false);
   }, [form.donation_qr_code]);
+
+  useEffect(() => {
+    const textarea = authorMessageTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = '0px';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [form.author_message]);
+
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 2800);
@@ -401,7 +413,15 @@ export default function AdminAboutPage() {
                 </div>
                 <div className="booking-modal__field">
                   <label className="booking-modal__label">作者留言</label>
-                  <textarea className="booking-modal__textarea about-textarea" value={form.author_message} onChange={(event) => handleChange('author_message', event.target.value)} placeholder="写给用户的一段话" maxLength={2000} />
+                  <textarea
+                    ref={authorMessageTextareaRef}
+                    className="booking-modal__textarea about-textarea"
+                    value={form.author_message}
+                    onChange={(event) => handleChange('author_message', event.target.value)}
+                    placeholder="写给用户的一段话"
+                    maxLength={2000}
+                    rows={1}
+                  />
                 </div>
               </div>
               <div className="about-save-wrap">

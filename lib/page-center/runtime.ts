@@ -13,6 +13,7 @@ import {
   buildRegistryFallbackItems,
   createFallbackMiniProgramRuleMap,
   createFallbackWebRuleMap,
+  isRemovedAppPageKey,
   isSecondaryPageKey,
   normalizeBoolean,
   normalizeMiniProgramPath,
@@ -270,7 +271,7 @@ export async function loadPageCenterRows(): Promise<PageCenterRows> {
             notes: normalizeText(row.notes),
             updatedAt: normalizeText(row.updated_at),
           }))
-          .filter((item) => item.pageKey)
+          .filter((item) => item.pageKey && !isRemovedAppPageKey(item.pageKey))
       );
     }
 
@@ -312,7 +313,7 @@ export async function loadPageCenterRows(): Promise<PageCenterRows> {
             createdAt: normalizeText(row.created_at),
             updatedAt: normalizeText(row.updated_at),
           }))
-          .filter((item) => item.id && item.pageKey)
+          .filter((item) => item.id && item.pageKey && !isRemovedAppPageKey(item.pageKey))
       );
     }
 
@@ -330,7 +331,7 @@ function mergeRegistryItems(rows: PageCenterRows): AppPageRegistryItem[] {
   const map = new Map<string, AppPageRegistryItem>();
   buildRegistryFallbackItems().forEach((item) => map.set(item.pageKey, item));
   rows.registryItems.forEach((item) => {
-    if (!item.pageKey) return;
+    if (!item.pageKey || isRemovedAppPageKey(item.pageKey)) return;
     map.set(item.pageKey, item);
   });
   return Array.from(map.values());
@@ -575,6 +576,7 @@ export async function buildMiniProgramRuntimeWithPageCenter(
         routePath: string;
         previewRoutePath: string;
         publishState: AppPagePublishRuleItem['publishState'];
+        navOrder: number;
         navText: string;
         guestNavText: string;
         headerTitle: string;
@@ -592,6 +594,7 @@ export async function buildMiniProgramRuntimeWithPageCenter(
       routePath: normalizePath(currentView.routePath),
       previewRoutePath: normalizePath(currentView.previewRoutePath),
       publishState: currentView.publishState,
+      navOrder: currentView.navOrder,
       navText: currentView.navText || page.defaultTabText || page.pageName,
       guestNavText:
         currentView.guestNavText ||
@@ -658,6 +661,7 @@ export async function buildWebShellRuntime(): Promise<WebShellRuntime> {
     publishState: view.publishState,
     supportsBeta: page.supportsBeta,
     supportsPreview: page.supportsPreview,
+    navOrder: view.navOrder,
     navText: view.navText || page.defaultTabText || page.pageName,
     guestNavText:
       view.guestNavText || view.navText || page.defaultGuestTabText || page.defaultTabText || page.pageName,

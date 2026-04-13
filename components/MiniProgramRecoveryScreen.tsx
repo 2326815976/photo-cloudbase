@@ -10,7 +10,7 @@ export const MINI_PROGRAM_RECONNECT_COPY = {
 } as const;
 
 type MiniProgramRecoveryScreenProps = {
-  title: string;
+  title?: string;
   description: string;
   icon?: ReactNode;
   className?: string;
@@ -28,6 +28,8 @@ export default function MiniProgramRecoveryScreen({
   className,
   contentClassName,
 }: MiniProgramRecoveryScreenProps) {
+  const resolvedTitle = String(title || MINI_PROGRAM_RECONNECT_COPY.title).trim() || MINI_PROGRAM_RECONNECT_COPY.title;
+
   return (
     <div
       className={joinClassNames(
@@ -36,31 +38,41 @@ export default function MiniProgramRecoveryScreen({
       )}
     >
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: 'easeOut', delay: 0.2 }}
-        className={joinClassNames('flex flex-col items-center gap-[9px]', contentClassName)}
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className={joinClassNames('flex flex-col items-center gap-6', contentClassName)}
       >
-        <div className="relative h-24 w-24">
+        <div className="relative h-24 w-24" aria-hidden="true">
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-            className="absolute inset-0 rounded-full border-[5px] border-solid border-[#FFC857]/30 border-t-[#FFC857] box-border"
+            className="h-24 w-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
           />
           <motion.div
             animate={{ rotate: -360 }}
             transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-            className="absolute inset-3 rounded-full border-[5px] border-solid border-[#5D4037]/20 border-b-[#5D4037] box-border"
+            className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
           />
           <div className="absolute inset-0 flex items-center justify-center">
-            {icon || <Sparkles className="h-8 w-8 text-[#FFC857]" strokeWidth={2.25} />}
+            {icon || <Sparkles className="w-8 h-8 text-[#FFC857]" />}
           </div>
         </div>
 
-        <div className="text-center">
-          <p className="mb-[3px] text-[16px] font-extrabold leading-none text-[#5D4037]">{title}</p>
-          <p className="text-[12px] leading-[1.4] text-[#5D4037]/60">{description}</p>
-        </div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="text-center"
+        >
+          <p
+            className="text-lg font-medium text-[#5D4037] mb-2"
+            style={{ fontFamily: "'ZQKNNY', cursive" }}
+          >
+            {resolvedTitle}
+          </p>
+          <p className="text-sm text-[#5D4037]/60">{description}</p>
+        </motion.div>
       </motion.div>
     </div>
   );

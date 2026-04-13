@@ -1289,7 +1289,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     const candidate = String(navLabel || guestNavLabel || managedTitle || '').trim();
     return candidate || '页面';
   }, [guestNavLabel, managedTitle, navLabel]);
-  const loadingTitle = loadingPageLabel;
+  const loadingTitle = '拾光中...';
   const loadingDescription = isTagOverlayLoading
     ? `正在切换${loadingPageLabel}标签`
     : `正在加载${loadingPageLabel}`;

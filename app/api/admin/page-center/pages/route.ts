@@ -14,6 +14,7 @@ import { buildPageCenterOverview, loadEffectiveMiniProgramRuntimeConfig } from '
 import { MIN_NAV_ITEMS_PER_CHANNEL, canPageShowInNav } from '@/lib/page-center/capabilities';
 import {
   isSecondaryPageKey,
+  isRemovedAppPageKey,
   normalizeNumber,
   normalizePublishState,
   normalizeText,
@@ -66,6 +67,9 @@ export async function POST(request: Request) {
 
     if (!pageKey) {
       return NextResponse.json({ error: '缺少页面标识' }, { status: 400 });
+    }
+    if (isRemovedAppPageKey(pageKey)) {
+      return NextResponse.json({ error: '目标页面已删除' }, { status: 404 });
     }
 
     let registryItem = await loadRegistryItemByPageKey(pageKey);
