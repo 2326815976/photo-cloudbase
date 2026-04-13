@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ShieldAlert, LockKeyhole } from 'lucide-react';
+import { ArrowLeft, RefreshCcw, ShieldAlert } from 'lucide-react';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 
@@ -23,13 +23,13 @@ function resolveManagedGuestEntry(
   };
 }
 
-export default function ForgotPasswordPage() {
+export default function ResetPasswordPage() {
   const router = useRouter();
   const { shellRuntime } = usePageCenterRuntime();
   const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
-    'forgot-password',
-    '忘记密码',
-    '当前版本仅提供手机号体系下的密码修改说明'
+    'reset-password',
+    '重置密码',
+    '当前版本使用手机号登录后在个人中心完成密码更新'
   );
   const pageAccessItems = useMemo(
     () => (Array.isArray(shellRuntime?.pageAccessItems) ? shellRuntime.pageAccessItems : []),
@@ -39,8 +39,8 @@ export default function ForgotPasswordPage() {
     () => resolveManagedGuestEntry(pageAccessItems, 'login', '/login', '登录'),
     [pageAccessItems]
   );
-  const registerEntry = useMemo(
-    () => resolveManagedGuestEntry(pageAccessItems, 'register', '/register', '注册'),
+  const forgotEntry = useMemo(
+    () => resolveManagedGuestEntry(pageAccessItems, 'forgot-password', '/auth/forgot-password', '忘记密码'),
     [pageAccessItems]
   );
 
@@ -68,7 +68,7 @@ export default function ForgotPasswordPage() {
       >
         <div className="bg-white rounded-2xl p-6 border border-[#5D4037]/10 shadow-sm">
           <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-4 mx-auto">
-            <ShieldAlert className="w-7 h-7" />
+            <RefreshCcw className="w-7 h-7" />
           </div>
 
           <h1 className="text-2xl font-bold text-[#5D4037] text-center mb-3" style={{ fontFamily: "'ZQKNNY', cursive" }}>
@@ -76,13 +76,13 @@ export default function ForgotPasswordPage() {
           </h1>
 
           <p className="text-sm text-[#5D4037]/70 leading-relaxed text-center mb-5">
-            {managedSubtitle || '当前版本已切换为手机号账号体系，不再支持邮箱重置密码。'}
+            {managedSubtitle || '当前版本仅支持手机号登录后在个人中心完成密码更新。'}
           </p>
 
           <div className="rounded-xl bg-[#FFF7E8] border border-[#FFC857]/40 p-4 text-sm text-[#5D4037]/80 leading-relaxed">
             <p className="flex items-start gap-2">
-              <LockKeyhole className="w-4 h-4 mt-0.5 text-[#8D6E63] flex-shrink-0" />
-              <span>请先使用手机号登录，再到「个人中心 - 修改密码」完成密码更新。</span>
+              <ShieldAlert className="w-4 h-4 mt-0.5 text-[#8D6E63] flex-shrink-0" />
+              <span>若你仍无法登录，请返回登录页查看忘记密码说明，或注册新账号后联系管理员处理。</span>
             </p>
           </div>
 
@@ -95,12 +95,12 @@ export default function ForgotPasswordPage() {
                 {loginEntry.label}
               </button>
             )}
-            {registerEntry && (
+            {forgotEntry && (
               <button
-                onClick={() => router.push(registerEntry.href)}
+                onClick={() => router.push(forgotEntry.href)}
                 className="flex-1 h-11 rounded-full bg-white border-2 border-[#5D4037]/20 text-[#5D4037] font-semibold hover:bg-[#FFFBF0] transition-colors"
               >
-                {registerEntry.label}
+                {forgotEntry.label}
               </button>
             )}
           </div>

@@ -13,7 +13,7 @@ import {
 import { buildPageCenterOverview, loadEffectiveMiniProgramRuntimeConfig } from '@/lib/page-center/runtime';
 import { MIN_NAV_ITEMS_PER_CHANNEL, canPageShowInNav } from '@/lib/page-center/capabilities';
 import {
-  isProfileSecondaryPageKey,
+  isSecondaryPageKey,
   normalizeNumber,
   normalizePublishState,
   normalizeText,
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '目标页面不存在' }, { status: 404 });
     }
 
-    const isSecondaryPage = isProfileSecondaryPageKey(pageKey);
+    const isSecondaryPage = isSecondaryPageKey(pageKey);
     const currentChannelRoutePath =
       channel === 'miniprogram' ? registryItem.routePathMiniProgram : registryItem.routePathWeb;
     if (publishState !== 'offline' && !currentChannelRoutePath) {

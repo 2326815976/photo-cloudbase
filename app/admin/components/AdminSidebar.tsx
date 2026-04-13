@@ -102,9 +102,9 @@ function NavItemLink({
       >
         {item.icon}
       </span>
-      <span className="admin-sidebar-link__main min-w-0 flex-1">
-        <span className="admin-sidebar-link__title block truncate text-[15px] font-bold leading-none">{item.label}</span>
-        <span className="admin-sidebar-link__desc mt-1 block truncate text-xs text-[#5D4037]/60">{item.desc}</span>
+      <span className="admin-sidebar-link__main flex min-w-0 flex-1 flex-col justify-center">
+        <span className="admin-sidebar-link__title block truncate text-[15px] font-bold leading-[1.3]">{item.label}</span>
+        <span className="admin-sidebar-link__desc mt-1 block truncate text-xs leading-[1.25] text-[#5D4037]/60">{item.desc}</span>
       </span>
     </Link>
   );

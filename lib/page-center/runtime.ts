@@ -13,7 +13,7 @@ import {
   buildRegistryFallbackItems,
   createFallbackMiniProgramRuleMap,
   createFallbackWebRuleMap,
-  isProfileSecondaryPageKey,
+  isSecondaryPageKey,
   normalizeBoolean,
   normalizeMiniProgramPath,
   normalizeNumber,
@@ -494,7 +494,7 @@ function resolveManagedHeaderTitle(
     return explicitTitle;
   }
 
-  if (isProfileSecondaryPageKey(page.pageKey)) {
+  if (isSecondaryPageKey(page.pageKey)) {
     return normalizeText(view.navText) || page.defaultTabText || page.pageName;
   }
 

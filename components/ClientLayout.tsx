@@ -13,6 +13,7 @@ import SWRProvider from './providers/SWRProvider';
 import { prefetchByRoute } from '@/lib/swr/prefetch';
 import { isAndroidWebView, optimizePageRendering } from '@/lib/utils/android-optimization';
 import type { WebShellRuntime } from '@/lib/page-center/config';
+import { isSecondaryPageKey } from '@/lib/page-center/config';
 import { PageCenterRuntimeProvider } from '@/lib/page-center/runtime-context';
 
 const VersionChecker = lazy(() => import('./VersionChecker'));
@@ -73,8 +74,28 @@ function resolveManagedPageFallbackPath(runtime: WebShellRuntime, pathname: stri
 function findManagedPage(runtime: WebShellRuntime | null, pathname: string) {
   if (!runtime) return null;
   const normalized = normalizePathname(pathname);
+  const matchRoute = (routePath: string) => {
+    const normalizedRoute = normalizePathname(routePath);
+    if (normalizedRoute === normalized) {
+      return true;
+    }
+
+    const routeSegments = normalizedRoute.split('/').filter(Boolean);
+    const pathSegments = normalized.split('/').filter(Boolean);
+    if (routeSegments.length !== pathSegments.length) {
+      return false;
+    }
+
+    return routeSegments.every((segment, index) => {
+      if (/^\[[^/]+\]$/.test(segment)) {
+        return Boolean(pathSegments[index]);
+      }
+      return segment === pathSegments[index];
+    });
+  };
+
   return (
-    runtime.pageAccessItems.find((item) => normalizePathname(item.routePath) === normalized) || null
+    runtime.pageAccessItems.find((item) => matchRoute(item.routePath)) || null
   );
 }
 
@@ -108,6 +129,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     routeGuardLoading ||
     !shellRuntimeResolved ||
     !shellRuntime ||
+    (managedPage ? isSecondaryPageKey(managedPage.pageKey) : false) ||
     managedPage?.publishState === 'beta';
   const shellBottomSpacingVisible = shellRuntimeResolved ? !bottomNavHidden : !isPreviewMode;
   const shellLayoutVars = useMemo(

@@ -1124,7 +1124,7 @@ const copyAccessKey = async (accessKey: string) => {
                 onClick={() => setAlbumCreateModalOpen(true)}
                 disabled={albumBusy}
               >
-                + 空间
+                + 添加空间
               </button>
             </div>
           ) : (

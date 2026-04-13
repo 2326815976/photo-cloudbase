@@ -17,6 +17,7 @@ import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { getSessionId } from '@/lib/utils/session';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { mutate } from 'swr';
 
 type WelcomeLetterMode = 'envelope' | 'stamp' | 'none';
@@ -278,6 +279,7 @@ export default function AlbumDetailPage() {
   const bindNoticeStorageKey = useMemo(() => `album_bind_notice_${normalizedAccessKey}`, [normalizedAccessKey]);
   const welcomeStorageKey = useMemo(() => `album_welcome_seen_${normalizedAccessKey}`, [normalizedAccessKey]);
   const shouldReduceMotion = useReducedMotion();
+  const { title: managedTitle } = useManagedPageMeta('album-detail', '专属返图空间');
 
   const [loading, setLoading] = useState(true);
   const [albumData, setAlbumData] = useState<AlbumData | null>(null);
@@ -330,6 +332,11 @@ export default function AlbumDetailPage() {
       { revalidate: false }
     );
   };
+
+  const resolvedHeaderTitle = useMemo(() => {
+    const albumTitle = String(albumData?.album?.title || '').trim();
+    return albumTitle || String(managedTitle || '').trim() || '专属返图空间';
+  }, [albumData?.album?.title, managedTitle]);
 
   const folderTabs = useMemo<Folder[]>(() => {
     return [{ id: 'all', name: '原图' }, ...(albumData?.folders ?? [])];
@@ -1401,7 +1408,7 @@ export default function AlbumDetailPage() {
   };
 
   const loadingTitle = '拾光中...';
-  const loadingDescription = '正在为你打开相册';
+  const loadingDescription = `正在为你打开${String(managedTitle || '专属返图空间').trim() || '专属返图空间'}`;
 
   if (loading) {
     return (
@@ -1446,7 +1453,7 @@ export default function AlbumDetailPage() {
 
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              {albumData.album.title || '相册空间'}
+              {resolvedHeaderTitle}
             </h1>
           </div>
 

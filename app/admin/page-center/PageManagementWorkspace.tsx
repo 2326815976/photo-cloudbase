@@ -8,7 +8,7 @@ import type {
   PageCenterOverviewItem,
   PagePublishState,
 } from '@/lib/page-center/config';
-import { isProfileSecondaryPageKey } from '@/lib/page-center/config';
+import { isSecondaryPageKey, resolveSecondaryParentPageKey } from '@/lib/page-center/config';
 import { canPageShowInNav } from '@/lib/page-center/capabilities';
 import {
   buildRegistryOptionPatch,
@@ -376,7 +376,7 @@ function getPublishStateMeta(state: PagePublishState) {
 
 function getDisplayStateMeta(item: PageCenterOverviewItem, channel: AppChannel) {
   const currentState = item.channels[channel].publishState;
-  if (isProfileSecondaryPageKey(item.pageKey)) {
+  if (isSecondaryPageKey(item.pageKey)) {
     if (currentState === 'online') {
       return { label: '显示中', className: 'bg-[#E8F5E9] text-[#2E7D32]' };
     }
@@ -392,7 +392,12 @@ function sortNavRows(rows: PageCenterOverviewItem[], channel: AppChannel) {
   return rows
     .filter((item) => {
       const view = item.channels[channel];
-      return canPageShowInNav(item, channel) && view.publishState === 'online' && view.showInNav;
+      return (
+        !isSecondaryPageKey(item.pageKey) &&
+        canPageShowInNav(item, channel) &&
+        view.publishState === 'online' &&
+        view.showInNav
+      );
     })
     .slice()
     .sort((left, right) => {
@@ -442,7 +447,7 @@ function normalizeRuleForm(
 ): RuleForm {
   const publishState = current.publishState;
   const navSupported = canPageShowInNav(item, channel);
-  const isSecondaryPage = isProfileSecondaryPageKey(item.pageKey);
+  const isSecondaryPage = isSecondaryPageKey(item.pageKey);
   const showInNav = publishState === 'online' && navSupported;
   const resolvedNavOrder = Number(current.navOrder);
   const navText = String(current.navText || '').trim() || item.defaultTabText || item.pageName;
@@ -522,7 +527,7 @@ function buildQuickStateSuccessToast(
     if (state === 'beta') {
       return `${pageName} 已切换为内测`;
     }
-    return `${pageName} 入口已隐藏，“我的”列表不再展示`;
+    return `${pageName} 入口已隐藏，所属一级页中不再展示`;
   }
 
   if (state === 'online') {
@@ -540,7 +545,7 @@ function resolveQuickStateAction(
   hideAudit: boolean
 ) {
   const view = item.channels[channel];
-  const isSecondaryPage = isProfileSecondaryPageKey(item.pageKey);
+  const isSecondaryPage = isSecondaryPageKey(item.pageKey);
   const forcedState = resolveMiniProgramForcedState(item.pageKey, channel, hideAudit);
   const betaSummary = summarizeDecoratedBetaCodes(decorateBetaCodesByChannel(item.betaCodes, channel));
   const canOnline = canPageShowInNav(item, channel) && (!forcedState || forcedState === 'online');
@@ -757,32 +762,51 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
       });
   }, [channel, keyword, navRows, previewRows, stateFilter]);
 
-  const primaryRows = useMemo(
-    () => filteredRows.filter((item) => !isProfileSecondaryPageKey(item.pageKey)),
-    [filteredRows]
-  );
-  const secondaryRows = useMemo(
-    () => filteredRows.filter((item) => isProfileSecondaryPageKey(item.pageKey)),
-    [filteredRows]
+  const hasActiveFilter = Boolean(keyword.trim()) || stateFilter !== 'all';
+  const visibleRowKeys = useMemo(() => new Set(filteredRows.map((item) => item.pageKey)), [filteredRows]);
+  const secondaryRowsByParent = useMemo(() => {
+    const nextMap = new Map<string, PageCenterOverviewItem[]>();
+    filteredRows.forEach((item) => {
+      const parentPageKey = resolveSecondaryParentPageKey(item.pageKey);
+      if (!parentPageKey) {
+        return;
+      }
+
+      const currentRows = nextMap.get(parentPageKey) || [];
+      currentRows.push(item);
+      nextMap.set(parentPageKey, currentRows);
+    });
+    return nextMap;
+  }, [filteredRows]);
+  const collectionGroups = useMemo(
+    () =>
+      previewRows
+        .filter((item) => !isSecondaryPageKey(item.pageKey))
+        .filter((item) => visibleRowKeys.has(item.pageKey) || (secondaryRowsByParent.get(item.pageKey)?.length ?? 0) > 0)
+        .map((item) => {
+          const children = secondaryRowsByParent.get(item.pageKey) || [];
+          const isExpanded = children.length > 0 && (expandedPageKey === item.pageKey || hasActiveFilter);
+          return {
+            parent: item,
+            children,
+            isExpanded,
+          };
+        }),
+    [expandedPageKey, hasActiveFilter, previewRows, secondaryRowsByParent, visibleRowKeys]
   );
   const pageSections = useMemo(
     () =>
-      [
-        {
-          key: 'primary',
-          title: '一级页面管理',
-          description: `维护当前${channelMeta.navName}与正式页面的展示状态、菜单顺序和查看入口。`,
-          rows: primaryRows,
-        },
-        {
-          key: 'secondary',
-          title: '二级菜单页面管理',
-          description:
-            '维护“我的”页里的二级入口。修改标题会同步到页面顶部标题，隐藏后“我的”列表不再展示该入口。',
-          rows: secondaryRows,
-        },
-      ].filter((section) => section.rows.length > 0),
-    [channelMeta.navName, primaryRows, secondaryRows]
+      collectionGroups.length > 0
+        ? [
+            {
+              key: 'collection',
+              title: '页面集合',
+              description: `维护当前${channelMeta.shortTitle}端页面集合。一级页面可展开查看所属二级菜单，当前已支持在“我的”“提取”页下维护二级入口，便于统一定位与精准屏蔽。`,
+              groups: collectionGroups,
+            },
+          ]
+        : [],
+    [channelMeta.shortTitle, collectionGroups]
   );
 
   const workspaceSummary = useMemo(
@@ -972,7 +996,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   };
   const handleQuickStateAction = async (item: PageCenterOverviewItem, nextState: PagePublishState) => {
     const forcedState = resolveMiniProgramForcedState(item.pageKey, channel, hideAudit);
-    const isSecondaryPage = isProfileSecondaryPageKey(item.pageKey);
+    const isSecondaryPage = isSecondaryPageKey(item.pageKey);
     if (forcedState && nextState !== forcedState) {
       showToast(sanitizePageCenterUiMessage(buildMiniProgramForcedStateHint(forcedState, hideAudit)));
       return false;
@@ -1293,6 +1317,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     await destroyBetaCode(codeId);
   };
 
+  const toggleCollectionGroup = (pageKey: string) => {
+    setExpandedPageKey((current) => (current === pageKey ? '' : pageKey));
+  };
+
   return (
     <div className="admin-mobile-page page-center-page space-y-6 pt-6">
       <div className="module-intro">
@@ -1321,10 +1349,12 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 <p className="mt-1 text-sm leading-6 text-[#8D6E63]">{section.description}</p>
               </div>
 
-              {section.rows.map((item) => {
+              {section.groups.map((group) => {
+                const item = group.parent;
                 const view = item.channels[channel];
                 const stateMeta = getDisplayStateMeta(item, channel);
                 const quickAction = resolveQuickStateAction(item, channel, hideAudit);
+                const hasChildren = group.children.length > 0;
 
                 return (
                   <article key={item.pageKey} className="booking-panel page-center-card">
@@ -1385,6 +1415,98 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                         </button>
                       </div>
                     </div>
+
+                    {hasChildren ? (
+                      <div className="mt-4 rounded-[22px] border border-[#5D4037]/8 bg-[#FFF8F2] p-4">
+                        <button
+                          type="button"
+                          onClick={() => toggleCollectionGroup(item.pageKey)}
+                          className="flex w-full items-center justify-between gap-3 text-left"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-[#5D4037]">所属二级菜单</div>
+                            <p className="mt-1 text-xs leading-5 text-[#8D6E63]">
+                              这些入口会展示在「{item.pageName}」页面中，可单独编辑标题、显示或隐藏。
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#8D6E63]">
+                              {group.children.length} 个入口
+                            </span>
+                            <span className="whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-3 py-1 text-xs font-semibold text-[#5D4037]">
+                              {group.isExpanded ? '收起' : '展开'}
+                            </span>
+                          </div>
+                        </button>
+
+                        {group.isExpanded ? (
+                          <div className="mt-4 space-y-3 border-t border-[#5D4037]/8 pt-4">
+                            {group.children.map((child) => {
+                              const childView = child.channels[channel];
+                              const childStateMeta = getDisplayStateMeta(child, channel);
+                              const childQuickAction = resolveQuickStateAction(child, channel, hideAudit);
+
+                              return (
+                                <div
+                                  key={child.pageKey}
+                                  className="rounded-[20px] border border-[#5D4037]/8 bg-white p-4 shadow-[0_8px_24px_rgba(93,64,55,0.04)]"
+                                >
+                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_288px] lg:items-start">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-col gap-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <h3 className="mr-1 text-base font-bold text-[#5D4037]">{child.pageName}</h3>
+                                          <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${childStateMeta.className}`}>
+                                            {childStateMeta.label}
+                                          </span>
+                                        </div>
+                                        <p className="text-sm leading-6 text-[#8D6E63]">
+                                          {child.pageDescription || `显示后将作为「${item.pageName}」页的入口名称与顶部标题。`}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid w-full grid-cols-3 gap-2 lg:w-[288px] lg:self-start">
+                                      <button
+                                        type="button"
+                                        onClick={() => openActionModal(child.pageKey, 'edit')}
+                                        className={PAGE_CENTER_ACTION_EDIT_CLASS}
+                                      >
+                                        编辑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (childQuickAction.requiresConfirm) {
+                                            openActionModal(child.pageKey, 'offline');
+                                            return;
+                                          }
+                                          void handleQuickStateAction(child, childQuickAction.state);
+                                        }}
+                                        disabled={childQuickAction.disabled || savingKey === `${child.pageKey}:${channel}:state:${childQuickAction.state}`}
+                                        className={childQuickAction.className}
+                                      >
+                                        {savingKey === `${child.pageKey}:${channel}:state:${childQuickAction.state}`
+                                          ? childQuickAction.loadingLabel
+                                          : childQuickAction.label}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void viewPage(child)}
+                                        disabled={!child.supportsPreview || !childView.previewRoutePath || savingKey === `${child.pageKey}:${channel}:view`}
+                                        className={PAGE_CENTER_ACTION_VIEW_CLASS}
+                                      >
+                                        {savingKey === `${child.pageKey}:${channel}:view` ? '生成中...' : '查看'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
@@ -1401,13 +1523,13 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
               <div className="min-w-0 flex-1">
                 <h3 className="booking-modal__title">
                   {actionModal.mode === 'offline'
-                    ? `${isProfileSecondaryPageKey(modalRow.pageKey) ? '确认隐藏' : '确认下线'} · ${modalRow.pageName}`
+                    ? `${isSecondaryPageKey(modalRow.pageKey) ? '确认隐藏' : '确认下线'} · ${modalRow.pageName}`
                     : `编辑页面 · ${modalRow.pageName}`}
                 </h3>
                 {actionModal.mode === 'offline' ? (
                   <p className="mt-1 text-sm text-[#8D6E63]">
-                    {isProfileSecondaryPageKey(modalRow.pageKey)
-                      ? '隐藏后“我的”列表不再展示该入口，普通用户也无法继续访问该页面。'
+                    {isSecondaryPageKey(modalRow.pageKey)
+                      ? '隐藏后所属一级页不再展示该入口，普通用户也无法继续访问该页面。'
                       : '下线后普通用户无法访问该页面，管理员仍可通过“查看”无底栏进入。'}
                   </p>
                 ) : null}
@@ -1427,22 +1549,22 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-[#A34C4C]/14 bg-[#FDECEC] p-4">
                     <div className="text-base font-bold text-[#A34C4C]">
-                      {isProfileSecondaryPageKey(modalRow.pageKey) ? '隐藏影响' : '下线影响'}
+                      {isSecondaryPageKey(modalRow.pageKey) ? '隐藏影响' : '下线影响'}
                     </div>
                     <ul className="mt-3 space-y-2 text-sm leading-6 text-[#A34C4C]">
                       <li>
                         •
-                        {isProfileSecondaryPageKey(modalRow.pageKey)
-                          ? ' “我的”列表中不再展示该入口。'
+                        {isSecondaryPageKey(modalRow.pageKey)
+                          ? ' 所属一级页中不再展示该入口。'
                           : ' 普通用户无法通过正式路由访问该页面。'}
                       </li>
                       <li>
                         •
-                        {isProfileSecondaryPageKey(modalRow.pageKey)
+                        {isSecondaryPageKey(modalRow.pageKey)
                           ? ' 页面顶部标题配置仍会保留，后续重新显示即可继续使用。'
                           : ` 如果页面当前在底栏中，会立即从${channelMeta.navName}移除。`}
                       </li>
-                      <li>• 管理员仍可通过“查看”无底栏预览该页面。</li>
+                      <li>• 管理员仍可继续在后台调整该页面的显示状态与标题配置。</li>
                     </ul>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -1469,10 +1591,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                       className="flex-1 rounded-full bg-red-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
                     >
                       {savingKey === `${modalRow.pageKey}:${channel}:state:offline`
-                        ? isProfileSecondaryPageKey(modalRow.pageKey)
+                        ? isSecondaryPageKey(modalRow.pageKey)
                           ? '隐藏中...'
                           : '下线中...'
-                        : isProfileSecondaryPageKey(modalRow.pageKey)
+                        : isSecondaryPageKey(modalRow.pageKey)
                           ? '确认隐藏'
                           : '确认下线'}
                     </button>
@@ -1480,7 +1602,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 </div>
               ) : (() => {
                 const savedView = savedRowMap.get(modalRow.pageKey)?.channels[channel] || modalRow.channels[channel];
-                const isSecondaryPage = isProfileSecondaryPageKey(modalRow.pageKey);
+                const isSecondaryPage = isSecondaryPageKey(modalRow.pageKey);
                 const currentNavIndex = navRows.findIndex((item) => item.pageKey === modalRow.pageKey);
                 const canMoveUp = currentNavIndex > 0;
                 const canMoveDown = currentNavIndex >= 0 && currentNavIndex < navRows.length - 1;
@@ -1499,8 +1621,8 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                     : '请先创建至少一个当前端可用的内测码，才能切换为内测。';
                 const onlineSectionDesc = isSecondaryPage
                   ? modalRow.channels[channel].publishState === 'online'
-                    ? '当前入口正在“我的”列表中展示，保存后会同步更新页面顶部标题。'
-                    : '显示后会出现在“我的”列表中，页面顶部标题会与入口名称保持一致。'
+                    ? '当前入口正在所属一级页中展示，保存后会同步更新页面顶部标题。'
+                    : '显示后会出现在所属一级页中，页面顶部标题会与入口名称保持一致。'
                   : canPageShowInNav(modalRow, channel)
                     ? modalRow.channels[channel].publishState === 'online'
                       ? `维护当前${channelMeta.navName}顺序与上线状态。`
@@ -1509,19 +1631,34 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 const sectionClass = 'page-center-modal__section rounded-[24px] border border-[#5D4037]/8 bg-[#FFFBF7] p-5';
                 const sectionTitleClass = 'text-lg font-black text-[#5D4037]';
                 const sectionDescClass = 'mt-1 text-sm leading-6 text-[#8D6E63]';
+                const isAlbumDetailSecondaryPage = modalRow.pageKey === 'album-detail';
+                const secondarySectionTitle = isSecondaryPage
+                  ? isAlbumDetailSecondaryPage
+                    ? '默认名称'
+                    : '页面标题'
+                  : '标题设置';
+                const secondarySectionDesc = isSecondaryPage
+                  ? isAlbumDetailSecondaryPage
+                    ? '实际页面顶部优先显示相册名；只有相册未命名时，才会使用这里的默认名称。'
+                    : '这个名称会同步用于所属一级页入口和页面顶部标题。'
+                  : '大标题如“拾光谣”，小标题如“定格美好瞬间”。';
+                const secondaryFieldLabel = isAlbumDetailSecondaryPage
+                  ? '默认名称（无相册名时使用）'
+                  : '入口名称 / 顶部标题';
+                const resolvedOnlineSectionDesc = isAlbumDetailSecondaryPage
+                  ? modalRow.channels[channel].publishState === 'online'
+                    ? '当前动态详情页已启用。实际页面顶部优先显示相册名；相册未命名时，才回退使用这里的默认名称。'
+                    : '显示后允许进入动态详情页。实际页面顶部优先显示相册名；相册未命名时，才回退使用这里的默认名称。'
+                  : onlineSectionDesc;
                 return (
                   <div className="space-y-4">
                     <section className={sectionClass}>
-                      <div className={sectionTitleClass}>{isSecondaryPage ? '页面标题' : '标题设置'}</div>
-                      <p className={sectionDescClass}>
-                        {isSecondaryPage
-                          ? '这个名称会同步用于“我的”列表入口和页面顶部标题。'
-                          : '大标题如“拾光谣”，小标题如“定格美好瞬间”。'}
-                      </p>
+                      <div className={sectionTitleClass}>{secondarySectionTitle}</div>
+                      <p className={sectionDescClass}>{secondarySectionDesc}</p>
                       {isSecondaryPage ? (
                         <div className="mt-4">
                           <label className="booking-modal__field">
-                            <span className="booking-modal__label">入口名称 / 顶部标题</span>
+                            <span className="booking-modal__label">{secondaryFieldLabel}</span>
                             <input
                               value={modalForm.navText}
                               onChange={(event) =>
@@ -1531,7 +1668,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                   headerTitle: event.target.value,
                                 })
                               }
-                              placeholder="如：编辑个人资料"
+                              placeholder="如：专属返图空间"
                               className="booking-modal__input"
                             />
                           </label>
@@ -1564,7 +1701,11 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                     guestNavText: savedView.guestNavText,
                                   },
                               `${modalRow.pageKey}:${channel}:rule:title`,
-                              isSecondaryPage ? '页面标题已保存' : '标题设置已保存',
+                              isSecondaryPage
+                                ? isAlbumDetailSecondaryPage
+                                  ? '默认名称已保存'
+                                  : '页面标题已保存'
+                                : '标题设置已保存',
                               isSecondaryPage ? [] : ['navText', 'guestNavText']
                             )
                           }
@@ -1574,7 +1715,9 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                           {savingKey === `${modalRow.pageKey}:${channel}:rule:title`
                             ? '保存中...'
                             : isSecondaryPage
-                              ? '保存页面标题'
+                              ? isAlbumDetailSecondaryPage
+                                ? '保存默认名称'
+                                : '保存页面标题'
                               : '保存标题设置'}
                         </button>
                       </div>
@@ -1686,7 +1829,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                       <div className="page-center-modal__section-head flex flex-col items-start gap-3">
                         <div className="min-w-0">
                           <div className={sectionTitleClass}>{isSecondaryPage ? '显示设置' : '上线设置'}</div>
-                          <p className={sectionDescClass}>{onlineSectionDesc}</p>
+                          <p className={sectionDescClass}>{resolvedOnlineSectionDesc}</p>
                         </div>
                       </div>
                       {isSecondaryPage ? (
@@ -1704,51 +1847,6 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                 {modalRow.channels[channel].previewRoutePath || '未配置'}
                               </div>
                             </div>
-                          </div>
-                          <div className="page-center-modal__online-actions mt-4">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleQuickStateAction(
-                                  modalRow,
-                                  modalRow.channels[channel].publishState === 'online' ? 'offline' : 'online'
-                                )
-                              }
-                              disabled={
-                                savingKey ===
-                                `${modalRow.pageKey}:${channel}:state:${
-                                  modalRow.channels[channel].publishState === 'online' ? 'offline' : 'online'
-                                }`
-                              }
-                              className={
-                                modalRow.channels[channel].publishState === 'online'
-                                  ? 'rounded-full border border-[#A34C4C]/18 bg-[#FDECEC] px-5 py-2.5 text-sm font-bold text-[#A34C4C] disabled:opacity-60'
-                                  : 'rounded-full bg-[#FFC857] px-5 py-2.5 text-sm font-bold text-[#5D4037] disabled:opacity-60'
-                              }
-                            >
-                              {savingKey ===
-                              `${modalRow.pageKey}:${channel}:state:${
-                                modalRow.channels[channel].publishState === 'online' ? 'offline' : 'online'
-                              }`
-                                ? modalRow.channels[channel].publishState === 'online'
-                                  ? '隐藏中...'
-                                  : '显示中...'
-                                : modalRow.channels[channel].publishState === 'online'
-                                  ? '立即隐藏'
-                                  : onlineActionLabel}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void viewPage(modalRow)}
-                              disabled={
-                                !modalRow.supportsPreview ||
-                                !modalRow.channels[channel].previewRoutePath ||
-                                savingKey === `${modalRow.pageKey}:${channel}:view`
-                              }
-                              className={PAGE_CENTER_MODAL_VIEW_BUTTON_CLASS}
-                            >
-                              {savingKey === `${modalRow.pageKey}:${channel}:view` ? '生成中...' : '查看页面'}
-                            </button>
                           </div>
                         </>
                       ) : (

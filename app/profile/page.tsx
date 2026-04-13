@@ -67,15 +67,15 @@ export default function ProfilePage() {
     );
   }, [shellRuntime]);
 
-  const profileMenuItems = useMemo(() => {
-    const resolveVisibleTitle = (pageKey: string, fallbackTitle: string) => {
-      const current = managedPageMap[pageKey];
-      if (!current || current.publishState !== 'online') {
-        return '';
-      }
-      return current.navText || current.headerTitle || fallbackTitle;
-    };
+  const resolveVisibleTitle = (pageKey: string, fallbackTitle: string) => {
+    const current = managedPageMap[pageKey];
+    if (!current || current.publishState !== 'online') {
+      return '';
+    }
+    return current.navText || current.headerTitle || fallbackTitle;
+  };
 
+  const profileMenuItems = useMemo(() => {
     return [
       {
         key: 'profile-edit',
@@ -139,6 +139,27 @@ export default function ProfilePage() {
       },
     ].filter((item) => item.title);
   }, [isAdmin, managedPageMap]);
+
+  const guestMenuItems = useMemo(
+    () =>
+      [
+        {
+          key: 'login',
+          title: resolveVisibleTitle('login', '登录'),
+          path: '/login',
+          className:
+            'w-full h-12 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] hover:shadow-[2px_2px_0px_#5D4037] hover:translate-x-[2px] hover:translate-y-[2px] text-[#5D4037] font-bold transition-all',
+        },
+        {
+          key: 'register',
+          title: resolveVisibleTitle('register', '注册'),
+          path: '/register',
+          className:
+            'w-full h-12 rounded-full bg-transparent border-2 border-[#5D4037]/30 text-[#5D4037]/70 font-medium hover:border-[#5D4037]/50 transition-colors',
+        },
+      ].filter((item) => item.title),
+    [managedPageMap]
+  );
 
   // 检查登录状态
   useEffect(() => {
@@ -276,25 +297,21 @@ export default function ProfilePage() {
             <h2 className="text-lg font-bold text-[#5D4037] mb-2">开启你的专属空间 ✨</h2>
             <p className="text-[#5D4037]/60 mb-8 text-sm">登录后解锁更多功能</p>
 
-            <div className="flex flex-col gap-3 w-full max-w-xs">
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => router.push('/login')}
-                className="w-full h-12 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] hover:shadow-[2px_2px_0px_#5D4037] hover:translate-x-[2px] hover:translate-y-[2px] text-[#5D4037] font-bold transition-all"
-              >
-                立即登录
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => router.push('/register')}
-                className="w-full h-12 rounded-full bg-transparent border-2 border-[#5D4037]/30 text-[#5D4037]/70 font-medium hover:border-[#5D4037]/50 transition-colors"
-              >
-                注册账号
-              </motion.button>
-            </div>
+            {guestMenuItems.length > 0 && (
+              <div className="flex flex-col gap-3 w-full max-w-xs">
+                {guestMenuItems.map((item) => (
+                  <motion.button
+                    key={item.key}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => router.push(item.path)}
+                    className={item.className}
+                  >
+                    {item.title}
+                  </motion.button>
+                ))}
+              </div>
+            )}
           </motion.div>
         </PreviewAwareScrollArea>
       </div>

@@ -119,6 +119,15 @@ export default function ProfileAboutPage() {
     void load();
   }, []);
 
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.push('/profile');
+  };
+
   return (
     <div className="flex flex-col h-full w-full">
       <motion.div
@@ -128,7 +137,7 @@ export default function ProfileAboutPage() {
       >
         <div className="px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => router.back()}
+            onClick={handleBack}
             className="icon-button action-icon-btn action-icon-btn--back"
           >
             <ArrowLeft className="w-5 h-5 text-[#5D4037]" />

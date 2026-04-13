@@ -1,37 +1,67 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Phone, Lock, Eye, EyeOff } from 'lucide-react';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
+import { createClient } from '@/lib/cloudbase/client';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
+
+function resolveManagedGuestEntry(
+  pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
+  pageKey: string,
+  href: string,
+  fallbackLabel: string
+) {
+  const current = pageAccessItems.find((item) => item.pageKey === pageKey);
+  if (!current || current.publishState !== 'online') {
+    return null;
+  }
+  return {
+    href,
+    label: String(current.navText || current.headerTitle || fallbackLabel).trim() || fallbackLabel,
+  };
+}
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { shellRuntime } = usePageCenterRuntime();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'login',
+    '登录',
+    '继续你的拾光之旅'
+  );
   const [formData, setFormData] = useState({ phone: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const pageAccessItems = useMemo(
+    () => (Array.isArray(shellRuntime?.pageAccessItems) ? shellRuntime.pageAccessItems : []),
+    [shellRuntime]
+  );
+  const registerEntry = useMemo(() => {
+    return resolveManagedGuestEntry(pageAccessItems, 'register', '/register', '注册');
+  }, [pageAccessItems]);
+  const forgotEntry = useMemo(() => {
+    return resolveManagedGuestEntry(pageAccessItems, 'forgot-password', '/auth/forgot-password', '忘记密码');
+  }, [pageAccessItems]);
+
+  const isValidRedirectPath = (path: string): boolean => {
+    if (!path.startsWith('/')) return false;
+    if (path.includes('://') || path.startsWith('//')) return false;
+    if (path.includes('\\')) return false;
+    return true;
+  };
 
   useEffect(() => {
-    // 记录来源路径（安全验证：仅允许内部路径）
     const from = searchParams.get('from');
     if (from && isValidRedirectPath(from)) {
       localStorage.setItem('login_redirect', from);
     }
   }, [searchParams]);
-
-  // 验证重定向路径是否安全（防止开放重定向攻击）
-  const isValidRedirectPath = (path: string): boolean => {
-    // 必须以 / 开头（内部路径）
-    if (!path.startsWith('/')) return false;
-    // 不能包含协议（防止 //evil.com 这样的绕过）
-    if (path.includes('://') || path.startsWith('//')) return false;
-    // 不能包含反斜杠（防止路径遍历）
-    if (path.includes('\\')) return false;
-    return true;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,34 +71,25 @@ function LoginForm() {
     try {
       const normalizedPhone = normalizeChinaMobile(formData.phone);
 
-      // 验证手机号格式
       if (!isValidChinaMobile(normalizedPhone)) {
         setError('请输入有效的手机号');
         setIsLoading(false);
         return;
       }
 
-      // 直接调用后端登录API
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          phone: normalizedPhone,
-          password: formData.password,
-        }),
+      const dbClient = createClient();
+      const { data, error: loginError } = await dbClient.auth.signInWithPassword({
+        phone: normalizedPhone,
+        password: formData.password,
       });
 
-      const body = await response.json();
-
-      if (!response.ok || body?.error) {
-        const rawMessage = String(body?.error?.message ?? '').trim();
+      if (loginError || !data?.user) {
+        const rawMessage = String(loginError?.message ?? '').trim();
         const normalizedMessage = rawMessage.toLowerCase();
 
         if (normalizedMessage.includes('invalid login credentials')) {
           setError('手机号或密码错误');
         } else if (
-          response.status === 503 ||
           normalizedMessage.includes('timeout') ||
           normalizedMessage.includes('timed out') ||
           normalizedMessage.includes('connect') ||
@@ -85,15 +106,17 @@ function LoginForm() {
         return;
       }
 
-      const data = body.data;
-      if (!data?.user) {
-        setError('登录失败，请重试');
-        setIsLoading(false);
+      const storedRedirect =
+        typeof window !== 'undefined' ? String(localStorage.getItem('login_redirect') || '').trim() : '';
+      const redirectTarget = isValidRedirectPath(storedRedirect) ? storedRedirect : '/profile';
+
+      localStorage.removeItem('login_redirect');
+      if (typeof window !== 'undefined') {
+        window.location.replace(redirectTarget);
         return;
       }
 
-      localStorage.removeItem('login_redirect');
-      router.push('/profile');
+      router.replace(redirectTarget);
       router.refresh();
     } catch (err) {
       setError('登录失败，请稍后重试');
@@ -118,9 +141,9 @@ function LoginForm() {
         className="text-center mb-12 mt-8"
       >
         <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-          欢迎回来 👋
+          {managedTitle}
         </h1>
-        <p className="text-sm text-[#5D4037]/60">继续你的拾光之旅</p>
+        <p className="text-sm text-[#5D4037]/60">{managedSubtitle || '继续你的拾光之旅'}</p>
       </motion.div>
 
       {/* 表单 */}
@@ -153,7 +176,7 @@ function LoginForm() {
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#5D4037]/40" />
             <input
-              type={showPassword ? "text" : "password"}
+              type={showPassword ? 'text' : 'password'}
               placeholder="密码"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -168,6 +191,18 @@ function LoginForm() {
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
           </div>
+
+          {forgotEntry && (
+            <div className="flex justify-end px-1 -mt-1">
+              <button
+                type="button"
+                onClick={() => router.push(forgotEntry.href)}
+                className="text-xs text-[#5D4037]/55 hover:text-[#5D4037] transition-colors"
+              >
+                {forgotEntry.label}
+              </button>
+            </div>
+          )}
 
           {/* 错误提示 */}
           <AnimatePresence>
@@ -202,16 +237,18 @@ function LoginForm() {
           transition={{ delay: 0.3 }}
           className="text-center mt-8 space-y-3"
         >
-          <p className="text-sm text-[#5D4037]/60">
-            还没有账号？
-            <button
-              type="button"
-              onClick={() => router.push('/register')}
-              className="text-[#FFC857] font-medium ml-1 hover:underline"
-            >
-              去注册
-            </button>
-          </p>
+          {registerEntry && (
+            <p className="text-sm text-[#5D4037]/60">
+              还没有账号？
+              <button
+                type="button"
+                onClick={() => router.push(registerEntry.href)}
+                className="text-[#FFC857] font-medium ml-1 hover:underline"
+              >
+                {registerEntry.label}
+              </button>
+            </p>
+          )}
         </motion.div>
       </motion.form>
     </div>
