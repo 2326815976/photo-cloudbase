@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, Clipboard, Lock, Plus, Sparkles, Trash2, Unlink2 } from 'lucide-react';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
@@ -28,8 +28,8 @@ interface BoundAlbum {
 const COPY = {
   fallbackTitle: '专属返图空间',
   fallbackBadge: '✨ 趁照片消失前，把美好定格 ✨',
-  loadingTitle: '拾光中...',
-  loadingDesc: '正在为你打开空间入口',
+  loadingTitle: PAGE_LOADING_COPY.title,
+  loadingDesc: PAGE_LOADING_COPY.description,
   serviceInitError: '服务初始化失败，请刷新页面后重试',
   authTimeout: '网络连接超时，请稍后重试',
   authFailedPrefix: '登录状态校验失败：',
@@ -95,7 +95,7 @@ function getDaysRemaining(expiresAt: string) {
 
 export default function AlbumLoginPage() {
   const router = useRouter();
-  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
     'album',
     COPY.fallbackTitle,
     COPY.fallbackBadge
@@ -114,16 +114,7 @@ export default function AlbumLoginPage() {
   const [listNotice, setListNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const hasBindings = isLoggedIn && boundAlbums.length > 0;
-  const loadingTitle = useMemo(() => {
-    const candidate = String(
-      (isLoggedIn ? navLabel : guestNavLabel) || navLabel || guestNavLabel || managedTitle || COPY.fallbackTitle
-    ).trim();
-    return candidate || COPY.fallbackTitle;
-  }, [guestNavLabel, isLoggedIn, managedTitle, navLabel]);
-  const loadingDescription = useMemo(() => {
-    const subject = String(managedTitle || loadingTitle || COPY.fallbackTitle).trim();
-    return `正在载入${subject}内容`;
-  }, [loadingTitle, managedTitle]);
+  const loadingDescription = PAGE_LOADING_COPY.description;
 
   const loadUserData = async () => {
     setPageLoading(true);

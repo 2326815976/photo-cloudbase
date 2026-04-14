@@ -13,7 +13,7 @@ import {
   clearGalleryPageCacheStorage,
   consumeGalleryCacheDirtyFlag,
 } from '@/lib/gallery/cache-sync';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import { useBackendRecoveryState } from '@/lib/hooks/useBackendRecoveryState';
 
 import SimpleImage from '@/components/ui/SimpleImage';
@@ -411,7 +411,7 @@ function isGalleryPhotoHighlighted(photo: Photo): boolean {
 export default function GalleryClient({ initialPhotos = [], initialTotal = 0, initialPage = 1 }: GalleryClientProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
     'gallery',
     String.fromCodePoint(0x7167, 0x7247, 0x5899),
     String.fromCodePoint(0x1f4f8) + ' ' + String.fromCodePoint(0x8d29, 0x5356, 0x4eba, 0x95f4, 0x8def, 0x8fc7, 0x7684, 0x6e29, 0x67d4) + ' ' + String.fromCodePoint(0x1f4f8)
@@ -1285,14 +1285,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   );
 
   const isTagOverlayLoading = isSwitchingTag || isSilentTagLoadPending || pendingTagPhotoIds.length > 0;
-  const loadingPageLabel = useMemo(() => {
-    const candidate = String(navLabel || guestNavLabel || managedTitle || '').trim();
-    return candidate || '页面';
-  }, [guestNavLabel, managedTitle, navLabel]);
-  const loadingTitle = '拾光中...';
-  const loadingDescription = isTagOverlayLoading
-    ? `正在切换${loadingPageLabel}标签`
-    : `正在加载${loadingPageLabel}`;
+  const loadingTitle = PAGE_LOADING_COPY.title;
+  const loadingDescription = PAGE_LOADING_COPY.description;
 
   const showInitialPageLoading = isLoading && allPhotos.length === 0 && !isTagOverlayLoading;
   const showContentOverlayLoading = isTagOverlayLoading;

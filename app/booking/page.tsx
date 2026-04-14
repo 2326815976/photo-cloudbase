@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
@@ -144,21 +144,11 @@ export default function BookingPage() {
   const [error, setError] = useState('');
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
     'booking',
     activeBooking ? '我的预约' : '约拍邀请',
     '📝 写下你的约拍便利贴 📝'
   );
-  const loadingTitle = useMemo(() => {
-    const candidate = String(
-      (showLoginPrompt ? guestNavLabel : navLabel) || navLabel || guestNavLabel || managedTitle || '约拍邀请'
-    ).trim();
-    return candidate || '约拍邀请';
-  }, [guestNavLabel, managedTitle, navLabel, showLoginPrompt]);
-  const loadingDescription = useMemo(() => {
-    const subject = String(managedTitle || loadingTitle || '约拍邀请').trim();
-    return `正在载入${subject}内容`;
-  }, [loadingTitle, managedTitle]);
 
   const checkLoginStatus = async () => {
     const dbClient = createClient();
@@ -564,7 +554,13 @@ export default function BookingPage() {
   };
 
   if (loading) {
-    return <MiniProgramRecoveryScreen title="拾光中..." description={loadingDescription} className="h-screen" />;
+    return (
+      <MiniProgramRecoveryScreen
+        title={PAGE_LOADING_COPY.title}
+        description={PAGE_LOADING_COPY.description}
+        className="h-screen"
+      />
+    );
   }
 
   return (
@@ -862,4 +858,3 @@ export default function BookingPage() {
     </div>
   );
 }
-

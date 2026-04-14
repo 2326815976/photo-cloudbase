@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 
 function isManagedShellRoute(pathname: string) {
   return (
@@ -40,16 +40,16 @@ function getLoadingCopy(pathname: string) {
   }
 
   if (pathname.startsWith('/login')) {
-    return { title: '拾光中...', description: '正在加载登录页面' };
+    return PAGE_LOADING_COPY;
   }
   if (pathname.startsWith('/register') || pathname.startsWith('/signup')) {
-    return { title: '拾光中...', description: '正在加载注册页面' };
+    return PAGE_LOADING_COPY;
   }
   if (isManagedShellRoute(pathname)) {
-    return { title: '拾光中...', description: '正在同步页面配置与内容' };
+    return PAGE_LOADING_COPY;
   }
 
-  return { title: '拾光中...', description: '正在加载页面内容' };
+  return PAGE_LOADING_COPY;
 }
 
 export default function Loading() {

@@ -11,7 +11,7 @@ import {
   LockKeyhole,
   Sparkles,
 } from 'lucide-react';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
@@ -234,8 +234,8 @@ export default function ProfileBetaPage() {
         <div className="mx-auto w-full max-w-[660px]">
           {loading ? (
             <MiniProgramRecoveryScreen
-              title="拾光中..."
-              description="正在加载内测功能"
+              title={PAGE_LOADING_COPY.title}
+              description={PAGE_LOADING_COPY.description}
               className="min-h-[280px] rounded-[24px] border border-[#5D4037]/10 bg-white/90 px-4 py-7 shadow-[0_10px_24px_rgba(93,64,55,0.08)] sm:rounded-[28px] sm:px-5 sm:py-8"
             />
           ) : !isLoggedIn ? (
@@ -282,7 +282,7 @@ export default function ProfileBetaPage() {
                   </div>
                 </div>
 
-                <div className="mt-3.5 grid grid-cols-1 gap-2.5 min-[520px]:grid-cols-[minmax(0,1fr)_104px] min-[520px]:items-center sm:mt-4 sm:min-[520px]:grid-cols-[minmax(0,1fr)_116px]">
+                <div className="mt-3.5 flex flex-col gap-2.5 sm:mt-4">
                   <div className="relative min-w-0">
                     <input
                       value={codeInput}
@@ -294,10 +294,11 @@ export default function ProfileBetaPage() {
                     <button
                       type="button"
                       onClick={() => void handlePasteCode()}
-                      className="absolute right-2.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#FFC857]/18 text-[#8D6E63] transition hover:bg-[#FFC857]/28 sm:right-3 sm:h-[34px] sm:w-[34px]"
+                      className="icon-button absolute right-2.5 top-1/2 z-10 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#FFC857]/18 text-[#8D6E63] transition hover:bg-[#FFC857]/28 sm:right-3 sm:h-[34px] sm:w-[34px]"
                       aria-label="粘贴内测码"
+                      title="粘贴"
                     >
-                      <Clipboard className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                      <Clipboard className="h-4 w-4 sm:h-[18px] sm:w-[18px]" strokeWidth={2.2} />
                     </button>
                   </div>
                   <button

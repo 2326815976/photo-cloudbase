@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Calendar, Info, LayoutDashboard, Lock, LogOut, Sparkles, User } from 'lucide-react';
 import LogoutConfirmModal from '@/components/LogoutConfirmModal';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import { createClient } from '@/lib/cloudbase/client';
@@ -28,19 +28,11 @@ function isTransientConnectionError(message: string): boolean {
 export default function ProfilePage() {
   const router = useRouter();
   const { shellRuntime } = usePageCenterRuntime();
-  const { title: managedTitle, subtitle: managedSubtitle, navLabel, guestNavLabel } = useManagedPageMeta(
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
     'profile',
     '我的小天地',
     '📒 管理你的拾光小秘密 📒'
   );
-  const loadingTitle = useMemo(() => {
-    const candidate = String((guestNavLabel || navLabel || managedTitle || '我的小天地')).trim();
-    return candidate || '我的小天地';
-  }, [guestNavLabel, managedTitle, navLabel]);
-  const loadingDescription = useMemo(() => {
-    const subject = String(managedTitle || loadingTitle || '我的小天地').trim();
-    return `正在载入${subject}内容`;
-  }, [loadingTitle, managedTitle]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
@@ -246,7 +238,13 @@ export default function ProfilePage() {
   }, []);
 
   if (isLoading) {
-    return <MiniProgramRecoveryScreen title="拾光中..." description={loadingDescription} className="h-screen" />;
+    return (
+      <MiniProgramRecoveryScreen
+        title={PAGE_LOADING_COPY.title}
+        description={PAGE_LOADING_COPY.description}
+        className="h-screen"
+      />
+    );
   }
 
   if (!isLoggedIn) {

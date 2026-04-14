@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, MessageSquare, Phone, Save, User } from 'lucide-react';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import {
@@ -181,8 +181,8 @@ export default function EditProfilePage() {
 
         <div className="flex-1 px-6 py-6">
           <MiniProgramRecoveryScreen
-            title="拾光中..."
-            description="正在加载个人资料"
+            title={PAGE_LOADING_COPY.title}
+            description={PAGE_LOADING_COPY.description}
             className="h-full min-h-0"
           />
         </div>

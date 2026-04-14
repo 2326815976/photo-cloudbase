@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { Buffer } from 'buffer';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { AuthContext } from '@/lib/auth/types';
 import { deleteCloudBaseObjects, uploadFileToCloudBase } from '@/lib/cloudbase/storage';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
@@ -364,6 +364,7 @@ const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
 const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_WALL_ALBUM_ACCESS_KEY = 'WALL0000';
 const SYSTEM_WALL_FREEZE_FOLDER_NAME = '定格';
+const SYSTEM_WALL_FREEZE_FOLDER_ID = '00000000-0000-0000-0000-000000000001';
 const WALL_THUMBNAIL_MAX_WIDTH = 1280;
 const WALL_PREVIEW_MAX_WIDTH = 2560;
 const WALL_THUMBNAIL_QUALITY = 82;
@@ -667,35 +668,154 @@ async function ensureWallFolderByName(folderName: string): Promise<string> {
     return String(existing.id);
   }
 
-  const folderId = randomUUID();
-  await executeSQL(
-    `
-      INSERT INTO album_folders (
-        id,
-        album_id,
-        name,
-        created_at
-      ) VALUES (
-        {{id}},
-        {{wall_album_id}},
-        {{folder_name}},
-        ${NOW_UTC8_EXPR}
-      )
-    `,
-    {
-      id: folderId,
-      wall_album_id: SYSTEM_WALL_ALBUM_ID,
-      folder_name: normalizedName,
-    }
-  );
+  const folderId =
+    normalizedName === SYSTEM_WALL_FREEZE_FOLDER_NAME
+      ? SYSTEM_WALL_FREEZE_FOLDER_ID
+      : randomUUID();
 
-  return folderId;
+  try {
+    await executeSQL(
+      `
+        INSERT INTO album_folders (
+          id,
+          album_id,
+          name,
+          created_at
+        ) VALUES (
+          {{id}},
+          {{wall_album_id}},
+          {{folder_name}},
+          ${NOW_UTC8_EXPR}
+        )
+      `,
+      {
+        id: folderId,
+        wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        folder_name: normalizedName,
+      }
+    );
+
+    return folderId;
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) {
+      throw error;
+    }
+
+    const duplicated = await findWallFolderByName(normalizedName);
+    if (duplicated?.id) {
+      return String(duplicated.id);
+    }
+
+    return folderId;
+  }
 }
 
 function buildWallStorageKey(sourcePhotoId: string, kind: 'thumb' | 'preview'): string {
   const token = getSafeWallSourceToken(sourcePhotoId);
   const suffix = randomUUID().replace(/-/g, '').slice(0, 8);
   return `wall/${token}_${Date.now()}_${suffix}_${kind}.webp`;
+}
+
+function buildDeterministicWallPhotoId(sourcePhotoId: string): string {
+  const normalizedId = String(sourcePhotoId ?? '').trim();
+  const digest = createHash('md5').update(`wall:${normalizedId}`).digest('hex');
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`;
+}
+
+function extractWallSourceTokenFromUrl(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  const marker = '/wall/';
+  const markerIndex = raw.toLowerCase().lastIndexOf(marker);
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const tail = raw.slice(markerIndex + marker.length);
+  const underscoreIndex = tail.indexOf('_');
+  if (underscoreIndex <= 0) {
+    return null;
+  }
+
+  const token = tail.slice(0, underscoreIndex).trim();
+  return token || null;
+}
+
+function resolveWallPhotoSourceToken(row: Record<string, any>): string | null {
+  return extractWallSourceTokenFromUrl(
+    row.original_url ?? row.preview_url ?? row.thumbnail_url ?? row.url
+  );
+}
+
+function splitWallPhotoDuplicates<T extends Record<string, any>>(rows: T[]) {
+  const uniqueRows: T[] = [];
+  const duplicateRows: T[] = [];
+  const seenTokens = new Set<string>();
+
+  rows.forEach((row) => {
+    const token = resolveWallPhotoSourceToken(row);
+    if (!token) {
+      uniqueRows.push(row);
+      return;
+    }
+
+    if (seenTokens.has(token)) {
+      duplicateRows.push(row);
+      return;
+    }
+
+    seenTokens.add(token);
+    uniqueRows.push(row);
+  });
+
+  return {
+    uniqueRows,
+    duplicateRows,
+  };
+}
+
+async function deleteWallPhotoRows(rows: Array<Record<string, any>>) {
+  const targets = Array.from(
+    new Set(
+      rows
+        .flatMap((row) => [
+          String(row.url ?? '').trim(),
+          String(row.thumbnail_url ?? '').trim(),
+          String(row.preview_url ?? '').trim(),
+          String(row.original_url ?? '').trim(),
+        ])
+        .filter(Boolean)
+    )
+  );
+
+  if (targets.length > 0) {
+    try {
+      await deleteCloudBaseObjects(targets);
+    } catch (error) {
+      console.warn('delete wall photo assets failed:', error);
+    }
+  }
+
+  for (const row of rows) {
+    const wallPhotoId = String(row.id ?? '').trim();
+    if (!wallPhotoId) {
+      continue;
+    }
+
+    await executeSQL(
+      `
+        DELETE FROM album_photos
+        WHERE id = {{id}}
+        LIMIT 1
+      `,
+      {
+        id: wallPhotoId,
+      }
+    );
+  }
 }
 
 async function getSharp() {
@@ -769,6 +889,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
   const offset = (pageNo - 1) * pageSize;
   const clientSource = String(args.client_source ?? '').trim();
+  const clientSourceKind = normalizeGalleryClientSource(clientSource);
   if (clientSource === '__mini__') {
     throw new Error('微信小程序暂不支持定格照片，请在 Web 端操作');
   }
@@ -811,7 +932,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     }
   );
   const hiddenFreezeFolderIds = new Set(
-    clientSource === '__mini__'
+    clientSourceKind === 'mini'
       ? foldersResult.rows
           .filter((row) => String(row.name ?? '').trim() === SYSTEM_WALL_FREEZE_FOLDER_NAME)
           .map((row) => String(row.id ?? '').trim())
@@ -828,48 +949,49 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     ...folderFilter.params,
   };
 
-  let photos: Record<string, any>[] = [];
-  if (context.user?.id) {
-    const result = await executeSQL(
-      `
-        SELECT
-          p.id,
-          COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
-          COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
-          COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
-          COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
-          p.width,
-          p.height,
-          p.blurhash,
-          p.like_count,
-          p.view_count,
-          ${downloadCountSelect},
-          p.story_text,
-          p.is_highlight,
-          p.sort_order,
-          ${shotDateSelect},
-          ${shotLocationSelect},
-          p.created_at,
-          p.folder_id,
-          CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
-        FROM album_photos p
-        LEFT JOIN photo_likes pl
-          ON pl.photo_id = p.id
-         AND pl.user_id = {{user_id}}
-        WHERE p.album_id = {{wall_album_id}}
-          AND ${folderFilter.clause}
-        ORDER BY ${photoOrderBy}
-        LIMIT {{limit}} OFFSET {{offset}}
-      `,
-      {
-        user_id: context.user.id,
-        ...wallValues,
-        limit: pageSize,
-        offset,
-      }
-    );
-    photos = result.rows;
-  } else {
+  const fetchWallPhotosPage = async (): Promise<Record<string, any>[]> => {
+    if (context.user?.id) {
+      const result = await executeSQL(
+        `
+          SELECT
+            p.id,
+            COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+            COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+            COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+            COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
+            p.width,
+            p.height,
+            p.blurhash,
+            p.like_count,
+            p.view_count,
+            ${downloadCountSelect},
+            p.story_text,
+            p.is_highlight,
+            p.sort_order,
+            ${shotDateSelect},
+            ${shotLocationSelect},
+            p.created_at,
+            p.folder_id,
+            CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
+          FROM album_photos p
+          LEFT JOIN photo_likes pl
+            ON pl.photo_id = p.id
+           AND pl.user_id = {{user_id}}
+          WHERE p.album_id = {{wall_album_id}}
+            AND ${folderFilter.clause}
+          ORDER BY ${photoOrderBy}
+          LIMIT {{limit}} OFFSET {{offset}}
+        `,
+        {
+          user_id: context.user.id,
+          ...wallValues,
+          limit: pageSize,
+          offset,
+        }
+      );
+      return result.rows;
+    }
+
     const result = await executeSQL(
       `
         SELECT
@@ -904,7 +1026,14 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
         offset,
       }
     );
-    photos = result.rows;
+    return result.rows;
+  };
+
+  let photos = await fetchWallPhotosPage();
+  const { duplicateRows } = splitWallPhotoDuplicates(photos);
+  if (duplicateRows.length > 0) {
+    await deleteWallPhotoRows(duplicateRows);
+    photos = await fetchWallPhotosPage();
   }
 
   const countResult = await executeSQL(
@@ -1609,6 +1738,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
       SELECT
         p.id,
         p.album_id,
+        p.is_public,
         COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
         COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
         COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
@@ -1644,6 +1774,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
 
   const sourceToken = getSafeWallSourceToken(photoId);
   const sourcePattern = `%/wall/${sourceToken}_%`;
+  const wallPhotoId = buildDeterministicWallPhotoId(photoId);
 
   const existingWallResult = await executeSQL(
     `
@@ -1651,55 +1782,39 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
       FROM album_photos
       WHERE album_id = {{wall_album_id}}
         AND (
-          thumbnail_url LIKE {{source_pattern}}
+          id = {{wall_photo_id}}
+          OR url LIKE {{source_pattern}}
+          OR thumbnail_url LIKE {{source_pattern}}
           OR preview_url LIKE {{source_pattern}}
           OR original_url LIKE {{source_pattern}}
         )
-      ORDER BY created_at DESC
-      LIMIT 1
+      ORDER BY created_at DESC, id DESC
     `,
     {
       wall_album_id: SYSTEM_WALL_ALBUM_ID,
+      wall_photo_id: wallPhotoId,
       source_pattern: sourcePattern,
     }
   );
-  const existingWall = existingWallResult.rows[0];
+  const existingWallRows = Array.isArray(existingWallResult.rows) ? existingWallResult.rows : [];
 
-  if (existingWall) {
-    const deleteTargets = [
-      String(existingWall.url ?? '').trim(),
-      String(existingWall.thumbnail_url ?? '').trim(),
-      String(existingWall.preview_url ?? '').trim(),
-      String(existingWall.original_url ?? '').trim(),
-    ].filter(Boolean);
+  if (existingWallRows.length > 0) {
+    await deleteWallPhotoRows(existingWallRows);
 
-    if (deleteTargets.length > 0) {
-      await deleteCloudBaseObjects(deleteTargets);
+    if (toBoolean(sourcePhoto.is_public)) {
+      await executeSQL(
+        `
+          UPDATE album_photos
+          SET is_public = 0
+          WHERE id = {{photo_id}}
+        `,
+        {
+          photo_id: photoId,
+        }
+      );
+
+      return false;
     }
-
-    await executeSQL(
-      `
-        DELETE FROM album_photos
-        WHERE id = {{id}}
-        LIMIT 1
-      `,
-      {
-        id: String(existingWall.id),
-      }
-    );
-
-    await executeSQL(
-      `
-        UPDATE album_photos
-        SET is_public = 0
-        WHERE id = {{photo_id}}
-      `,
-      {
-        photo_id: photoId,
-      }
-    );
-
-    return false;
   }
 
   const sourceUrl = resolveSourcePhotoBestUrl(sourcePhoto);
@@ -1726,7 +1841,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     const shotLocationInsertColumn = hasShotLocationColumn ? ',\n          shot_location' : '';
     const shotLocationInsertValue = hasShotLocationColumn ? ',\n          {{shot_location}}' : '';
     const insertValues: Record<string, unknown> = {
-      id: randomUUID(),
+      id: wallPhotoId,
       album_id: SYSTEM_WALL_ALBUM_ID,
       folder_id: freezeFolderId,
       thumbnail_url: thumbnailUpload.downloadUrl,
@@ -1788,11 +1903,18 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
       insertValues
     );
   } catch (insertError) {
-    await deleteCloudBaseObjects([
-      thumbnailUpload.downloadUrl,
-      previewUpload.downloadUrl,
-    ]);
-    throw insertError;
+    try {
+      await deleteCloudBaseObjects([
+        thumbnailUpload.downloadUrl,
+        previewUpload.downloadUrl,
+      ]);
+    } catch (cleanupError) {
+      console.warn('cleanup wall upload assets failed:', cleanupError);
+    }
+
+    if (!isDuplicateEntryError(insertError)) {
+      throw insertError;
+    }
   }
 
   await executeSQL(

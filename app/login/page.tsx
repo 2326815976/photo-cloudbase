@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Phone, Lock, Eye, EyeOff } from 'lucide-react';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
@@ -243,7 +243,11 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <MiniProgramRecoveryScreen title="拾光中..." description="正在加载登录页面" className="min-h-screen" />
+      <MiniProgramRecoveryScreen
+        title={PAGE_LOADING_COPY.title}
+        description={PAGE_LOADING_COPY.description}
+        className="min-h-screen"
+      />
     }>
       <LoginForm />
     </Suspense>

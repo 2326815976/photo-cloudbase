@@ -9,6 +9,11 @@ export const MINI_PROGRAM_RECONNECT_COPY = {
   description: '重连服务器中，请等待',
 } as const;
 
+export const PAGE_LOADING_COPY = {
+  title: '拾光中...',
+  description: '正在加载页面',
+} as const;
+
 type MiniProgramRecoveryScreenProps = {
   title?: string;
   description: string;
@@ -28,7 +33,7 @@ export default function MiniProgramRecoveryScreen({
   className,
   contentClassName,
 }: MiniProgramRecoveryScreenProps) {
-  const resolvedTitle = String(title || MINI_PROGRAM_RECONNECT_COPY.title).trim() || MINI_PROGRAM_RECONNECT_COPY.title;
+  const resolvedTitle = String(title || PAGE_LOADING_COPY.title).trim() || PAGE_LOADING_COPY.title;
 
   return (
     <div

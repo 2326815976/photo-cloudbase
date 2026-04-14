@@ -16,6 +16,7 @@ const CLIENT_TRANSIENT_RETRY_TIMES = 1;
 const CLIENT_TRANSIENT_RETRY_DELAY_MS = 320;
 const CLIENT_READY_CACHE_TTL_MS = 300;
 const TRANSIENT_BACKEND_ERROR_CODE = 'TRANSIENT_BACKEND';
+const NON_RETRYABLE_RPC_FUNCTIONS = new Set(['pin_photo_to_wall']);
 
 let compatClientInstance: CompatClient | null = null;
 let cachedSessionResponse: SessionResponse | null = null;
@@ -303,6 +304,7 @@ function buildBrowserCompatClient(): CompatClient {
     },
     rpcExecutor: async (functionName: string, args?: Record<string, unknown>) => {
       try {
+        const disableBackendRecovery = NON_RETRYABLE_RPC_FUNCTIONS.has(String(functionName || '').trim());
         const { ok, body } = await requestJson('/api/db/rpc', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -310,6 +312,12 @@ function buildBrowserCompatClient(): CompatClient {
             functionName,
             args: args ?? {},
           }),
+          backendRecovery: disableBackendRecovery
+            ? {
+                disabled: true,
+                skipReadyGate: true,
+              }
+            : undefined,
         });
 
         const error = body?.error

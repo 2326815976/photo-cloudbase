@@ -8,7 +8,7 @@ import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import ImagePreview from '@/components/ImagePreview';
-import MiniProgramRecoveryScreen from '@/components/MiniProgramRecoveryScreen';
+import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
@@ -297,6 +297,7 @@ export default function AlbumDetailPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
+  const [, setPinningPhotoIds] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
@@ -309,6 +310,7 @@ export default function AlbumDetailPage() {
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
   const [previewPhotoPool, setPreviewPhotoPool] = useState<Photo[] | null>(null);
+  const pinningPhotoIdsRef = useRef<Set<string>>(new Set());
   const photosRef = useRef<Photo[]>([]);
   const photoScrollRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -323,6 +325,32 @@ export default function AlbumDetailPage() {
   const selectedFolderRef = useRef(selectedFolder);
   const [folderWaveActiveIndex, setFolderWaveActiveIndex] = useState(-1);
   const [folderWaveTick, setFolderWaveTick] = useState(0);
+
+  const startPinPhotoAction = useCallback((photoId: string) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId || pinningPhotoIdsRef.current.has(normalizedPhotoId)) {
+      return false;
+    }
+
+    pinningPhotoIdsRef.current.add(normalizedPhotoId);
+    setPinningPhotoIds(Array.from(pinningPhotoIdsRef.current));
+    return true;
+  }, []);
+
+  const finishPinPhotoAction = useCallback((photoId: string) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId || !pinningPhotoIdsRef.current.has(normalizedPhotoId)) {
+      return;
+    }
+
+    pinningPhotoIdsRef.current.delete(normalizedPhotoId);
+    setPinningPhotoIds(Array.from(pinningPhotoIdsRef.current));
+  }, []);
+
+  const isPhotoPinning = useCallback((photoId?: string | null) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    return normalizedPhotoId ? pinningPhotoIdsRef.current.has(normalizedPhotoId) : false;
+  }, []);
 
   const markGalleryDirty = () => {
     markGalleryCacheDirty();
@@ -1181,9 +1209,11 @@ export default function AlbumDetailPage() {
   const togglePublic = async (photoId: string) => {
     const photo = photos.find(p => p.id === photoId);
     if (!photo) return;
+    if (!startPinPhotoAction(photoId)) return;
     if (!freezeEnabled) {
       setToast({ message: '当前专属空间未开启定格功能', type: 'error' });
       setTimeout(() => setToast(null), 3000);
+      finishPinPhotoAction(photoId);
       return;
     }
 
@@ -1191,47 +1221,50 @@ export default function AlbumDetailPage() {
     if (!dbClient) {
       setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
       setTimeout(() => setToast(null), 3000);
+      finishPinPhotoAction(photoId);
       return;
     }
 
-    // 使用RPC函数确保安全性
-    const { error } = await dbClient.rpc('pin_photo_to_wall', {
-      p_access_key: normalizedAccessKey,
-      p_photo_id: photoId,
-      p_client_source: 'web',
-    });
-
-    if (!error) {
-      const newIsPublic = !photo.is_public;
-      setPhotos(prev => {
-        const next = prev.map(p =>
-          p.id === photoId ? { ...p, is_public: newIsPublic } : p
-        );
-        photosRef.current = next;
-        return next;
+    try {
+      const { data, error } = await dbClient.rpc('pin_photo_to_wall', {
+        p_access_key: normalizedAccessKey,
+        p_photo_id: photoId,
+        p_client_source: 'web',
       });
-      setPreviewPhotoPool(prev => prev
-        ? prev.map(p => (p.id === photoId ? { ...p, is_public: newIsPublic } : p))
-        : prev
-      );
-      markGalleryDirty();
 
-      // 显示提示信息
+      if (!error) {
+        const newIsPublic = typeof data === 'boolean' ? data : !photo.is_public;
+        setPhotos(prev => {
+          const next = prev.map(p =>
+            p.id === photoId ? { ...p, is_public: newIsPublic } : p
+          );
+          photosRef.current = next;
+          return next;
+        });
+        setPreviewPhotoPool(prev => prev
+          ? prev.map(p => (p.id === photoId ? { ...p, is_public: newIsPublic } : p))
+          : prev
+        );
+        markGalleryDirty();
+
       if (newIsPublic) {
         setToast({
-          message: '✨ 照片已定格到照片墙！虽然照片7天后会像魔法一样消失，但现在它会被魔法定格，永远保留哦！',
+          message: `✨ 照片已定格到照片墙，不再受当前相册剩余 ${expiryDays} 天有效期限制。`,
           type: 'success'
         });
+        } else {
+          setToast({
+            message: '照片已从照片墙移除',
+            type: 'success'
+          });
+        }
+        setTimeout(() => setToast(null), 5000);
       } else {
-        setToast({
-          message: '照片已从照片墙移除',
-          type: 'success'
-        });
+        setToast({ message: `操作失败：${error.message}`, type: 'error' });
+        setTimeout(() => setToast(null), 3000);
       }
-      setTimeout(() => setToast(null), 5000);
-    } else {
-      setToast({ message: `操作失败：${error.message}`, type: 'error' });
-      setTimeout(() => setToast(null), 3000);
+    } finally {
+      finishPinPhotoAction(photoId);
     }
   };
 
@@ -1407,8 +1440,8 @@ export default function AlbumDetailPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const loadingTitle = '拾光中...';
-  const loadingDescription = `正在为你打开${String(managedTitle || '专属返图空间').trim() || '专属返图空间'}`;
+  const loadingTitle = PAGE_LOADING_COPY.title;
+  const loadingDescription = PAGE_LOADING_COPY.description;
 
   if (loading) {
     return (
@@ -1779,11 +1812,13 @@ export default function AlbumDetailPage() {
                     <motion.button
                       type="button"
                       whileTap={{ scale: 0.9 }}
+                      disabled={isPhotoPinning(photo.id)}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (isPhotoPinning(photo.id)) return;
                         photo.is_public ? togglePublic(photo.id) : setConfirmPhotoId(photo.id);
                       }}
-                      className={`absolute right-[40px] top-[5px] z-[4] flex items-center justify-center overflow-hidden rounded-full border p-0 leading-none transition-[transform,background-color,border-color,box-shadow] duration-300 [appearance:none] [-webkit-appearance:none] ${
+                      className={`absolute right-[40px] top-[5px] z-[4] flex items-center justify-center overflow-hidden rounded-full border p-0 leading-none transition-[transform,background-color,border-color,box-shadow,opacity] duration-300 [appearance:none] [-webkit-appearance:none] disabled:cursor-not-allowed disabled:opacity-60 ${
                         photo.is_public
                           ? 'border-[#FFC857]/60 bg-[#FFC857] text-[#5D4037] shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px]'
                           : 'border-[#5D4037]/15 bg-white/92 text-[#8D6E63] shadow-[0_4px_12px_rgba(0,0,0,0.18)] backdrop-blur-[2px]'
@@ -1882,8 +1917,8 @@ export default function AlbumDetailPage() {
               className="absolute inset-0 z-20"
             >
               <MiniProgramRecoveryScreen
-                title="拾光中..."
-                description="正在切换照片标签"
+                title={PAGE_LOADING_COPY.title}
+                description={PAGE_LOADING_COPY.description}
                 className="h-full min-h-0 bg-[#FFFBF0]/78 px-4 backdrop-blur-[4px]"
                 contentClassName="gap-3"
               />
@@ -1991,13 +2026,15 @@ export default function AlbumDetailPage() {
                 </motion.button>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
+                  disabled={isPhotoPinning(confirmPhotoId)}
                   onClick={() => {
+                    if (isPhotoPinning(confirmPhotoId)) return;
                     togglePublic(confirmPhotoId);
                     setConfirmPhotoId(null);
                   }}
-                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all"
+                  className="flex-1 px-4 py-3 rounded-full text-sm font-medium bg-[#FFC857] text-[#5D4037] shadow-md hover:shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  ✨ 确认定格
+                  {isPhotoPinning(confirmPhotoId) ? '处理中...' : '✨ 确认定格'}
                 </motion.button>
               </div>
             </motion.div>
