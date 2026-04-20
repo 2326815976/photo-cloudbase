@@ -3,6 +3,11 @@ import { getSessionUserFromRequest } from '@/lib/auth/context';
 import { updateUserPassword, updateUserProfile, verifyUserPassword } from '@/lib/auth/service';
 import { SESSION_COOKIE_NAME, getSessionCookieOptions } from '@/lib/auth/cookie';
 import { clearSessionCacheByUserId } from '@/lib/auth/session-store';
+import {
+  isRetryableSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from '@/lib/cloudbase/sql-executor';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,6 +131,19 @@ export async function POST(request: Request) {
     }
     return response;
   } catch (error) {
+    if (isRetryableSqlError(error)) {
+      return NextResponse.json(
+        {
+          data: { user: null },
+          error: {
+            message: TRANSIENT_BACKEND_ERROR_MESSAGE,
+            code: TRANSIENT_BACKEND_ERROR_CODE,
+          },
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       {
         data: { user: null },

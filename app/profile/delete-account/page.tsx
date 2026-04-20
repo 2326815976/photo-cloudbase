@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle } from 'lucide-react';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
@@ -97,32 +98,13 @@ export default function DeleteAccountPage() {
   }
 
   return (
-    <div className="h-screen bg-[#FFFBF0] flex flex-col overflow-hidden">
-      <div className="flex-none px-4 sm:px-6 md:px-8 pt-8 sm:pt-12">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="icon-button action-icon-btn action-icon-btn--back absolute left-4 sm:left-6 top-4 sm:top-6"
-        >
-          <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-        </button>
-
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-12 mt-8"
-        >
-          <h1
-            className="text-3xl font-bold text-[#5D4037] mb-2"
-            style={{ fontFamily: "'ZQKNNY', cursive" }}
-          >
-            {managedTitle}
-          </h1>
-          <p className="text-sm text-[#5D4037]/60">这是一个需要谨慎确认的操作</p>
-        </motion.div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 pb-24 sm:pb-32">
+    <SecondaryPageShell
+      title={managedTitle}
+      subtitle="这是一个需要谨慎确认的操作"
+      onBack={handleBack}
+      className="overflow-hidden"
+      contentClassName="overflow-y-auto px-4 sm:px-6 md:px-8 pb-24 sm:pb-32"
+    >
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
@@ -213,7 +195,6 @@ export default function DeleteAccountPage() {
             </div>
           )}
         </motion.div>
-      </div>
-    </div>
+    </SecondaryPageShell>
   );
 }

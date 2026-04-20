@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { Phone, Lock, ArrowLeft, Eye, EyeOff, ChevronsRight, RotateCcw } from 'lucide-react';
+import { Phone, Lock, Eye, EyeOff, ChevronsRight, RotateCcw } from 'lucide-react';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
@@ -337,31 +338,18 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
-      <button
-        onClick={() => router.back()}
-        className="icon-button action-icon-btn action-icon-btn--back absolute left-6 top-6"
-      >
-        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-      </button>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12 mt-8"
-      >
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-          {managedTitle}
-        </h1>
-        <p className="text-sm text-[#5D4037]/60">{managedSubtitle || '创建账号，开启美好瞬间记录之旅'}</p>
-      </motion.div>
-
+    <SecondaryPageShell
+      title={managedTitle}
+      subtitle={managedSubtitle || '创建账号，开启美好瞬间记录之旅'}
+      fallbackHref="/profile"
+      contentClassName="px-8 pb-20"
+    >
       <motion.form
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
         onSubmit={handleRegister}
-        className="flex-1 flex flex-col max-w-md mx-auto w-full"
+        className="mx-auto flex w-full max-w-md flex-col"
       >
         <div className="space-y-4 mb-6">
           <div className="relative">
@@ -495,7 +483,7 @@ export default function RegisterPage() {
         </motion.div>
       </motion.form>
 
-      <p className="text-center text-xs text-[#5D4037]/40 mt-6">注册即表示同意我们的服务条款和隐私政策</p>
-    </div>
+      <p className="mt-6 text-center text-xs text-[#5D4037]/40">注册即表示同意我们的服务条款和隐私政策</p>
+    </SecondaryPageShell>
   );
 }

@@ -8,8 +8,8 @@ import SimpleImage from '@/components/ui/SimpleImage';
 import ToggleSwitch from '@/components/ui/ToggleSwitch';
 import SkeletonPose from '@/components/ui/SkeletonPose';
 import SkeletonTags from '@/components/ui/SkeletonTags';
-import PageTopHeader from '@/components/PageTopHeader';
 import { usePageShellBottomStyle } from '@/components/PreviewAwareScrollArea';
+import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
@@ -749,17 +749,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
   const displayTags = useMemo(() => tags.slice(0, 8), [tags]);
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full">
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
-      </motion.div>
-
+    <PrimaryPageShell title={managedTitle} badge={managedSubtitle || undefined} className="h-[100dvh] w-full">
       <div
-        className="flex-1 flex flex-col px-5 pt-3 pb-3 min-h-0"
+        className="flex h-full min-h-0 flex-col px-5 pt-3 pb-3"
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E")`,
         }}
@@ -1197,6 +1189,6 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
           </>
         )}
       </AnimatePresence>
-    </div>
+    </PrimaryPageShell>
   );
 }

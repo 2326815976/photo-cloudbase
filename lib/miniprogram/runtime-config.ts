@@ -36,15 +36,15 @@ export const MINIPROGRAM_TAB_PAGE_OPTIONS = [
   },
 ] as const;
 
-export const SUPPORTED_MINIPROGRAM_ICON_KEYS = ['home', 'album', 'gallery', 'booking', 'profile', 'about'] as const;
+export const SUPPORTED_MINIPROGRAM_ICON_KEYS = ['home', 'album', 'gallery', 'booking', 'profile'] as const;
 
 export type MiniProgramTabKey = string;
 export type MiniProgramIconKey = (typeof SUPPORTED_MINIPROGRAM_ICON_KEYS)[number] | string;
 export type MiniProgramSceneCode = 'standard' | 'review' | 'custom';
 export type MiniProgramHomeMode = 'pose' | 'gallery';
-export type MiniProgramGuestProfileMode = 'login' | 'about';
+export type MiniProgramGuestProfileMode = 'login';
 export type MiniProgramAuthMode = 'phone_password' | 'wechat_only' | 'mixed';
-export type MiniProgramRuntimeConfigSource = 'database' | 'env_legacy' | 'default_fallback';
+export type MiniProgramRuntimeConfigSource = 'database' | 'default_fallback';
 
 export interface MiniProgramTabBarItem {
   key: MiniProgramTabKey;
@@ -56,8 +56,6 @@ export interface MiniProgramTabBarItem {
 }
 
 export interface MiniProgramFeatureFlags {
-  showProfileEdit: boolean;
-  showProfileBookings: boolean;
   showDonationQrCode: boolean;
   allowPoseBetaBypass: boolean;
 }
@@ -78,7 +76,6 @@ export interface MiniProgramRuntimeConfig {
   configKey: string;
   configName: string;
   sceneCode: MiniProgramSceneCode;
-  hideAudit: boolean;
   homeMode: MiniProgramHomeMode;
   homeEntryPagePath: string;
   guestProfileMode: MiniProgramGuestProfileMode;
@@ -97,7 +94,6 @@ export interface MiniProgramRuntimeConfigRow {
   config_key?: unknown;
   config_name?: unknown;
   scene_code?: unknown;
-  legacy_hide_audit?: unknown;
   home_mode?: unknown;
   guest_profile_mode?: unknown;
   auth_mode?: unknown;
@@ -239,36 +235,33 @@ function normalizeManagedPageAccessMap(
   }, {});
 }
 
-function normalizeSceneCode(value: unknown, hideAudit: boolean): MiniProgramSceneCode {
+function normalizeSceneCode(value: unknown): MiniProgramSceneCode {
   const text = toText(value);
   if (text === 'standard' || text === 'review' || text === 'custom') {
     return text;
   }
-  return hideAudit ? 'review' : 'standard';
+  return 'standard';
 }
 
-function normalizeHomeMode(value: unknown, hideAudit: boolean): MiniProgramHomeMode {
+function normalizeHomeMode(value: unknown): MiniProgramHomeMode {
   const text = toText(value);
   if (text === 'pose' || text === 'gallery') {
     return text;
   }
-  return hideAudit ? 'gallery' : 'pose';
+  return 'pose';
 }
 
-function normalizeGuestProfileMode(value: unknown, hideAudit: boolean): MiniProgramGuestProfileMode {
-  const text = toText(value);
-  if (text === 'login' || text === 'about') {
-    return text;
-  }
-  return hideAudit ? 'about' : 'login';
+function normalizeGuestProfileMode(value: unknown): MiniProgramGuestProfileMode {
+  void value;
+  return 'login';
 }
 
-function normalizeAuthMode(value: unknown, hideAudit: boolean): MiniProgramAuthMode {
+function normalizeAuthMode(value: unknown): MiniProgramAuthMode {
   const text = toText(value);
   if (text === 'phone_password' || text === 'wechat_only' || text === 'mixed') {
     return text;
   }
-  return hideAudit ? 'wechat_only' : 'phone_password';
+  return 'wechat_only';
 }
 
 export function buildStandardTabBarItems(): MiniProgramTabBarItem[] {
@@ -317,82 +310,32 @@ export function buildStandardTabBarItems(): MiniProgramTabBarItem[] {
 }
 
 export function buildReviewTabBarItems(): MiniProgramTabBarItem[] {
-  return [
-    {
-      key: 'gallery',
-      iconKey: 'gallery',
-      pagePath: 'pages/gallery/index',
-      text: '照片墙',
-      guestText: '照片墙',
-      enabled: true,
-    },
-    {
-      key: 'album',
-      iconKey: 'album',
-      pagePath: 'pages/album/index',
-      text: '提取',
-      guestText: '提取',
-      enabled: true,
-    },
-    {
-      key: 'profile',
-      iconKey: 'profile',
-      pagePath: 'pages/profile/index',
-      text: '我的',
-      guestText: '关于',
-      enabled: true,
-    },
-  ];
+  return buildStandardTabBarItems();
 }
 
-export function buildFeatureFlagsPreset(hideAudit: boolean): MiniProgramFeatureFlags {
-  return hideAudit
-    ? {
-        showProfileEdit: false,
-        showProfileBookings: false,
-        showDonationQrCode: false,
-        allowPoseBetaBypass: true,
-      }
-    : {
-        showProfileEdit: true,
-        showProfileBookings: true,
-        showDonationQrCode: true,
-        allowPoseBetaBypass: false,
-      };
+export function buildFeatureFlagsPreset(): MiniProgramFeatureFlags {
+  return {
+    showDonationQrCode: true,
+    allowPoseBetaBypass: false,
+  };
 }
 
 export function buildRuntimeConfigPreset(sceneCode: MiniProgramSceneCode): MiniProgramRuntimeConfig {
-  if (sceneCode === 'review') {
-    return {
-      configKey: 'default',
-      configName: '审核版配置',
-      sceneCode: 'review',
-      hideAudit: true,
-      homeMode: 'gallery',
-      homeEntryPagePath: 'pages/gallery/index',
-      guestProfileMode: 'about',
-      authMode: 'wechat_only',
-      tabBarItems: buildReviewTabBarItems(),
-      featureFlags: buildFeatureFlagsPreset(true),
-      managedPageMetaMap: {},
-      managedPageAccessMap: {},
-      notes: '',
-      source: 'default_fallback',
-      updatedAt: null,
-    };
-  }
-
   return {
     configKey: 'default',
-    configName: sceneCode === 'custom' ? '自定义配置' : '正式版配置',
+    configName:
+      sceneCode === 'review'
+        ? '审核场景配置'
+        : sceneCode === 'custom'
+          ? '自定义页面配置'
+          : '标准发布配置',
     sceneCode,
-    hideAudit: false,
     homeMode: 'pose',
     homeEntryPagePath: 'pages/index/index',
     guestProfileMode: 'login',
-    authMode: 'phone_password',
+    authMode: 'wechat_only',
     tabBarItems: buildStandardTabBarItems(),
-    featureFlags: buildFeatureFlagsPreset(false),
+    featureFlags: buildFeatureFlagsPreset(),
     managedPageMetaMap: {},
     managedPageAccessMap: {},
     notes: '',
@@ -401,20 +344,12 @@ export function buildRuntimeConfigPreset(sceneCode: MiniProgramSceneCode): MiniP
   };
 }
 
-export function parseBooleanEnv(input: string | undefined): boolean | null {
-  const text = toText(input).toLowerCase();
-  if (!text) return null;
-  if (['1', 'true', 'yes', 'y', 'on'].includes(text)) return true;
-  if (['0', 'false', 'no', 'n', 'off'].includes(text)) return false;
-  return null;
-}
+
 
 export function normalizeTabBarItems(
-  input: unknown,
-  options?: { hideAudit?: boolean }
+  input: unknown
 ): MiniProgramTabBarItem[] {
-  const hideAudit = Boolean(options?.hideAudit);
-  const fallback = hideAudit ? buildReviewTabBarItems() : buildStandardTabBarItems();
+  const fallback = buildStandardTabBarItems();
   const rows = parseJsonArray(input);
   if (!rows || rows.length === 0) {
     return fallback;
@@ -439,8 +374,11 @@ export function normalizeTabBarItems(
     }
     seen.add(resolvedPagePath);
 
-    const text = toText(row.text) || option?.defaultText || '页面';
-    const guestText = toText(row.guestText) || toText(row.guest_label) || option?.defaultGuestText || text;
+    const isProfileTab = resolvedPagePath === 'pages/profile/index' || option?.key === 'profile';
+    const text = isProfileTab ? option?.defaultText || '我的' : toText(row.text) || option?.defaultText || '页面';
+    const guestText = isProfileTab
+      ? option?.defaultGuestText || text
+      : toText(row.guestText) || toText(row.guest_label) || option?.defaultGuestText || text;
     const keyFallback = option?.key || resolvedPagePath;
     const iconFallback = option?.iconKey || 'profile';
     normalized.push({
@@ -458,19 +396,15 @@ export function normalizeTabBarItems(
 }
 
 export function normalizeFeatureFlags(
-  input: unknown,
-  options?: { hideAudit?: boolean }
+  input: unknown
 ): MiniProgramFeatureFlags {
-  const hideAudit = Boolean(options?.hideAudit);
-  const fallback = buildFeatureFlagsPreset(hideAudit);
+  const fallback = buildFeatureFlagsPreset();
   const row = parseJsonObject(input);
   if (!row) {
     return fallback;
   }
 
   return {
-    showProfileEdit: toBoolean(row.showProfileEdit, fallback.showProfileEdit),
-    showProfileBookings: toBoolean(row.showProfileBookings, fallback.showProfileBookings),
     showDonationQrCode: toBoolean(row.showDonationQrCode, fallback.showDonationQrCode),
     allowPoseBetaBypass: toBoolean(row.allowPoseBetaBypass, fallback.allowPoseBetaBypass),
   };
@@ -496,20 +430,24 @@ export function normalizeRuntimeConfigRow(
     return null;
   }
 
-  const hideAudit = toBoolean(row.legacy_hide_audit, false);
-  const sceneCode = normalizeSceneCode(row.scene_code, hideAudit);
-  const homeMode = normalizeHomeMode(row.home_mode, hideAudit);
-  const guestProfileMode = normalizeGuestProfileMode(row.guest_profile_mode, hideAudit);
-  const authMode = normalizeAuthMode(row.auth_mode, hideAudit);
-  const tabBarItems = normalizeTabBarItems(row.tab_bar_items_json, { hideAudit });
-  const featureFlags = normalizeFeatureFlags(row.feature_flags_json, { hideAudit });
+  const sceneCode = normalizeSceneCode(row.scene_code);
+  const homeMode = normalizeHomeMode(row.home_mode);
+  const guestProfileMode = normalizeGuestProfileMode(row.guest_profile_mode);
+  const authMode = normalizeAuthMode(row.auth_mode);
+  const tabBarItems = normalizeTabBarItems(row.tab_bar_items_json);
+  const featureFlags = normalizeFeatureFlags(row.feature_flags_json);
   const homeEntryPagePath = normalizeHomeEntryPagePath(null, tabBarItems, homeMode);
 
   return {
     configKey: toText(row.config_key) || 'default',
-    configName: toText(row.config_name) || (hideAudit ? '审核版配置' : '正式版配置'),
+    configName:
+      toText(row.config_name) ||
+      (sceneCode === 'review'
+        ? '审核场景配置'
+        : sceneCode === 'custom'
+          ? '自定义页面配置'
+          : '标准发布配置'),
     sceneCode,
-    hideAudit,
     homeMode,
     homeEntryPagePath,
     guestProfileMode,
@@ -524,15 +462,7 @@ export function normalizeRuntimeConfigRow(
   };
 }
 
-export function buildLegacyEnvRuntimeConfig(hideAudit: boolean): MiniProgramRuntimeConfig {
-  const preset = buildRuntimeConfigPreset(hideAudit ? 'review' : 'standard');
-  return {
-    ...preset,
-    managedPageMetaMap: {},
-    configName: hideAudit ? '环境变量审核版回退' : '环境变量正式版回退',
-    source: 'env_legacy',
-  };
-}
+
 
 export function serializeTabBarItems(items: MiniProgramTabBarItem[]): string {
   return JSON.stringify(
@@ -549,8 +479,6 @@ export function serializeTabBarItems(items: MiniProgramTabBarItem[]): string {
 
 export function serializeFeatureFlags(flags: MiniProgramFeatureFlags): string {
   return JSON.stringify({
-    showProfileEdit: Boolean(flags.showProfileEdit),
-    showProfileBookings: Boolean(flags.showProfileBookings),
     showDonationQrCode: Boolean(flags.showDonationQrCode),
     allowPoseBetaBypass: Boolean(flags.allowPoseBetaBypass),
   });

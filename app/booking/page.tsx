@@ -11,8 +11,8 @@ import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniP
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
-import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { getDateAfterDaysUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
@@ -564,17 +564,12 @@ export default function BookingPage() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
-      </motion.div>
-
-      {/* 滚动区域 */}
+    <PrimaryPageShell
+      title={managedTitle}
+      badge={managedSubtitle || undefined}
+      className="h-full w-full"
+      contentClassName="min-h-0"
+    >
       <PreviewAwareScrollArea className="flex-1 overflow-y-auto px-6 pt-4 [&::-webkit-scrollbar]:hidden">
         {/* 场景 A: 有活跃订单 - 显示票据 */}
         {activeBooking && (
@@ -794,7 +789,7 @@ export default function BookingPage() {
             )}
           </motion.div>
         )}
-      </PreviewAwareScrollArea>
+
 
       {/* 地图选择器弹窗 */}
       <AnimatePresence>
@@ -855,6 +850,7 @@ export default function BookingPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      </PreviewAwareScrollArea>
+    </PrimaryPageShell>
   );
 }

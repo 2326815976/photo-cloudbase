@@ -17,7 +17,7 @@ import { createPageCenterSchemaError } from '@/lib/page-center/errors';
 import { hasTableColumns, tableExists } from '@/lib/page-center/sql-compat';
 import { generateAdminBetaFeatureCode, normalizeBetaExpiresAt } from '@/lib/utils/admin-beta';
 
-const PAGE_REGISTRY_ICON_KEYS = new Set(['home', 'album', 'gallery', 'booking', 'profile', 'about']);
+const PAGE_REGISTRY_ICON_KEYS = new Set(['home', 'album', 'gallery', 'booking', 'profile']);
 const NOW_UTC8_EXPR = "CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+08:00')";
 const PAGE_CENTER_MIGRATION_MESSAGE =
   '页面管理依赖的数据表结构未完成升级，请先执行最新数据库迁移（至少同步 12、 13、 16、 21 号迁移）。';

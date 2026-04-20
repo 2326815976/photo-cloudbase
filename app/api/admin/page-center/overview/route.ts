@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminSession } from '@/app/api/admin/_utils/ensure-admin-session';
-import { buildPageCenterOverview, loadEffectiveMiniProgramRuntimeConfig } from '@/lib/page-center/runtime';
-import { parseBooleanEnv } from '@/lib/miniprogram/runtime-config';
+import { buildPageCenterOverview } from '@/lib/page-center/runtime';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,19 +11,8 @@ export async function GET() {
       return adminCheck.response;
     }
 
-    const [data, effectiveRuntimeConfig] = await Promise.all([
-      buildPageCenterOverview(),
-      loadEffectiveMiniProgramRuntimeConfig(),
-    ]);
-    const envHideAuditOverride = parseBooleanEnv(process.env.HIDE_AUDIT);
-    return NextResponse.json({
-      data,
-      meta: {
-        hideAudit: Boolean(effectiveRuntimeConfig.hideAudit),
-        hideAuditSource: effectiveRuntimeConfig.source || 'default_fallback',
-        envOverrideActive: envHideAuditOverride !== null,
-      },
-    });
+    const data = await buildPageCenterOverview();
+    return NextResponse.json({ data });
   } catch (error) {
     console.error('读取页面管理概览失败:', error);
     return NextResponse.json({ error: '读取页面管理概览失败' }, { status: 500 });

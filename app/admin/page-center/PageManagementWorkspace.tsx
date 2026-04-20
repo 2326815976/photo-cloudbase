@@ -570,9 +570,15 @@ function normalizeRuleForm(
   const isSecondaryPage = isSecondaryPageKey(item.pageKey);
   const showInNav = publishState === 'online' && navSupported;
   const resolvedNavOrder = Number(current.navOrder);
-  const navText = String(current.navText || '').trim() || item.defaultTabText || item.pageName;
+  const isMiniProgramProfilePrimaryPage =
+    channel === 'miniprogram' && item.pageKey === 'profile' && !isSecondaryPage;
+  const navText = isMiniProgramProfilePrimaryPage
+    ? '我的'
+    : String(current.navText || '').trim() || item.defaultTabText || item.pageName;
   const guestNavText = isSecondaryPage
     ? navText
+    : isMiniProgramProfilePrimaryPage
+      ? '我的'
     : String(current.guestNavText || '').trim() ||
       item.defaultGuestTabText ||
       navText ||
@@ -594,41 +600,28 @@ function normalizeRuleForm(
 
 function resolveMiniProgramForcedState(
   pageKey: string,
-  channel: AppChannel,
-  hideAudit: boolean
+  channel: AppChannel
 ): PagePublishState | null {
-  if (channel !== 'miniprogram' || String(pageKey || '').trim() !== 'pose') {
-    return null;
-  }
-
-  return hideAudit ? 'beta' : 'online';
+  void pageKey;
+  void channel;
+  return null;
 }
 
-function isMiniProgramForcedHomeEntry(pageKey: string, channel: AppChannel, hideAudit: boolean) {
-  return channel === 'miniprogram' && String(pageKey || '').trim() === 'pose' && hideAudit === false;
+function isMiniProgramForcedHomeEntry(pageKey: string, channel: AppChannel) {
+  void pageKey;
+  void channel;
+  return false;
 }
 
-function buildMiniProgramForcedStateHint(forcedState: PagePublishState | null, hideAudit: boolean) {
-  if (!forcedState) {
-    return '';
-  }
-
-  return hideAudit
-    ? '当前页面状态暂不可切换，请保持内测发布。'
-    : '当前页面状态暂不可切换，请保持上线发布。';
+function buildMiniProgramForcedStateHint(forcedState: PagePublishState | null) {
+  void forcedState;
+  return '';
 }
 
-function sanitizePageCenterUiMessage(message: string, fallback = '操作失败，请稍后重试') {
+function sanitizePageCenterUiMessage(message: string, fallback = '操作失败，请重试') {
   const text = String(message || '').trim();
   if (!text) {
     return fallback;
-  }
-
-  if (/HIDE_AUDIT|hideAudit|审核态|pose 页面|固定为首页|菜单顺序不可调整/i.test(text)) {
-    if (/菜单顺序|首页/i.test(text)) {
-      return '当前页面菜单顺序暂不可调整。';
-    }
-    return '当前页面状态暂不可切换，请保持现有发布形态。';
   }
 
   return text;
@@ -661,12 +654,11 @@ function buildQuickStateSuccessToast(
 
 function resolveQuickStateAction(
   item: PageCenterOverviewItem,
-  channel: AppChannel,
-  hideAudit: boolean
+  channel: AppChannel
 ) {
   const view = item.channels[channel];
   const isSecondaryPage = isSecondaryPageKey(item.pageKey);
-  const forcedState = resolveMiniProgramForcedState(item.pageKey, channel, hideAudit);
+  const forcedState = resolveMiniProgramForcedState(item.pageKey, channel);
   const betaSummary = summarizeDecoratedBetaCodes(decorateBetaCodesByChannel(item.betaCodes, channel));
   const canOnline = canPageShowInNav(item, channel) && (!forcedState || forcedState === 'online');
   const canBeta = item.supportsBeta && betaSummary.usable > 0 && (!forcedState || forcedState === 'beta');
@@ -747,7 +739,6 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   const [createRegistryDraft, setCreateRegistryDraft] = useState<RegistryDraft>(createEmptyRegistryDraft());
   const [keyword, setKeyword] = useState('');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
-  const [hideAudit, setHideAudit] = useState(false);
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
   const betaEditorSectionRef = useRef<HTMLElement | null>(null);
   const betaNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -769,13 +760,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
       const payload = (await response.json()) as {
         data?: PageCenterOverviewItem[];
         error?: string;
-        meta?: { hideAudit?: boolean };
       };
       if (!response.ok) {
         throw new Error(payload.error || '读取页面管理数据失败');
       }
-
-      setHideAudit(Boolean(payload.meta?.hideAudit));
       const nextRows = Array.isArray(payload.data) ? payload.data : [];
       setRows(nextRows);
       setForms(buildRuleFormMap(nextRows));
@@ -829,8 +817,8 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     [channel, modalRow]
   );
   const modalForcedState = useMemo(
-    () => (modalRow ? resolveMiniProgramForcedState(modalRow.pageKey, channel, hideAudit) : null),
-    [channel, hideAudit, modalRow]
+    () => (modalRow ? resolveMiniProgramForcedState(modalRow.pageKey, channel) : null),
+    [channel, modalRow]
   );
 
   const openActionModal = (pageKey: string, mode: NonNullable<ActionModalState>['mode']) => {
@@ -1083,9 +1071,9 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     if (!item) return false;
     const currentForm = getForm(item);
     const nextForm = normalizeRuleForm(item, channel, { ...currentForm, ...overrides });
-    const forcedState = resolveMiniProgramForcedState(pageKey, channel, hideAudit);
+    const forcedState = resolveMiniProgramForcedState(pageKey, channel);
     if (forcedState && nextForm.publishState !== forcedState) {
-      showToast(sanitizePageCenterUiMessage(buildMiniProgramForcedStateHint(forcedState, hideAudit)));
+      showToast(sanitizePageCenterUiMessage(buildMiniProgramForcedStateHint(forcedState)));
       return false;
     }
     const savingLabel = actionKey || `${pageKey}:${channel}:rule`;
@@ -1123,10 +1111,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     }
   };
   const handleQuickStateAction = async (item: PageCenterOverviewItem, nextState: PagePublishState) => {
-    const forcedState = resolveMiniProgramForcedState(item.pageKey, channel, hideAudit);
+    const forcedState = resolveMiniProgramForcedState(item.pageKey, channel);
     const isSecondaryPage = isSecondaryPageKey(item.pageKey);
     if (forcedState && nextState !== forcedState) {
-      showToast(sanitizePageCenterUiMessage(buildMiniProgramForcedStateHint(forcedState, hideAudit)));
+      showToast(sanitizePageCenterUiMessage(buildMiniProgramForcedStateHint(forcedState)));
       return false;
     }
 
@@ -1195,8 +1183,8 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     const targetItem = orderedRows[targetIndex];
     if (
       (options?.enforceHomeConstraint ?? true) &&
-      (isMiniProgramForcedHomeEntry(currentItem.pageKey, channel, hideAudit) ||
-        isMiniProgramForcedHomeEntry(targetItem.pageKey, channel, hideAudit))
+      (isMiniProgramForcedHomeEntry(currentItem.pageKey, channel) ||
+        isMiniProgramForcedHomeEntry(targetItem.pageKey, channel))
     ) {
       showToast('当前页面菜单顺序暂不可调整。');
       return;
@@ -1491,7 +1479,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 const item = group.parent;
                 const view = item.channels[channel];
                 const stateMeta = getDisplayStateMeta(item, channel);
-                const quickAction = resolveQuickStateAction(item, channel, hideAudit);
+                const quickAction = resolveQuickStateAction(item, channel);
                 const hasChildren = group.children.length > 0;
 
                 return (
@@ -1597,7 +1585,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                 {childGroup.rows.map((child) => {
                               const childView = child.channels[channel];
                               const childStateMeta = getDisplayStateMeta(child, channel);
-                              const childQuickAction = resolveQuickStateAction(child, channel, hideAudit);
+                              const childQuickAction = resolveQuickStateAction(child, channel);
 
                               return (
                                 <div
@@ -1697,7 +1685,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
             <div className="booking-modal__body page-center-modal__body">
               {modalForcedState ? (
                 <div className="rounded-2xl border border-[#946200]/16 bg-[#FFF6E0] px-4 py-3 text-sm leading-6 text-[#946200]">
-                  {buildMiniProgramForcedStateHint(modalForcedState, hideAudit)}
+                  {buildMiniProgramForcedStateHint(modalForcedState)}
                 </div>
               ) : null}
               {actionModal.mode === 'offline' ? (
@@ -1767,7 +1755,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 const canMoveUp = currentNavIndex > 0;
                 const canMoveDown = currentNavIndex >= 0 && currentNavIndex < activeOrderRows.length - 1;
                 const forcedHome =
-                  !isSecondaryPage && isMiniProgramForcedHomeEntry(modalRow.pageKey, channel, hideAudit);
+                  !isSecondaryPage && isMiniProgramForcedHomeEntry(modalRow.pageKey, channel);
                 const usableBetaCount = modalBetaCodes.filter((item) => item.isUsable).length;
                 const canSwitchToBeta = !Boolean(modalForcedState && modalForcedState !== 'beta') && usableBetaCount > 0;
                 const canSwitchToOnline =

@@ -1,9 +1,8 @@
 import { executeSQL } from '@/lib/cloudbase/sql-executor';
 import {
-  buildLegacyEnvRuntimeConfig,
+  buildRuntimeConfigPreset,
   MiniProgramRuntimeConfig,
   normalizeRuntimeConfigRow,
-  parseBooleanEnv,
 } from '@/lib/miniprogram/runtime-config';
 import {
   AppChannel,
@@ -31,12 +30,8 @@ import {
 import { canPageShowInNav, MAX_MINIPROGRAM_NAV_ITEMS } from '@/lib/page-center/capabilities';
 import { hasTableColumns, tableExists } from '@/lib/page-center/sql-compat';
 
-function buildLegacyFallbackRuntimeConfig(hideAuditOverride: boolean | null = parseBooleanEnv(process.env.HIDE_AUDIT)) {
-  return buildLegacyEnvRuntimeConfig(hideAuditOverride === true);
-}
-
-function resolveLegacyHideAuditOverride() {
-  return parseBooleanEnv(process.env.HIDE_AUDIT);
+function buildDefaultRuntimeConfig() {
+  return buildRuntimeConfigPreset('standard');
 }
 
 function buildDefaultMiniProgramPreviewRoute(pageKey: string, routePath: unknown) {
@@ -144,7 +139,6 @@ export async function loadActiveMiniProgramRuntimeConfigFromDatabase(): Promise<
           config_key,
           config_name,
           scene_code,
-          legacy_hide_audit,
           home_mode,
           guest_profile_mode,
           auth_mode,
@@ -167,12 +161,7 @@ export async function loadActiveMiniProgramRuntimeConfigFromDatabase(): Promise<
 }
 
 export async function loadEffectiveMiniProgramRuntimeConfig(): Promise<MiniProgramRuntimeConfig> {
-  const legacyHideAuditOverride = resolveLegacyHideAuditOverride();
-  if (legacyHideAuditOverride !== null) {
-    return buildLegacyFallbackRuntimeConfig(legacyHideAuditOverride);
-  }
-
-  return (await loadActiveMiniProgramRuntimeConfigFromDatabase()) || buildLegacyFallbackRuntimeConfig(null);
+  return (await loadActiveMiniProgramRuntimeConfigFromDatabase()) || buildDefaultRuntimeConfig();
 }
 
 export async function loadPageCenterRows(): Promise<PageCenterRows> {
@@ -349,7 +338,7 @@ function buildRuleMap(
   const fallbackMap =
     channel === 'web'
       ? createFallbackWebRuleMap()
-      : createFallbackMiniProgramRuleMap(runtimeConfig || buildLegacyFallbackRuntimeConfig());
+      : createFallbackMiniProgramRuleMap(runtimeConfig || buildDefaultRuntimeConfig());
   const map = new Map<string, AppPagePublishRuleItem>(fallbackMap);
   rows.publishRuleItems
     .filter((item) => item.channel === channel)
@@ -368,35 +357,6 @@ function compareNavView(
     return left.navOrder - right.navOrder;
   }
   return left.routePath.localeCompare(right.routePath);
-}
-
-function applyMiniProgramAuditOverride<T extends { publishState: AppPagePublishRuleItem['publishState']; showInNav: boolean; navOrder: number; isHomeEntry: boolean }>(
-  pageKey: string,
-  channel: AppChannel,
-  hideAudit: boolean,
-  value: T
-): T {
-  if (channel !== 'miniprogram' || pageKey !== 'pose') {
-    return value;
-  }
-
-  if (hideAudit) {
-    return {
-      ...value,
-      publishState: 'beta',
-      showInNav: false,
-      navOrder: 99,
-      isHomeEntry: false,
-    };
-  }
-
-  return {
-    ...value,
-    publishState: 'online',
-    showInNav: true,
-    navOrder: -1,
-    isHomeEntry: true,
-  };
 }
 
 function applyMiniProgramNavLimitToViews<T extends { pageKey: string; publishState: AppPagePublishRuleItem['publishState']; showInNav: boolean; navOrder: number; routePath: string; isHomeEntry: boolean }>(
@@ -507,7 +467,6 @@ export async function buildPageCenterOverview(): Promise<PageCenterOverviewItem[
     loadPageCenterRows(),
     loadEffectiveMiniProgramRuntimeConfig(),
   ]);
-  const effectiveHideAudit = Boolean(effectiveRuntimeConfig.hideAudit);
   const registryItems = mergeRegistryItems(rows);
   const webRuleMap = buildRuleMap(rows, 'web', effectiveRuntimeConfig);
   const miniRuleMap = buildRuleMap(rows, 'miniprogram', effectiveRuntimeConfig);
@@ -516,12 +475,7 @@ export async function buildPageCenterOverview(): Promise<PageCenterOverviewItem[
     ...page,
     channels: {
       web: resolvePageRuleView(page, 'web', webRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false }),
-      miniprogram: applyMiniProgramAuditOverride(
-        page.pageKey,
-        'miniprogram',
-        effectiveHideAudit,
-        resolvePageRuleView(page, 'miniprogram', miniRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false })
-      ),
+      miniprogram: resolvePageRuleView(page, 'miniprogram', miniRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false }),
     },
     betaCodes: rows.betaCodeItems.filter((item) => item.pageKey === page.pageKey),
   }));
@@ -533,16 +487,10 @@ export async function buildMiniProgramRuntimeWithPageCenter(
   baseRuntimeConfig: MiniProgramRuntimeConfig
 ): Promise<MiniProgramRuntimeConfig> {
   const rows = await loadPageCenterRows();
-  const effectiveHideAudit = Boolean(baseRuntimeConfig.hideAudit);
   const registryItems = mergeRegistryItems(rows);
   const ruleMap = buildRuleMap(rows, 'miniprogram', baseRuntimeConfig);
   const mergedViews = applyMiniProgramNavLimitToViews(registryItems.map((page) => {
-    const view = applyMiniProgramAuditOverride(
-      page.pageKey,
-      'miniprogram',
-      effectiveHideAudit,
-      resolvePageRuleView(page, 'miniprogram', ruleMap.get(page.pageKey), baseRuntimeConfig, { useFallback: false })
-    );
+    const view = resolvePageRuleView(page, 'miniprogram', ruleMap.get(page.pageKey), baseRuntimeConfig, { useFallback: false });
     return {
       ...view,
       pageKey: page.pageKey,

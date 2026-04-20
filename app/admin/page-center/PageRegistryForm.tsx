@@ -85,7 +85,6 @@ export const PAGE_CENTER_ICON_OPTIONS: RegistryOption[] = [
   { value: 'gallery', label: 'gallery / 照片墙' },
   { value: 'booking', label: 'booking / 约拍' },
   { value: 'profile', label: 'profile / 我的' },
-  { value: 'about', label: 'about / 关于' },
 ];
 
 export const PAGE_CENTER_TAB_OPTIONS: RegistryOption[] = [{ value: '', label: '不绑定小程序菜单' }].concat(
@@ -365,7 +364,7 @@ export default function PageRegistryForm({
           {!sharedFieldsReadOnly ? (
             <div className="mt-4 space-y-4">
               <div>
-                <p className="text-sm text-[#5D4037]/80">图标键（支持 home / album / gallery / booking / profile / about）</p>
+                <p className="text-sm text-[#5D4037]/80">图标键（支持 home / album / gallery / booking / profile）</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {PAGE_CENTER_ICON_OPTIONS.map((option) => (
                     <button

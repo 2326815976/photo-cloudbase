@@ -5,7 +5,6 @@ import { loadEffectiveMiniProgramRuntimeConfig } from '@/lib/page-center/runtime
 import {
   buildRuntimeConfigPreset,
   normalizeRuntimeConfigRow,
-  parseBooleanEnv,
 } from '@/lib/miniprogram/runtime-config';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +14,6 @@ const SELECT_COLUMNS = [
   'config_key',
   'config_name',
   'scene_code',
-  'legacy_hide_audit',
   'home_mode',
   'guest_profile_mode',
   'auth_mode',
@@ -76,7 +74,7 @@ async function loadLatestRuntimeConfig() {
   const runtimeConfig = normalizeRuntimeConfigRow(data || null);
   return {
     rowId: Number((data as { id?: number })?.id || 0) || null,
-    runtimeConfig: runtimeConfig || buildRuntimeConfigPreset('review'),
+    runtimeConfig: runtimeConfig || buildRuntimeConfigPreset('standard'),
   };
 }
 
@@ -87,7 +85,6 @@ export async function GET() {
       return adminCheck.response;
     }
 
-    const legacyEnvHideAudit = parseBooleanEnv(process.env.HIDE_AUDIT);
     const [payload, effectiveRuntimeConfig] = await Promise.all([
       loadLatestRuntimeConfig(),
       loadEffectiveMiniProgramRuntimeConfig(),
@@ -95,10 +92,6 @@ export async function GET() {
     return NextResponse.json({
       ...payload,
       effectiveData: effectiveRuntimeConfig,
-      meta: {
-        envHideAuditOverride: legacyEnvHideAudit,
-        envOverrideActive: legacyEnvHideAudit !== null,
-      },
     });
   } catch (error) {
     console.error('读取小程序运行时配置失败:', error);
@@ -115,14 +108,12 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as Record<string, unknown>;
     const dbClient = await createClient();
-    const hideAudit = normalizeBooleanInput(body.legacy_hide_audit ?? body.hideAudit, true);
     const payload = {
       config_key: String(body.config_key || body.configKey || 'default').trim() || 'default',
       config_name: String(body.config_name || body.configName || '').trim(),
-      scene_code: String(body.scene_code || body.sceneCode || 'review').trim(),
-      legacy_hide_audit: hideAudit,
-      home_mode: String(body.home_mode || body.homeMode || 'gallery').trim(),
-      guest_profile_mode: String(body.guest_profile_mode || body.guestProfileMode || 'about').trim(),
+      scene_code: String(body.scene_code || body.sceneCode || 'standard').trim(),
+      home_mode: String(body.home_mode || body.homeMode || 'pose').trim(),
+      guest_profile_mode: String(body.guest_profile_mode || body.guestProfileMode || 'login').trim(),
       auth_mode: String(body.auth_mode || body.authMode || 'wechat_only').trim(),
       tab_bar_items_json: serializeJsonInput(
         '[]',
@@ -162,7 +153,7 @@ export async function POST(request: Request) {
       }
 
       const runtimeConfig = normalizeRuntimeConfigRow(data || null);
-      return NextResponse.json({ rowId, data: runtimeConfig || buildRuntimeConfigPreset('review') });
+      return NextResponse.json({ rowId, data: runtimeConfig || buildRuntimeConfigPreset('standard') });
     }
 
     const { data, error } = await dbClient
@@ -177,7 +168,7 @@ export async function POST(request: Request) {
 
     const nextRowId = Number((data as { id?: number })?.id || 0) || null;
     const runtimeConfig = normalizeRuntimeConfigRow(data || null);
-    return NextResponse.json({ rowId: nextRowId, data: runtimeConfig || buildRuntimeConfigPreset('review') });
+    return NextResponse.json({ rowId: nextRowId, data: runtimeConfig || buildRuntimeConfigPreset('standard') });
   } catch (error) {
     console.error('保存小程序运行时配置失败:', error);
     return NextResponse.json({ error: '保存小程序运行时配置失败' }, { status: 500 });

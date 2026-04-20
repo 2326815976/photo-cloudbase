@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, CheckCircle, Eye, EyeOff, Lock } from 'lucide-react';
+import { CheckCircle, Eye, EyeOff, Lock } from 'lucide-react';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
@@ -136,35 +137,18 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
-      <button
-        type="button"
-        onClick={handleBack}
-        className="icon-button action-icon-btn action-icon-btn--back absolute left-6 top-6"
-      >
-        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-      </button>
-
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12 mt-8"
-      >
-        <h1
-          className="text-3xl font-bold text-[#5D4037] mb-2"
-          style={{ fontFamily: "'ZQKNNY', cursive" }}
-        >
-          {managedTitle}
-        </h1>
-        <p className="text-sm text-[#5D4037]/60">请输入当前密码和新密码</p>
-      </motion.div>
-
+    <SecondaryPageShell
+      title={managedTitle}
+      subtitle="请输入当前密码和新密码"
+      onBack={handleBack}
+      contentClassName="px-8 pb-20"
+    >
       <motion.form
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.08 }}
         onSubmit={handleSubmit}
-        className="flex-1 flex flex-col max-w-md mx-auto w-full"
+        className="mx-auto flex h-full w-full max-w-md flex-col"
       >
         <div className="space-y-4 mb-6">
           <div className="relative">
@@ -254,6 +238,6 @@ export default function ChangePasswordPage() {
           {isLoading ? '修改中...' : '确认修改'}
         </motion.button>
       </motion.form>
-    </div>
+    </SecondaryPageShell>
   );
 }

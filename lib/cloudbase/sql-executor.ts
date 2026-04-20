@@ -126,9 +126,22 @@ function isDatabaseConnectionConfigError(error: unknown): boolean {
 
 function isCloudBaseDatabaseConnectionFailure(error: unknown): boolean {
   const message = extractErrorMessage(error).toLowerCase();
+  const hasOutageSignal =
+    message.includes('connection failed') ||
+    message.includes('connect timeout') ||
+    message.includes('request timeout') ||
+    message.includes('timed out') ||
+    message.includes('econnreset') ||
+    message.includes('connection reset') ||
+    message.includes('socket hang up') ||
+    message.includes('connection refused') ||
+    message.includes('econnrefused') ||
+    message.includes('service unavailable') ||
+    message.includes('temporarily unavailable');
   return (
     message.includes('database connection failed') ||
-    (message.includes('invalidparameter') && message.includes('run query failed'))
+    ((message.includes('run query failed, database') || message.includes('run query failed: database')) &&
+      hasOutageSignal)
   );
 }
 

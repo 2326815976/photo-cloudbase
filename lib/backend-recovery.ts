@@ -165,8 +165,6 @@ function hasBackendTransientMessageKeyword(message: unknown) {
 
   return (
     hasBackendUnavailableMessageKeyword(text) ||
-    text.includes('invalidparameter') ||
-    (text.includes('parameter error') && text.includes('run query failed')) ||
     text.includes('run query failed, database') ||
     text.includes('database connection failed') ||
     text.includes('服务暂时不可用') ||
@@ -296,10 +294,14 @@ async function parseResponsePayload(response: Response) {
 
 function buildResponseError(request: Request, response: Response, payload: unknown) {
   const message = resolvePayloadMessage(payload, response.status, response.statusText || '请求失败');
+  const info = extractPayloadErrorInfo(payload);
   const error = new Error(message);
-  (error as Error & { statusCode?: number; path?: string; method?: string }).statusCode = response.status;
-  (error as Error & { statusCode?: number; path?: string; method?: string }).path = request.url;
-  (error as Error & { statusCode?: number; path?: string; method?: string }).method = request.method;
+  (error as Error & { statusCode?: number; path?: string; method?: string; code?: string }).statusCode = response.status;
+  (error as Error & { statusCode?: number; path?: string; method?: string; code?: string }).path = request.url;
+  (error as Error & { statusCode?: number; path?: string; method?: string; code?: string }).method = request.method;
+  if (info?.code) {
+    (error as Error & { code?: string }).code = info.code;
+  }
   return error;
 }
 
@@ -331,6 +333,14 @@ function shouldTriggerBackendRecovery(error: unknown, statusCodeHint?: number) {
     return true;
   }
 
+  const errorCode =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '').trim().toUpperCase()
+      : '';
+  if (errorCode === 'TRANSIENT_BACKEND') {
+    return true;
+  }
+
   const message =
     error && typeof error === 'object' && 'message' in error
       ? String((error as { message?: unknown }).message || '')
@@ -340,7 +350,15 @@ function shouldTriggerBackendRecovery(error: unknown, statusCodeHint?: number) {
     return false;
   }
 
-  return hasBackendTransientMessageKeyword(message);
+  if (statusCode === 500) {
+    return hasBackendTransientMessageKeyword(message);
+  }
+
+  if (!statusCode || statusCode >= 520) {
+    return hasBackendTransientMessageKeyword(message);
+  }
+
+  return false;
 }
 
 async function probeBackendHealth(fetchImpl: typeof window.fetch) {

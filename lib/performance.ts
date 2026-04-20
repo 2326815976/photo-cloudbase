@@ -11,10 +11,20 @@ interface PerformanceMetrics {
   ttfb?: number; // Time to First Byte
 }
 
+const CLIENT_TELEMETRY_ENDPOINT = '/api/client-telemetry';
+
+function isBrowserEnvironment() {
+  return typeof window !== 'undefined' && typeof navigator !== 'undefined';
+}
+
 /**
  * 收集 Web Vitals 指标
  */
 export function collectWebVitals(callback: (metrics: PerformanceMetrics) => void) {
+  if (!isBrowserEnvironment()) {
+    return;
+  }
+
   const metrics: PerformanceMetrics = {};
 
   // LCP - Largest Contentful Paint
@@ -78,13 +88,13 @@ export function collectWebVitals(callback: (metrics: PerformanceMetrics) => void
  * 性能标记和测量
  */
 export function markPerformance(name: string) {
-  if ('performance' in window && 'mark' in performance) {
+  if (isBrowserEnvironment() && 'performance' in window && 'mark' in performance) {
     performance.mark(name);
   }
 }
 
 export function measurePerformance(name: string, startMark: string, endMark: string): number {
-  if ('performance' in window && 'measure' in performance) {
+  if (isBrowserEnvironment() && 'performance' in window && 'measure' in performance) {
     try {
       performance.measure(name, startMark, endMark);
       const measure = performance.getEntriesByName(name)[0];
@@ -104,11 +114,27 @@ export function reportPerformance(metrics: PerformanceMetrics) {
   // 这里可以集成第三方分析服务（如 Google Analytics, Sentry 等）
   console.log('Performance Metrics:', metrics);
 
-  // 示例：发送到自定义端点
-  if (navigator.sendBeacon) {
-    const data = JSON.stringify(metrics);
-    navigator.sendBeacon('/api/analytics/performance', data);
+  if (!isBrowserEnvironment()) {
+    return;
   }
+
+  const data = JSON.stringify({
+    type: 'performance',
+    timestamp: Date.now(),
+    metrics,
+  });
+
+  if (typeof navigator.sendBeacon === 'function') {
+    navigator.sendBeacon(CLIENT_TELEMETRY_ENDPOINT, data);
+    return;
+  }
+
+  fetch(CLIENT_TELEMETRY_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: data,
+    keepalive: true,
+  }).catch(console.error);
 }
 
 /**

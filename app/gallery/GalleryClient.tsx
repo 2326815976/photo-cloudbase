@@ -19,9 +19,9 @@ import { useBackendRecoveryState } from '@/lib/hooks/useBackendRecoveryState';
 import SimpleImage from '@/components/ui/SimpleImage';
 import ImagePreview from '@/components/ImagePreview';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
-import PageTopHeader from '@/components/PageTopHeader';
 
 interface Photo {
   id: string;
@@ -439,9 +439,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
   const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
   const hydratedInitialPage = memoryGallery ? 1 : initialPage;
+  const hasHydratedInitialGalleryData = Boolean(memoryGallery) || initialPhotos.length > 0;
 
   const [folders, setFolders] = useState<GalleryFolder[]>(hydratedInitialFolders);
   const [rootFolderName, setRootFolderName] = useState<string>(hydratedInitialRootFolderName);
+  const [hasInitialContentReady, setHasInitialContentReady] = useState<boolean>(hasHydratedInitialGalleryData);
   const backendState = useBackendRecoveryState();
   const [showTagGuide, setShowTagGuide] = useState(false);
   const [showFolderSelector, setShowFolderSelector] = useState(false);
@@ -702,6 +704,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         if (isFirstPage) {
           setIsSilentTagLoadPending(false);
           setIsLoading(false);
+          setHasInitialContentReady(true);
         }
         isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
@@ -758,6 +761,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setTotal(cachedTotal);
       setPage(1);
       setHasMore(cachedPhotos.length < cachedTotal);
+      setHasInitialContentReady(true);
       resolvedFirstPageFolderIdRef.current = ROOT_GALLERY_FOLDER_ID;
     } catch {
       // 忽略缓存解析失败
@@ -1288,7 +1292,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const loadingTitle = PAGE_LOADING_COPY.title;
   const loadingDescription = PAGE_LOADING_COPY.description;
 
-  const showInitialPageLoading = isLoading && allPhotos.length === 0 && !isTagOverlayLoading;
+  const showInitialPageLoading = !hasInitialContentReady || (isLoading && allPhotos.length === 0 && !isTagOverlayLoading);
   const showContentOverlayLoading = isTagOverlayLoading;
 
   const galleryColumnCount = 2;
@@ -1380,15 +1384,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#FFFBF0]">
-      {/* 照片墙页头 */}
-      <div className="flex-none bg-[#FFFBF0]/96 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/10 shadow-[0_2px_12px_rgba(93,64,55,0.08)]">
-        <PageTopHeader
-          title={managedTitle}
-          badge={managedSubtitle || undefined}
-        />
-      </div>
-
+    <PrimaryPageShell
+      title={managedTitle}
+      badge={managedSubtitle || undefined}
+      className="h-full w-full"
+      contentClassName="min-h-0"
+    >
       {/* 滚动区域 */}
       <PreviewAwareScrollArea
         ref={scrollContainerRef}
@@ -2001,6 +2002,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </PrimaryPageShell>
   );
 }

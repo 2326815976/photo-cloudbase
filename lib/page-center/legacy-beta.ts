@@ -15,8 +15,8 @@ const ROUTE_PAGE_KEY_MAP = new Map<string, string>([
   ['/booking', 'booking'],
   ['/pages/profile/index', 'profile'],
   ['/profile', 'profile'],
-  ['/pages/profile/about/index', 'about'],
-  ['/about', 'about'],
+  ['/pages/profile/about/index', 'profile'],
+  ['/about', 'profile'],
 ]);
 
 function normalizeRouteLookup(input: unknown): string {

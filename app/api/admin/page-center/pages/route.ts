@@ -10,7 +10,7 @@ import {
   upsertPagePublishRule,
   validateChannelNavLimit,
 } from '@/lib/page-center/admin';
-import { buildPageCenterOverview, loadEffectiveMiniProgramRuntimeConfig } from '@/lib/page-center/runtime';
+import { buildPageCenterOverview } from '@/lib/page-center/runtime';
 import { MIN_NAV_ITEMS_PER_CHANNEL, canPageShowInNav } from '@/lib/page-center/capabilities';
 import {
   isSecondaryPageKey,
@@ -102,24 +102,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const effectiveRuntimeConfig =
-      channel === 'miniprogram' ? await loadEffectiveMiniProgramRuntimeConfig() : null;
-    const hideAudit = Boolean(effectiveRuntimeConfig?.hideAudit);
-
-    if (channel === 'miniprogram' && pageKey === 'pose') {
-      const forcedState = hideAudit ? 'beta' : 'online';
-      if (publishState !== forcedState) {
-        return NextResponse.json(
-          {
-            error: hideAudit
-              ? '当前生效审核态开关要求 pose 页面在小程序端固定为“内测”且无底栏，不能手动切换为上线或下线'
-              : '当前生效审核态开关要求 pose 页面在小程序端固定为“上线”并进入首页 / 底栏体系，不能手动切换为内测或下线',
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     const navSupported = canPageShowInNav(registryItem, channel);
     if (publishState === 'online' && !navSupported && !isSecondaryPage) {
       return NextResponse.json(
@@ -146,12 +128,7 @@ export async function POST(request: Request) {
 
     const currentRule = await loadPagePublishRule(registryItem.id, channel);
     const nextShowInNav = publishState === 'online' && navSupported;
-    const resolvedNavOrder =
-      channel === 'miniprogram' && pageKey === 'pose'
-        ? hideAudit
-          ? 99
-          : -1
-        : navOrder;
+    const resolvedNavOrder = navOrder;
     const resolvedNavText = navText || registryItem.defaultTabText;
     const resolvedGuestNavText = isSecondaryPage
       ? resolvedNavText

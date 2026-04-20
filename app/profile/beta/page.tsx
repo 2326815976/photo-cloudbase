@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   AlertCircle,
-  ArrowLeft,
   CalendarDays,
   Clipboard,
   LockKeyhole,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
@@ -198,39 +198,20 @@ export default function ProfileBetaPage() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none border-b-2 border-dashed border-[#5D4037]/15 bg-[#FFFBF0]/95 backdrop-blur-md shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="flex items-center gap-3 px-4 py-3">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="icon-button action-icon-btn action-icon-btn--back"
-            aria-label="返回我的"
-          >
-            <ArrowLeft className="h-5 w-5 text-[#5D4037]" />
-          </button>
-          <div className="min-w-0 flex-1">
-            <h1
-              className="truncate text-2xl font-bold leading-none text-[#5D4037]"
-              style={{ fontFamily: "'ZQKNNY', cursive" }}
-            >
-              {managedTitle}
-            </h1>
-          </div>
-        </div>
-      </motion.div>
-
-      <PreviewAwareScrollArea
-        className="flex-1 overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5"
-        style={{
+    <SecondaryPageShell
+      title={managedTitle}
+      onBack={handleBack}
+      align="left"
+      className="w-full"
+      contentAs={PreviewAwareScrollArea}
+      contentClassName="overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 lg:px-5 lg:pt-5"
+      contentProps={{
+        style: {
           backgroundImage:
             'radial-gradient(circle at 6% 0%, rgba(255, 200, 87, 0.15), transparent 38%), radial-gradient(circle at 94% 16%, rgba(255, 153, 102, 0.1), transparent 36%)',
-        }}
-      >
+        },
+      }}
+    >
         <div className="mx-auto w-full max-w-[660px]">
           {loading ? (
             <MiniProgramRecoveryScreen
@@ -408,7 +389,6 @@ export default function ProfileBetaPage() {
             </div>
           )}
         </div>
-      </PreviewAwareScrollArea>
-    </div>
+    </SecondaryPageShell>
   );
 }

@@ -9,14 +9,20 @@ import { AuthUser } from './types';
 
 const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
 const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
-const WECHAT_MINI_DEFAULT_NAME = '微信用户';
+const WECHAT_MINI_DEFAULT_NAME = '拾光者';
 const WECHAT_MINI_EMAIL_DOMAIN = 'wechat.miniprogram.local';
+const WECHAT_MINI_LEGACY_DEFAULT_NAMES = new Set(['微信用户', WECHAT_MINI_DEFAULT_NAME]);
 
 interface WechatMiniProgramSessionPayload {
   openid?: string;
   unionid?: string;
   errcode?: number;
   errmsg?: string;
+}
+
+function isWechatMiniDefaultName(input: string | null | undefined): boolean {
+  const normalized = String(input || '').trim();
+  return !normalized || WECHAT_MINI_LEGACY_DEFAULT_NAMES.has(normalized);
 }
 
 function normalizeEmail(input: string): string {
@@ -171,23 +177,16 @@ export async function updateUserProfile(
 
   const profileResult = await executeSQL(
     `
-      SELECT email, role
+      SELECT id
       FROM profiles
       WHERE id = {{user_id}}
       LIMIT 1
     `,
     { user_id: normalizedUserId }
   );
-  const currentProfile = profileResult.rows[0] ?? null;
-  const nextProfileRole =
-    String((currentProfile && currentProfile.role) || '').trim() ||
-    (userRecord.role === 'admin' ? 'admin' : 'user');
-  const nextProfileEmail =
-    currentProfile && currentProfile.email !== undefined && currentProfile.email !== null
-      ? String(currentProfile.email)
-      : userRecord.email
-        ? String(userRecord.email)
-        : null;
+  const hasProfileRecord = profileResult.rows.length > 0;
+  const nextProfileRole = userRecord.role === 'admin' ? 'admin' : 'user';
+  const nextProfileEmail = userRecord.email ? String(userRecord.email) : null;
 
   try {
     if (shouldUpdateUsersPhone) {
@@ -204,15 +203,14 @@ export async function updateUserProfile(
       );
     }
 
-    if (currentProfile) {
+    if (hasProfileRecord) {
       await executeSQL(
         `
           UPDATE profiles
           SET
             name = {{name}},
             phone = {{phone}},
-            wechat = {{wechat}},
-            updated_at = ${NOW_UTC8_EXPR}
+            wechat = {{wechat}}
           WHERE id = {{user_id}}
         `,
         {
@@ -226,9 +224,9 @@ export async function updateUserProfile(
       await executeSQL(
         `
           INSERT INTO profiles (
-            id, email, name, role, phone, wechat, created_at, updated_at
+            id, email, name, role, phone, wechat, created_at
           ) VALUES (
-            {{id}}, {{email}}, {{name}}, {{role}}, {{phone}}, {{wechat}}, ${NOW_UTC8_EXPR}, ${NOW_UTC8_EXPR}
+            {{id}}, {{email}}, {{name}}, {{role}}, {{phone}}, {{wechat}}, ${NOW_UTC8_EXPR}
           )
         `,
         {
@@ -447,12 +445,8 @@ async function exchangeWechatMiniCode(code: string): Promise<{ openid: string; u
   };
 }
 
-async function syncWechatMiniProfile(userId: string, nickName?: string, avatarUrl?: string): Promise<void> {
-  const normalizedName = String(nickName || '').trim();
+async function syncWechatMiniProfile(userId: string, avatarUrl?: string): Promise<void> {
   const normalizedAvatar = String(avatarUrl || '').trim();
-  if (!normalizedName && !normalizedAvatar) {
-    return;
-  }
 
   const profileResult = await executeSQL(
     `
@@ -469,9 +463,11 @@ async function syncWechatMiniProfile(userId: string, nickName?: string, avatarUr
   const values: Record<string, unknown> = { user_id: userId };
 
   const currentName = String((currentProfile && currentProfile.name) || '').trim();
-  if (normalizedName && (!currentName || currentName === WECHAT_MINI_DEFAULT_NAME)) {
+  if (currentName && currentName !== WECHAT_MINI_DEFAULT_NAME && !isWechatMiniDefaultName(currentName)) {
+    // keep custom profile name
+  } else if (currentName !== WECHAT_MINI_DEFAULT_NAME) {
     updates.push('name = {{name}}');
-    values.name = normalizedName;
+    values.name = WECHAT_MINI_DEFAULT_NAME;
   }
 
   const currentAvatar = String((currentProfile && currentProfile.avatar) || '').trim();
@@ -494,23 +490,23 @@ async function syncWechatMiniProfile(userId: string, nickName?: string, avatarUr
   );
 }
 
-async function ensureWechatMiniUser(openid: string, nickName?: string, avatarUrl?: string): Promise<AuthUser> {
+async function ensureWechatMiniUser(openid: string, _nickName?: string, avatarUrl?: string): Promise<AuthUser> {
   const normalizedOpenid = String(openid || '').trim();
   if (!normalizedOpenid) {
     throw new Error('wx_mini_openid_missing');
   }
 
   const loginEmail = toWechatMiniEmail(normalizedOpenid);
-  const normalizedName = String(nickName || '').trim() || WECHAT_MINI_DEFAULT_NAME;
   const normalizedAvatar = String(avatarUrl || '').trim();
+  const normalizedName = WECHAT_MINI_DEFAULT_NAME;
 
   const existingUser = await findUserByEmail(loginEmail);
   if (existingUser) {
-    await syncWechatMiniProfile(String(existingUser.id), normalizedName, normalizedAvatar || undefined);
+    await syncWechatMiniProfile(String(existingUser.id), normalizedAvatar || undefined);
     const row = {
       ...existingUser,
       name:
-        existingUser.name && String(existingUser.name).trim() && String(existingUser.name).trim() !== WECHAT_MINI_DEFAULT_NAME
+        existingUser.name && String(existingUser.name).trim() && !isWechatMiniDefaultName(String(existingUser.name))
           ? existingUser.name
           : normalizedName,
     };
@@ -564,8 +560,11 @@ async function ensureWechatMiniUser(openid: string, nickName?: string, avatarUrl
     if (/duplicate entry|1062|er_dup_entry/i.test(message)) {
       const fallbackUser = await findUserByEmail(loginEmail);
       if (fallbackUser) {
-        await syncWechatMiniProfile(String(fallbackUser.id), normalizedName, normalizedAvatar || undefined);
-        return toAuthUser(fallbackUser);
+        await syncWechatMiniProfile(String(fallbackUser.id), normalizedAvatar || undefined);
+        return toAuthUser({
+          ...fallbackUser,
+          name: isWechatMiniDefaultName(String(fallbackUser.name || '')) ? normalizedName : fallbackUser.name,
+        });
       }
     }
 

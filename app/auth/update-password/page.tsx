@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ShieldAlert, KeyRound } from 'lucide-react';
+import { ShieldAlert, KeyRound } from 'lucide-react';
 import { createClient } from '@/lib/cloudbase/client';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 
 export default function UpdatePasswordPage() {
   const router = useRouter();
@@ -51,18 +52,17 @@ export default function UpdatePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
-      <button
-        onClick={() => router.back()}
-        className="icon-button action-icon-btn action-icon-btn--back absolute left-6 top-6"
-      >
-        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-      </button>
-
+    <SecondaryPageShell
+      title="修改密码"
+      subtitle="请通过个人中心完成密码更新"
+      align="left"
+      fallbackHref="/login"
+      contentClassName="px-8 pt-6 pb-20"
+    >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full mx-auto mt-14"
+        className="max-w-md w-full mx-auto"
       >
         <div className="bg-white rounded-2xl p-6 border border-[#5D4037]/10 shadow-sm">
           <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-4 mx-auto">
@@ -100,6 +100,6 @@ export default function UpdatePasswordPage() {
           </div>
         </div>
       </motion.div>
-    </div>
+    </SecondaryPageShell>
   );
 }

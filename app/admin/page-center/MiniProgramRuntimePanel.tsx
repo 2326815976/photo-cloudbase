@@ -23,7 +23,6 @@ interface FormState {
   configKey: string;
   configName: string;
   sceneCode: MiniProgramSceneCode;
-  hideAudit: boolean;
   homeMode: MiniProgramHomeMode;
   guestProfileMode: MiniProgramGuestProfileMode;
   authMode: MiniProgramAuthMode;
@@ -36,10 +35,6 @@ interface RuntimeSettingsPayload {
   rowId?: number | null;
   data?: MiniProgramRuntimeConfig;
   effectiveData?: MiniProgramRuntimeConfig;
-  meta?: {
-    envOverrideActive?: boolean;
-    envHideAuditOverride?: boolean | null;
-  };
   error?: string;
 }
 
@@ -49,8 +44,6 @@ function cloneTabBarItems(items: MiniProgramTabBarItem[]): MiniProgramTabBarItem
 
 function cloneFeatureFlags(flags: MiniProgramFeatureFlags): MiniProgramFeatureFlags {
   return {
-    showProfileEdit: Boolean(flags.showProfileEdit),
-    showProfileBookings: Boolean(flags.showProfileBookings),
     showDonationQrCode: Boolean(flags.showDonationQrCode),
     allowPoseBetaBypass: Boolean(flags.allowPoseBetaBypass),
   };
@@ -61,10 +54,9 @@ function toFormState(config: MiniProgramRuntimeConfig): FormState {
     configKey: config.configKey,
     configName: config.configName,
     sceneCode: config.sceneCode,
-    hideAudit: config.hideAudit,
     homeMode: config.homeMode,
-    guestProfileMode: config.guestProfileMode,
-    authMode: config.authMode,
+    guestProfileMode: 'login',
+    authMode: 'wechat_only',
     tabBarItems: cloneTabBarItems(config.tabBarItems),
     featureFlags: cloneFeatureFlags(config.featureFlags),
     notes: config.notes,
@@ -76,10 +68,9 @@ function buildPayload(form: FormState) {
     config_key: form.configKey || 'default',
     config_name: form.configName.trim(),
     scene_code: form.sceneCode,
-    legacy_hide_audit: form.hideAudit,
     home_mode: form.homeMode,
-    guest_profile_mode: form.guestProfileMode,
-    auth_mode: form.authMode,
+    guest_profile_mode: 'login',
+    auth_mode: 'wechat_only',
     tab_bar_items_json: serializeTabBarItems(form.tabBarItems),
     feature_flags_json: serializeFeatureFlags(form.featureFlags),
     notes: form.notes.trim() || null,
@@ -103,8 +94,7 @@ export default function MiniProgramRuntimePanel() {
   const [rowId, setRowId] = useState<number | null>(null);
   const [source, setSource] = useState<MiniProgramRuntimeConfigSource>('default_fallback');
   const [updatedAt, setUpdatedAt] = useState('');
-  const [envOverrideActive, setEnvOverrideActive] = useState(false);
-  const [form, setForm] = useState<FormState>(() => toFormState(buildRuntimeConfigPreset('review')));
+  const [form, setForm] = useState<FormState>(() => toFormState(buildRuntimeConfigPreset('standard')));
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
@@ -128,19 +118,17 @@ export default function MiniProgramRuntimePanel() {
         throw new Error(payload.error || '读取小程序运行时配置失败');
       }
 
-      const runtimeConfig = payload.data || buildRuntimeConfigPreset('review');
+      const runtimeConfig = payload.data || buildRuntimeConfigPreset('standard');
       const effectiveRuntimeConfig = payload.effectiveData || runtimeConfig;
       setRowId(Number(payload.rowId || 0) || null);
       setSource(effectiveRuntimeConfig.source || runtimeConfig.source || 'default_fallback');
       setUpdatedAt(effectiveRuntimeConfig.updatedAt || runtimeConfig.updatedAt || '');
-      setEnvOverrideActive(Boolean(payload.meta?.envOverrideActive));
       setForm(toFormState(runtimeConfig));
     } catch (error) {
-      const runtimeConfig = buildRuntimeConfigPreset('review');
+      const runtimeConfig = buildRuntimeConfigPreset('standard');
       setRowId(null);
       setSource('default_fallback');
       setUpdatedAt('');
-      setEnvOverrideActive(false);
       setForm(toFormState(runtimeConfig));
       showToast('error', error instanceof Error ? error.message : '读取小程序运行时配置失败');
     } finally {
@@ -170,7 +158,6 @@ export default function MiniProgramRuntimePanel() {
       ...current,
       configName: preset.configName,
       sceneCode: preset.sceneCode,
-      hideAudit: preset.hideAudit,
       homeMode: preset.homeMode,
       guestProfileMode: preset.guestProfileMode,
       authMode: preset.authMode,
@@ -291,7 +278,7 @@ export default function MiniProgramRuntimePanel() {
         throw new Error(payload.error || '保存小程序运行时配置失败');
       }
 
-      const runtimeConfig = payload.data || buildRuntimeConfigPreset('review');
+      const runtimeConfig = payload.data || buildRuntimeConfigPreset('standard');
       setRowId(Number(payload.rowId || 0) || null);
       setSource(runtimeConfig.source || 'default_fallback');
       setUpdatedAt(runtimeConfig.updatedAt || '');
@@ -310,7 +297,7 @@ export default function MiniProgramRuntimePanel() {
         <div className="max-w-3xl space-y-2">
           <p className="text-sm font-semibold text-[#5D4037]">微信小程序运行时配置</p>
           <p className="text-sm leading-6 text-[#5D4037]/70">
-            这里统一管理首页、登录方式、底部菜单与 `HIDE_AUDIT` 兼容策略，保存后 Web 与小程序后台都会读取同一份配置。
+            这里统一管理首页、登录方式、底部菜单与功能开关，保存后 Web 与小程序后台都会读取同一份配置。
           </p>
         </div>
         <div className="mini-runtime-panel__actions flex flex-wrap gap-2 sm:gap-3">
@@ -357,12 +344,6 @@ export default function MiniProgramRuntimePanel() {
         <span className="rounded-full bg-[#5D4037]/8 px-3 py-1">场景：{getSceneLabel(form.sceneCode)}</span>
         <span className="rounded-full bg-[#5D4037]/8 px-3 py-1">更新时间：{updatedAt || EMPTY_MESSAGE}</span>
       </div>
-
-      {envOverrideActive ? (
-        <div className="mt-4 rounded-[22px] border border-[#946200]/18 bg-[#FFF6E0] px-4 py-3 text-sm leading-6 text-[#946200]">
-          当前环境变量 `HIDE_AUDIT` 正在覆盖运行态配置；本面板保存的是数据库配置，会在移除环境变量覆盖后自动接管。
-        </div>
-      ) : null}
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">
@@ -418,8 +399,7 @@ export default function MiniProgramRuntimePanel() {
                   disabled={loading || saving}
                   className="mt-1 h-11 w-full rounded-2xl border border-[#5D4037]/12 bg-white px-4 outline-none"
                 >
-                  <option value="login">显示登录页</option>
-                  <option value="about">显示关于页</option>
+                  <option value="login">显示我的登录页</option>
                 </select>
               </label>
               <label className="text-sm text-[#5D4037]/80">
@@ -430,22 +410,8 @@ export default function MiniProgramRuntimePanel() {
                   disabled={loading || saving}
                   className="mt-1 h-11 w-full rounded-2xl border border-[#5D4037]/12 bg-white px-4 outline-none"
                 >
-                  <option value="phone_password">手机号 + 密码</option>
                   <option value="wechat_only">仅微信登录</option>
-                  <option value="mixed">混合登录</option>
                 </select>
-              </label>
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-[#5D4037]/10 bg-white px-4 py-3 text-sm text-[#5D4037]">
-                <span>保留 `HIDE_AUDIT` 兼容</span>
-                <button
-                  type="button"
-                  className={`rounded-full px-4 py-2 text-sm font-semibold ${form.hideAudit ? 'bg-[#FFC857] text-[#5D4037]' : 'bg-[#F4EDE6] text-[#5D4037]/70'}`}
-                  onClick={() => updateField('hideAudit', !form.hideAudit)}
-                  disabled={loading || saving}
-                  aria-pressed={form.hideAudit}
-                >
-                  {form.hideAudit ? '开启' : '关闭'}
-                </button>
               </label>
               <div />
             </div>
@@ -552,10 +518,8 @@ export default function MiniProgramRuntimePanel() {
               <h3 className="text-lg font-bold text-[#5D4037]">模块开关</h3>
               <p className="mt-1 text-xs text-[#8D6E63]">控制个人页和首页的关键功能展示。</p>
             </div>
-            <div className="space-y-3">
-              {[
-                ['showProfileEdit', '显示编辑资料'],
-                ['showProfileBookings', '显示预约记录'],
+              <div className="space-y-3">
+                {[
                 ['showDonationQrCode', '显示赞赏码'],
                 ['allowPoseBetaBypass', '允许摆姿内测绕过'],
               ].map(([key, label]) => {
@@ -591,7 +555,7 @@ export default function MiniProgramRuntimePanel() {
               <div>
                 <div className="text-sm font-semibold text-[#5D4037]">访客视角</div>
                 <div className="mt-1 text-sm leading-6 text-[#5D4037]/70">
-                  兼容回退首页：{form.homeMode === 'pose' ? '摆姿推荐' : '照片墙'} · 我的：{form.guestProfileMode === 'about' ? '关于页' : '登录页'} · 登录：{form.authMode === 'wechat_only' ? '微信登录' : form.authMode === 'mixed' ? '手机号 + 微信' : '手机号 + 密码'}
+                  兼容回退首页：{form.homeMode === 'pose' ? '摆姿推荐' : '照片墙'} · 我的：登录页 · 登录：仅微信登录
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {enabledTabItems.map((item) => (
@@ -605,7 +569,7 @@ export default function MiniProgramRuntimePanel() {
               <div>
                 <div className="text-sm font-semibold text-[#5D4037]">登录后视角</div>
                 <div className="mt-1 text-sm leading-6 text-[#5D4037]/70">
-                  编辑资料：{form.featureFlags.showProfileEdit ? '显示' : '隐藏'} · 预约记录：{form.featureFlags.showProfileBookings ? '显示' : '隐藏'} · 赞赏码：{form.featureFlags.showDonationQrCode ? '显示' : '隐藏'}
+                  赞赏码：{form.featureFlags.showDonationQrCode ? '显示' : '隐藏'} · 摆姿内测绕过：{form.featureFlags.allowPoseBetaBypass ? '开启' : '关闭'}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {enabledTabItems.map((item) => (
@@ -617,7 +581,7 @@ export default function MiniProgramRuntimePanel() {
               </div>
 
               <div className="rounded-2xl border border-dashed border-[#5D4037]/14 bg-[#FFFBF7] p-4 text-sm leading-6 text-[#5D4037]/72">
-                <p>兼容说明：当前生效配置优先读取 `HIDE_AUDIT` 环境变量；未设置时再回退到数据库运行态配置；若数据库也没有记录，则继续回退旧版默认逻辑。</p>
+                <p>页面显示与隐藏统一由页面管理控制；这里仅负责首页、底栏与少量功能开关，不再提供旧审核态兼容入口。</p>
               </div>
             </div>
           </div>

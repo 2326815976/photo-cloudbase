@@ -11,6 +11,29 @@ interface ErrorLog {
   platform: string;
 }
 
+const CLIENT_TELEMETRY_ENDPOINT = '/api/client-telemetry';
+
+function isBrowserEnvironment() {
+  return typeof window !== 'undefined' && typeof navigator !== 'undefined';
+}
+
+function sendClientTelemetry(payload: Record<string, unknown>) {
+  if (!isBrowserEnvironment()) return;
+
+  const body = JSON.stringify(payload);
+  if (typeof navigator.sendBeacon === 'function') {
+    navigator.sendBeacon(CLIENT_TELEMETRY_ENDPOINT, body);
+    return;
+  }
+
+  fetch(CLIENT_TELEMETRY_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(console.error);
+}
+
 /**
  * 收集并上报错误日志
  */
@@ -19,27 +42,21 @@ export function logError(error: Error, context?: Record<string, any>) {
     message: error.message,
     stack: error.stack,
     timestamp: Date.now(),
-    userAgent: navigator.userAgent,
-    url: window.location.href,
+    userAgent: isBrowserEnvironment() ? navigator.userAgent : 'server',
+    url: isBrowserEnvironment() ? window.location.href : '',
     platform: getPlatform(),
     ...context
   };
 
   console.error('Error logged:', errorLog);
 
-  // 发送到后端
-  if (navigator.sendBeacon) {
-    navigator.sendBeacon('/api/logs/error', JSON.stringify(errorLog));
-  } else {
-    fetch('/api/logs/error', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(errorLog)
-    }).catch(console.error);
-  }
+  sendClientTelemetry({
+    type: 'error-log',
+    ...errorLog,
+  });
 
   // Android原生日志
-  if ((window as any).AndroidLogger) {
+  if (typeof window !== 'undefined' && (window as any).AndroidLogger) {
     (window as any).AndroidLogger.logError(JSON.stringify(errorLog));
   }
 }

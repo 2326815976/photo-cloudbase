@@ -2,6 +2,8 @@
 
 import { Component, ErrorInfo, ReactNode } from 'react';
 
+const CLIENT_TELEMETRY_ENDPOINT = '/api/client-telemetry';
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -34,17 +36,19 @@ export class ErrorBoundary extends Component<Props, State> {
     // 调用自定义错误处理
     this.props.onError?.(error, errorInfo);
 
-    // 上报到错误追踪服务（如 Sentry）
+    // 上报到客户端遥测端点
     if (typeof window !== 'undefined') {
-      // 示例：发送到自定义端点
-      fetch('/api/analytics/error', {
+      fetch(CLIENT_TELEMETRY_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          type: 'error-boundary',
+          timestamp: Date.now(),
           error: error.toString(),
           stack: error.stack,
           componentStack: errorInfo.componentStack
-        })
+        }),
+        keepalive: true
       }).catch(console.error);
     }
   }

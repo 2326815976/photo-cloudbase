@@ -3,8 +3,9 @@
 import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Phone, Lock, Eye, EyeOff } from 'lucide-react';
+import { Phone, Lock, Eye, EyeOff } from 'lucide-react';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
@@ -122,34 +123,18 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
-      {/* 返回按钮 */}
-      <button
-        onClick={() => router.back()}
-        className="icon-button action-icon-btn action-icon-btn--back absolute left-6 top-6"
-      >
-        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-      </button>
-
-      {/* 标题 */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12 mt-8"
-      >
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-          {managedTitle}
-        </h1>
-        <p className="text-sm text-[#5D4037]/60">{managedSubtitle || '继续你的拾光之旅'}</p>
-      </motion.div>
-
-      {/* 表单 */}
+    <SecondaryPageShell
+      title={managedTitle}
+      subtitle={managedSubtitle || '继续你的拾光之旅'}
+      fallbackHref="/profile"
+      contentClassName="px-8 pb-20"
+    >
       <motion.form
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
         onSubmit={handleSubmit}
-        className="flex-1 flex flex-col max-w-md mx-auto w-full"
+        className="mx-auto flex h-full w-full max-w-md flex-col"
       >
         <div className="space-y-4 mb-6">
           {/* 手机号输入框 */}
@@ -236,7 +221,7 @@ function LoginForm() {
           )}
         </motion.div>
       </motion.form>
-    </div>
+    </SecondaryPageShell>
   );
 }
 

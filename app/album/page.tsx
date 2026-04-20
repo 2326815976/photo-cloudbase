@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowRight, Clipboard, Lock, Plus, Sparkles, Trash2, Unlink2 } from 'lucide-react';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
-import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { getClipboardText } from '@/lib/android';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
@@ -291,11 +291,11 @@ export default function AlbumLoginPage() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-[#FFFBF0]">
-      <div className="flex-none border-b-2 border-dashed border-[#5D4037]/10 bg-[#FFFBF0]/96 shadow-[0_2px_12px_rgba(93,64,55,0.08)] backdrop-blur-md">
-        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
-      </div>
-
+    <PrimaryPageShell
+      title={managedTitle}
+      badge={managedSubtitle || undefined}
+      contentClassName="min-h-0"
+    >
       <PreviewAwareScrollArea className="min-h-0 flex-1 overflow-y-auto pb-20" bottomPaddingMode="scroll">
         <div className="mx-auto w-full max-w-[560px] px-6 pt-6">
           <AnimatePresence initial={false}>
@@ -558,7 +558,6 @@ export default function AlbumLoginPage() {
             </motion.div>
           )}
         </div>
-      </PreviewAwareScrollArea>
 
       <AnimatePresence>
         {unbindTargetAlbum ? (
@@ -612,6 +611,7 @@ export default function AlbumLoginPage() {
           </motion.div>
         ) : null}
       </AnimatePresence>
-    </div>
+      </PreviewAwareScrollArea>
+    </PrimaryPageShell>
   );
 }

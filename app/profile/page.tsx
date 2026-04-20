@@ -3,11 +3,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Calendar, Info, LayoutDashboard, Lock, LogOut, Sparkles, User } from 'lucide-react';
+import { Calendar, LayoutDashboard, Lock, LogOut, Sparkles, User } from 'lucide-react';
 import LogoutConfirmModal from '@/components/LogoutConfirmModal';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
-import PageTopHeader from '@/components/PageTopHeader';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { logoutWithCleanup } from '@/lib/auth/logout-client';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
@@ -114,19 +114,6 @@ export default function ProfilePage() {
         description: '输入内测码，解锁并进入专属内测页面',
         path: '/profile/beta',
         Icon: Sparkles,
-        iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
-        iconClassName: 'w-5 h-5 text-[#FFC857]',
-        buttonClassName:
-          'w-full bg-white rounded-2xl p-4 shadow-[0_4px_12px_rgba(93,64,55,0.08)] hover:shadow-[0_6px_16px_rgba(93,64,55,0.12)] border border-[#5D4037]/10 flex items-center gap-3 text-left transition-all',
-        titleClassName: 'text-sm font-medium text-[#5D4037]',
-      },
-      {
-        key: 'about',
-        order: resolveVisibleOrder('about', 140),
-        title: !isAdmin ? resolveVisibleTitle('about', '关于') : '',
-        description: '查看作者联系方式与留言',
-        path: '/profile/about',
-        Icon: Info,
         iconWrapClassName: 'w-10 h-10 rounded-full bg-[#FFC857]/20 flex items-center justify-center',
         iconClassName: 'w-5 h-5 text-[#FFC857]',
         buttonClassName:
@@ -266,15 +253,9 @@ export default function ProfilePage() {
     }
 
     return (
-      <div className="flex flex-col h-full w-full">
+      <PrimaryPageShell title={managedTitle} badge={managedSubtitle || undefined} className="h-full w-full" contentClassName="min-h-0">
         {/* 手账风页头 */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-        >
-          <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
-        </motion.div>
+
 
         {/* 未登录态 */}
         <PreviewAwareScrollArea className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6">
@@ -305,7 +286,7 @@ export default function ProfilePage() {
             )}
           </motion.div>
         </PreviewAwareScrollArea>
-      </div>
+      </PrimaryPageShell>
     );
   }
 
@@ -327,15 +308,9 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <PrimaryPageShell title={managedTitle} badge={managedSubtitle || undefined} className="h-full w-full" contentClassName="min-h-0">
       {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <PageTopHeader title={managedTitle} badge={managedSubtitle || undefined} />
-      </motion.div>
+
 
       {/* 滚动区域 */}
       <PreviewAwareScrollArea className="flex-1 overflow-y-auto px-6 pt-6">
@@ -430,6 +405,6 @@ export default function ProfilePage() {
         onClose={() => setShowLogoutConfirm(false)}
         onConfirm={handleLogoutConfirm}
       />
-    </div>
+    </PrimaryPageShell>
   );
 }

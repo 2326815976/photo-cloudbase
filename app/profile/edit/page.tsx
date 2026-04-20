@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, MessageSquare, Phone, Save, User } from 'lucide-react';
+import { MessageSquare, Phone, Save, User } from 'lucide-react';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import {
@@ -156,65 +157,28 @@ export default function EditProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col h-full w-full bg-[#FFFBF0]">
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-        >
-          <div className="px-4 py-3 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleBack}
-              className="icon-button action-icon-btn action-icon-btn--back"
-            >
-              <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-            </button>
-            <h1
-              className="text-2xl font-bold text-[#5D4037] leading-none"
-              style={{ fontFamily: "'ZQKNNY', cursive" }}
-            >
-              {managedTitle}
-            </h1>
-          </div>
-        </motion.div>
-
-        <div className="flex-1 px-6 py-6">
+      <SecondaryPageShell
+        title={managedTitle}
+        onBack={handleBack}
+        align="left"
+        contentClassName="px-6 py-6"
+      >
           <MiniProgramRecoveryScreen
             title={PAGE_LOADING_COPY.title}
             description={PAGE_LOADING_COPY.description}
             className="h-full min-h-0"
           />
-        </div>
-      </div>
+      </SecondaryPageShell>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="px-4 py-3 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="icon-button action-icon-btn action-icon-btn--back"
-          >
-            <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-          </button>
-          <h1
-            className="text-2xl font-bold text-[#5D4037] leading-none"
-            style={{ fontFamily: "'ZQKNNY', cursive" }}
-          >
-            {managedTitle}
-          </h1>
-        </div>
-      </motion.div>
-
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+    <SecondaryPageShell
+      title={managedTitle}
+      onBack={handleBack}
+      align="left"
+      contentClassName="overflow-y-auto px-6 pt-6 pb-20"
+    >
         {success ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.92 }}
@@ -344,7 +308,6 @@ export default function EditProfilePage() {
             </div>
           </motion.div>
         )}
-      </div>
-    </div>
+    </SecondaryPageShell>
   );
 }

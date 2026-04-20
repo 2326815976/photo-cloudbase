@@ -148,7 +148,6 @@ export const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS = [
   'profile-edit',
   'profile-bookings',
   'profile-beta',
-  'about',
   'profile-change-password',
   'profile-delete-account',
 ] as const;
@@ -159,7 +158,6 @@ export const PROFILE_SECONDARY_PAGE_KEYS = [
   'profile-bookings',
   'profile-beta',
   'profile-change-password',
-  'about',
   'profile-delete-account',
 ] as const;
 
@@ -174,7 +172,6 @@ const REMOVED_APP_PAGE_KEY_SET = new Set<string>(REMOVED_APP_PAGE_KEYS);
 export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   login: 'profile',
   register: 'profile',
-  about: 'profile',
   'profile-edit': 'profile',
   'profile-bookings': 'profile',
   'profile-beta': 'profile',
@@ -360,24 +357,6 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     isBuiltIn: true,
   },
   {
-    pageKey: 'about',
-    pageName: '关于',
-    pageDescription: '关于页面',
-    routePathWeb: '/profile/about',
-    routePathMiniProgram: 'pages/profile/about/index',
-    previewRoutePathWeb: '/profile/about?presentation=preview&page_key=about',
-    previewRoutePathMiniProgram: '/pages/profile/about/index?presentation=preview&page_key=about',
-    tabKey: null,
-    iconKey: null,
-    defaultTabText: '关于',
-    defaultGuestTabText: '关于',
-    isNavCandidateWeb: false,
-    isTabCandidateMiniProgram: false,
-    supportsBeta: false,
-    supportsPreview: true,
-    isBuiltIn: true,
-  },
-  {
     pageKey: 'profile-edit',
     pageName: '编辑个人资料',
     pageDescription: '我的页个人资料编辑入口',
@@ -476,7 +455,7 @@ export const DEFAULT_WEB_NAV_RULES: Array<Pick<AppPagePublishRuleItem, 'pageKey'
   { pageKey: 'album', publishState: 'online', showInNav: true, navOrder: 1, navText: '提取', guestNavText: '提取', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'gallery', publishState: 'online', showInNav: true, navOrder: 2, navText: '照片墙', guestNavText: '照片墙', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'booking', publishState: 'online', showInNav: true, navOrder: 3, navText: '约拍', guestNavText: '约拍', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'profile', publishState: 'online', showInNav: true, navOrder: 4, navText: '我的', guestNavText: '我的', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'profile', publishState: 'online', showInNav: true, navOrder: 4, navText: '我的', guestNavText: '我的', headerTitle: '我的小天地', headerSubtitle: '📒 管理你的拾光小秘密 📒', isHomeEntry: false, notes: '' },
 ];
 
 export const DEFAULT_SECONDARY_PAGE_RULES: Array<
@@ -490,7 +469,6 @@ export const DEFAULT_SECONDARY_PAGE_RULES: Array<
   { pageKey: 'profile-edit', publishState: 'online', showInNav: false, navOrder: 110, navText: '编辑个人资料', guestNavText: '编辑个人资料', headerTitle: '编辑个人资料', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-bookings', publishState: 'online', showInNav: false, navOrder: 120, navText: '我的预约记录', guestNavText: '我的预约记录', headerTitle: '我的预约记录', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-beta', publishState: 'online', showInNav: false, navOrder: 130, navText: '内测功能', guestNavText: '内测功能', headerTitle: '内测功能', headerSubtitle: '', isHomeEntry: false, notes: '' },
-  { pageKey: 'about', publishState: 'online', showInNav: false, navOrder: 140, navText: '关于', guestNavText: '关于', headerTitle: '关于', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-change-password', publishState: 'online', showInNav: false, navOrder: 150, navText: '修改密码', guestNavText: '修改密码', headerTitle: '修改密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-delete-account', publishState: 'online', showInNav: false, navOrder: 160, navText: '删除账户', guestNavText: '删除账户', headerTitle: '删除账户', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'album-detail', publishState: 'online', showInNav: false, navOrder: 110, navText: '专属返图空间', guestNavText: '专属返图空间', headerTitle: '专属返图空间', headerSubtitle: '', isHomeEntry: false, notes: '' },
@@ -663,14 +641,20 @@ export function resolvePageRuleView(
   const fallback = fallbackMap?.get(page.pageKey);
   const resolved = rule || fallback;
   const isSecondaryPage = isSecondaryPageKey(page.pageKey);
-  const navText = normalizeText(resolved?.navText) || page.defaultTabText || page.pageName;
+  const isMiniProgramProfilePrimaryPage =
+    channel === 'miniprogram' && page.pageKey === 'profile' && !isSecondaryPage;
+  const navText = isMiniProgramProfilePrimaryPage
+    ? '我的'
+    : normalizeText(resolved?.navText) || page.defaultTabText || page.pageName;
   const guestNavText = isSecondaryPage
     ? navText
-    : normalizeText(resolved?.guestNavText) ||
-      page.defaultGuestTabText ||
-      navText ||
-      page.defaultTabText ||
-      page.pageName;
+    : isMiniProgramProfilePrimaryPage
+      ? '我的'
+      : normalizeText(resolved?.guestNavText) ||
+        page.defaultGuestTabText ||
+        navText ||
+        page.defaultTabText ||
+        page.pageName;
 
   return {
     channel,
@@ -693,11 +677,10 @@ function buildRuntimeConfigPresetForFallback(): MiniProgramRuntimeConfig {
     configKey: 'default',
     configName: 'fallback',
     sceneCode: 'standard',
-    hideAudit: false,
     homeMode: 'pose',
     homeEntryPagePath: 'pages/index/index',
     guestProfileMode: 'login',
-    authMode: 'phone_password',
+    authMode: 'wechat_only',
     tabBarItems: [
       { key: 'home', iconKey: 'home', pagePath: 'pages/index/index', text: '首页', guestText: '首页', enabled: true },
       { key: 'album', iconKey: 'album', pagePath: 'pages/album/index', text: '提取', guestText: '提取', enabled: true },
@@ -706,8 +689,6 @@ function buildRuntimeConfigPresetForFallback(): MiniProgramRuntimeConfig {
       { key: 'profile', iconKey: 'profile', pagePath: 'pages/profile/index', text: '我的', guestText: '我的', enabled: true },
     ],
     featureFlags: {
-      showProfileEdit: true,
-      showProfileBookings: true,
       showDonationQrCode: true,
       allowPoseBetaBypass: false,
     },
@@ -749,4 +730,3 @@ export function toMiniProgramTabBarItems(
       enabled: true,
     }));
 }
-

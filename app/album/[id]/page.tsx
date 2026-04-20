@@ -3,12 +3,13 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, ArrowLeft, X, Heart, RotateCw } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, X, Heart, RotateCw } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import ImagePreview from '@/components/ImagePreview';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
@@ -361,10 +362,15 @@ export default function AlbumDetailPage() {
     );
   };
 
+  const isAlbumScaffoldReady = Boolean(albumData?.album);
+
   const resolvedHeaderTitle = useMemo(() => {
+    if (!isAlbumScaffoldReady) {
+      return '';
+    }
     const albumTitle = String(albumData?.album?.title || '').trim();
     return albumTitle || String(managedTitle || '').trim() || '专属返图空间';
-  }, [albumData?.album?.title, managedTitle]);
+  }, [albumData?.album?.title, isAlbumScaffoldReady, managedTitle]);
 
   const folderTabs = useMemo<Folder[]>(() => {
     return [{ id: 'all', name: '原图' }, ...(albumData?.folders ?? [])];
@@ -1443,7 +1449,7 @@ export default function AlbumDetailPage() {
   const loadingTitle = PAGE_LOADING_COPY.title;
   const loadingDescription = PAGE_LOADING_COPY.description;
 
-  if (loading) {
+  if (loading || !isAlbumScaffoldReady) {
     return (
       <MiniProgramRecoveryScreen
         title={loadingTitle}
@@ -1462,41 +1468,27 @@ export default function AlbumDetailPage() {
   const batchDownloadLabel = selectedPhotos.size > 0 ? '下载' : '全部下载';
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <SecondaryPageShell
+      title={resolvedHeaderTitle}
+      onBack={() => router.push('/album')}
+      align="left"
+      className="h-full w-full"
+      rightContent={
+        freezeEnabled ? (
+          <div className="flex-shrink-0 inline-block rounded-full bg-[#FFC857]/30 px-2.5 py-0.5 transform -rotate-1">
+            <p className="whitespace-nowrap text-[10px] font-bold tracking-wide text-[#8D6E63]">
+              ✨ 趁魔法消失前，把美好定格 ✨
+            </p>
+          </div>
+        ) : null
+      }
+    >
       {/* 隐藏底部导航栏 */}
       <style jsx global>{`
         nav {
           display: none !important;
         }
       `}</style>
-
-      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="px-4 py-2 flex items-center justify-between gap-2">
-          <button
-            onClick={() => router.push('/album')}
-            className="icon-button action-icon-btn action-icon-btn--back"
-          >
-            <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-          </button>
-
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-              {resolvedHeaderTitle}
-            </h1>
-          </div>
-
-          {freezeEnabled && (
-            <div className="flex-shrink-0 inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1">
-              <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">✨ 趁魔法消失前，把美好定格 ✨</p>
-            </div>
-          )}
-        </div>
-      </motion.div>
 
       {/* 极细提示跑马灯 */}
       <AnimatePresence>
@@ -2151,6 +2143,6 @@ export default function AlbumDetailPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </SecondaryPageShell>
   );
 }
