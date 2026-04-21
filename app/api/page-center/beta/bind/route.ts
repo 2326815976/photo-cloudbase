@@ -1,6 +1,9 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/cloudbase/server';
-import { mapLegacyFeatureRowsToPageCenterRows } from '@/lib/page-center/legacy-beta';
+import {
+  bindUserToLegacyPageBetaByCode,
+  canUseLegacyPageCenterBeta,
+} from '@/lib/page-center/legacy-beta-compat';
 import { bindUserToPageBetaByCode, canUsePageCenterBeta } from '@/lib/page-center/user-beta';
 
 export const dynamic = 'force-dynamic';
@@ -46,7 +49,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '请先登录' }, { status: 401 });
     }
 
-    if (await canUsePageCenterBeta()) {
+    const [pageCenterEnabled, legacyAvailable] = await Promise.all([
+      canUsePageCenterBeta(),
+      canUseLegacyPageCenterBeta(),
+    ]);
+    const legacyEnabled = channel === 'web' && legacyAvailable;
+
+    if (pageCenterEnabled) {
       try {
         const row = await bindUserToPageBetaByCode(String(user.id), featureCode, channel);
         if (row) {
@@ -59,23 +68,41 @@ export async function POST(request: Request) {
             { status: 400 }
           );
         }
-        // 回退到旧版内测能力
+        if (!legacyEnabled) {
+          throw error;
+        }
+        console.error('绑定页面内测码失败（新体系，Web 兼容旧体系）:', error);
       }
     }
 
-    const { data, error } = await dbClient.rpc('bind_user_to_beta_feature', {
-      p_feature_code: featureCode,
-    });
-    if (error) {
-      return NextResponse.json({ error: error.message || '绑定内测码失败' }, { status: 400 });
+    if (legacyEnabled) {
+      try {
+        const row = await bindUserToLegacyPageBetaByCode(String(user.id), featureCode, channel);
+        if (row) {
+          return NextResponse.json({ data: row, source: 'legacy_compatible' });
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { error: readBusinessErrorMessage(error) || '绑定内测码失败', source: 'legacy_compatible' },
+          { status: 400 }
+        );
+      }
     }
 
-    const mappedRows = mapLegacyFeatureRowsToPageCenterRows([data], channel);
-    if (!mappedRows[0]) {
-      return NextResponse.json({ error: '该内测码当前无法用于此端' }, { status: 400 });
+    if (!pageCenterEnabled && !legacyEnabled) {
+      return NextResponse.json(
+        { error: '页面内测新体系未就绪，请先完成页面中心内测配置', source: 'page_center_only' },
+        { status: 503 }
+      );
     }
 
-    return NextResponse.json({ data: mappedRows[0], source: 'legacy_rpc' });
+    return NextResponse.json(
+      {
+        error: '该内测码不存在或当前不可用',
+        source: legacyEnabled && !pageCenterEnabled ? 'legacy_compatible' : 'page_center',
+      },
+      { status: 400 }
+    );
   } catch (error) {
     console.error('绑定页面内测码失败:', error);
     return NextResponse.json(

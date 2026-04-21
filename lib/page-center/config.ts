@@ -75,6 +75,9 @@ export interface AppPageBetaCodeItem {
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+  source?: 'page_center' | 'legacy';
+  readOnly?: boolean;
+  manageHint?: string;
 }
 
 export interface PageCenterChannelRuleView {

@@ -287,6 +287,44 @@ export async function getUserPageBetaFeatures(
     .map((row) => buildFeatureRow(row as Record<string, unknown>, channel));
 }
 
+export async function unbindUserPageBetaFeature(
+  userId: string,
+  featureIdInput: unknown,
+  channelInput: unknown = 'miniprogram'
+): Promise<boolean> {
+  const channel = normalizeChannel(channelInput, 'miniprogram');
+  const pageKey = normalizeText(featureIdInput);
+  if (!pageKey) {
+    throw new Error('参数错误：缺少功能标识');
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT p.id AS page_id
+      FROM user_page_beta_bindings b
+      JOIN app_page_registry p ON p.id = b.page_id
+      WHERE b.user_id = {{user_id}}
+        AND b.channel = {{channel}}
+        AND p.page_key = {{page_key}}
+      LIMIT 1
+    `,
+    {
+      user_id: userId,
+      channel,
+      page_key: pageKey,
+    }
+  );
+
+  const row = Array.isArray(result.rows) && result.rows.length > 0 ? result.rows[0] : null;
+  const pageId = Number(row?.page_id || 0);
+  if (!pageId) {
+    return false;
+  }
+
+  await deleteBinding(userId, pageId, channel);
+  return true;
+}
+
 export async function checkUserPageBetaAccess(
   userId: string,
   featureIdInput: unknown,

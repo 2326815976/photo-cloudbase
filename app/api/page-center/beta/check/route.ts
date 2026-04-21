@@ -1,22 +1,15 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/cloudbase/server';
-import { mapLegacyFeatureRowsToPageCenterRows } from '@/lib/page-center/legacy-beta';
+import {
+  canUseLegacyPageCenterBeta,
+  checkLegacyUserPageBetaAccess,
+} from '@/lib/page-center/legacy-beta-compat';
 import { canUsePageCenterBeta, checkUserPageBetaAccess } from '@/lib/page-center/user-beta';
 
 export const dynamic = 'force-dynamic';
 
 function normalizeChannel(input: string | null) {
   return input === 'miniprogram' ? 'miniprogram' : 'web';
-}
-
-function readRpcRows(data: unknown) {
-  if (Array.isArray(data)) {
-    return data;
-  }
-  if (data && typeof data === 'object' && Array.isArray((data as { data?: unknown[] }).data)) {
-    return (data as { data: unknown[] }).data;
-  }
-  return [];
 }
 
 function readBusinessErrorMessage(error: unknown) {
@@ -56,7 +49,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ allowed: false, reason: 'unauthorized' });
     }
 
-    if (await canUsePageCenterBeta()) {
+    const [pageCenterEnabled, legacyAvailable] = await Promise.all([
+      canUsePageCenterBeta(),
+      canUseLegacyPageCenterBeta(),
+    ]);
+    const legacyEnabled = channel === 'web' && legacyAvailable;
+
+    if (pageCenterEnabled) {
       try {
         const row = await checkUserPageBetaAccess(String(user.id), pageKey, channel);
         if (row) {
@@ -64,28 +63,37 @@ export async function GET(request: Request) {
         }
       } catch (error) {
         if (isPageCenterBusinessError(error)) {
-          return NextResponse.json({
-            allowed: false,
-            error: readBusinessErrorMessage(error),
-            reason: 'page_center_denied',
-          });
+          if (!legacyEnabled) {
+            return NextResponse.json({
+              allowed: false,
+              error: readBusinessErrorMessage(error),
+              reason: 'page_center_denied',
+            });
+          }
+        } else if (!legacyEnabled) {
+          throw error;
+        } else {
+          console.error('校验页面内测权限失败（新体系，Web 兼容旧体系）:', error);
         }
-        // 回退到旧版内测能力
       }
     }
 
-    const { data, error } = await dbClient.rpc('get_user_beta_features');
-    if (error) {
-      return NextResponse.json({ allowed: false, reason: 'legacy_empty' });
+    if (legacyEnabled) {
+      const row = await checkLegacyUserPageBetaAccess(String(user.id), pageKey, channel);
+      if (row) {
+        return NextResponse.json({ allowed: true, data: row, reason: 'legacy_compatible' });
+      }
     }
 
-    const mappedRows = mapLegacyFeatureRowsToPageCenterRows(readRpcRows(data), channel);
-    const matched = mappedRows.find((item) => item.feature_id === pageKey) || null;
-    if (!matched) {
-      return NextResponse.json({ allowed: false, reason: 'forbidden' });
+    if (!pageCenterEnabled && !legacyEnabled) {
+      return NextResponse.json({
+        allowed: false,
+        error: '页面内测新体系未就绪，请先完成页面中心内测配置',
+        reason: 'beta_service_unavailable',
+      });
     }
 
-    return NextResponse.json({ allowed: true, data: matched, reason: 'legacy_rpc' });
+    return NextResponse.json({ allowed: false, reason: 'forbidden' });
   } catch (error) {
     console.error('校验页面内测权限失败:', error);
     return NextResponse.json({ error: '校验页面内测权限失败' }, { status: 500 });

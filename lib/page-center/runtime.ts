@@ -28,6 +28,10 @@ import {
   WebShellRuntime,
 } from '@/lib/page-center/config';
 import { canPageShowInNav, MAX_MINIPROGRAM_NAV_ITEMS } from '@/lib/page-center/capabilities';
+import {
+  loadLegacyOverviewBetaCodes,
+  mergeCompatibleAdminBetaCodes,
+} from '@/lib/page-center/legacy-beta-admin';
 import { hasTableColumns, tableExists } from '@/lib/page-center/sql-compat';
 
 function buildDefaultRuntimeConfig() {
@@ -463,9 +467,10 @@ function resolveManagedHeaderTitle(
 }
 
 export async function buildPageCenterOverview(): Promise<PageCenterOverviewItem[]> {
-  const [rows, effectiveRuntimeConfig] = await Promise.all([
+  const [rows, effectiveRuntimeConfig, legacyBetaCodes] = await Promise.all([
     loadPageCenterRows(),
     loadEffectiveMiniProgramRuntimeConfig(),
+    loadLegacyOverviewBetaCodes(),
   ]);
   const registryItems = mergeRegistryItems(rows);
   const webRuleMap = buildRuleMap(rows, 'web', effectiveRuntimeConfig);
@@ -474,10 +479,13 @@ export async function buildPageCenterOverview(): Promise<PageCenterOverviewItem[
   const overviewItems = registryItems.map((page) => ({
     ...page,
     channels: {
-      web: resolvePageRuleView(page, 'web', webRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false }),
-      miniprogram: resolvePageRuleView(page, 'miniprogram', miniRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false }),
-    },
-    betaCodes: rows.betaCodeItems.filter((item) => item.pageKey === page.pageKey),
+        web: resolvePageRuleView(page, 'web', webRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false }),
+        miniprogram: resolvePageRuleView(page, 'miniprogram', miniRuleMap.get(page.pageKey), effectiveRuntimeConfig, { useFallback: false }),
+      },
+    betaCodes: mergeCompatibleAdminBetaCodes(
+      rows.betaCodeItems.filter((item) => item.pageKey === page.pageKey),
+      legacyBetaCodes.filter((item) => item.pageKey === page.pageKey)
+    ),
   }));
 
   return applyDerivedHomeEntry(applyMiniProgramNavLimitToOverviewItems(overviewItems));

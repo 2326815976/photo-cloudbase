@@ -230,7 +230,7 @@ function extractDateText(value: string) {
 }
 
 function filterBetaCodesByChannel(codes: AppPageBetaCodeItem[], channel: AppChannel) {
-  return (Array.isArray(codes) ? codes : []).filter((item) => item.channel === channel);
+  return (Array.isArray(codes) ? codes : []).filter((item) => item.channel === 'shared' || item.channel === channel);
 }
 
 function getTodayDateText() {
@@ -269,6 +269,20 @@ function resolveBetaScopeMeta(codeChannel: AppPageBetaCodeItem['channel'], chann
   };
 }
 
+function applyReadOnlyBetaCodeMeta(code: AppPageBetaCodeItem, payload: DecoratedBetaCode): DecoratedBetaCode {
+  if (!code.readOnly) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    readOnly: true,
+    source: code.source || 'legacy',
+    manageHint: code.manageHint || '旧体系兼容码，仅参与兼容展示；如需维护，请使用旧版内测功能管理。',
+    editActionText: '兼容只读',
+  };
+}
+
 function decorateBetaCodeForChannel(
   code: AppPageBetaCodeItem,
   channel: AppChannel
@@ -277,7 +291,7 @@ function decorateBetaCodeForChannel(
   const scopeMeta = resolveBetaScopeMeta(code.channel, channel);
 
   if (!code.isActive) {
-    return {
+    return applyReadOnlyBetaCodeMeta(code, {
       ...code,
       ...scopeMeta,
       lifecycleKey: 'destroyed',
@@ -287,12 +301,12 @@ function decorateBetaCodeForChannel(
       isUsable: false,
       expiresDateText,
       editActionText: '恢复并编辑',
-    };
+    });
   }
 
   const diffDays = getDateDiffFromToday(expiresDateText);
   if (typeof diffDays === 'number' && diffDays < 0) {
-    return {
+    return applyReadOnlyBetaCodeMeta(code, {
       ...code,
       ...scopeMeta,
       lifecycleKey: 'expired',
@@ -302,11 +316,11 @@ function decorateBetaCodeForChannel(
       isUsable: false,
       expiresDateText,
       editActionText: '续期并编辑',
-    };
+    });
   }
 
   if (typeof diffDays === 'number' && diffDays <= 3) {
-    return {
+    return applyReadOnlyBetaCodeMeta(code, {
       ...code,
       ...scopeMeta,
       lifecycleKey: 'expiring',
@@ -319,10 +333,10 @@ function decorateBetaCodeForChannel(
       isUsable: true,
       expiresDateText,
       editActionText: '续期并编辑',
-    };
+    });
   }
 
-  return {
+  return applyReadOnlyBetaCodeMeta(code, {
     ...code,
     ...scopeMeta,
     lifecycleKey: 'usable',
@@ -334,7 +348,7 @@ function decorateBetaCodeForChannel(
     isUsable: true,
     expiresDateText,
     editActionText: '编辑',
-  };
+  });
 }
 
 function decorateBetaCodesByChannel(codes: AppPageBetaCodeItem[], channel: AppChannel) {
@@ -366,6 +380,9 @@ function buildBetaDraftHelperText(
 ) {
   const currentCode = codes.find((item) => item.id === draft.codeId) || null;
   if (currentCode) {
+    if (currentCode.readOnly) {
+      return currentCode.manageHint || '旧体系兼容码在这里仅支持查看，不支持编辑。';
+    }
     if (currentCode.lifecycleKey === 'destroyed') {
       return '当前内测码已销毁，重新保存后可恢复使用。';
     }
@@ -382,6 +399,9 @@ function buildBetaSaveButtonText(draft: BetaDraft, codes: DecoratedBetaCode[]) {
   const currentCode = codes.find((item) => item.id === draft.codeId) || null;
   if (!currentCode) {
     return '创建内测码';
+  }
+  if (currentCode.readOnly) {
+    return '兼容只读';
   }
   if (currentCode.lifecycleKey === 'destroyed') {
     return '恢复并保存';
@@ -1352,6 +1372,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   };
 
   const editBetaCode = (pageKey: string, code: DecoratedBetaCode) => {
+    if (code.readOnly) {
+      showToast(code.manageHint || '旧体系兼容码在这里仅支持查看，不支持编辑。');
+      return;
+    }
     updateBetaDraft(pageKey, {
       codeId: code.id,
       betaName: code.betaName,
@@ -1439,8 +1463,13 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     }
   };
 
-  const confirmDestroyBetaCode = async (codeId: string, betaName: string) => {
-    const targetName = String(betaName || '').trim() || '该内测码';
+  const confirmDestroyBetaCode = async (code: DecoratedBetaCode) => {
+    if (code.readOnly) {
+      showToast(code.manageHint || '旧体系兼容码在这里仅支持查看，不支持删除。');
+      return;
+    }
+    const codeId = code.id;
+    const targetName = String(code.betaName || '').trim() || '该内测码';
     const confirmed = window.confirm(`确认删除“${targetName}”？\n\n删除后该内测码将立即失效，且无法继续使用。`);
     if (!confirmed) {
       return;
@@ -1757,6 +1786,8 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 const forcedHome =
                   !isSecondaryPage && isMiniProgramForcedHomeEntry(modalRow.pageKey, channel);
                 const usableBetaCount = modalBetaCodes.filter((item) => item.isUsable).length;
+                const compatibleUsableBetaCount = modalBetaCodes.filter((item) => item.isUsable && item.readOnly).length;
+                const editableUsableBetaCount = modalBetaCodes.filter((item) => item.isUsable && !item.readOnly).length;
                 const canSwitchToBeta = !Boolean(modalForcedState && modalForcedState !== 'beta') && usableBetaCount > 0;
                 const canSwitchToOnline =
                   !Boolean(modalForcedState && modalForcedState !== 'online') &&
@@ -1764,9 +1795,17 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                 const betaActionLabel = modalRow.channels[channel].publishState === 'beta' ? '保存内测设置' : '切换为内测';
                 const onlineActionLabel = isSecondaryPage ? '保存并显示' : '保存';
                 const betaSectionDesc = modalRow.channels[channel].publishState === 'beta'
-                  ? '维护当前端可用的内测码，并可继续保留内测发布。'
+                  ? !editableUsableBetaCount && compatibleUsableBetaCount > 0
+                    ? '当前页面仍处于内测状态，现有可用内测码来自旧体系兼容展示；此处仅可查看，不可编辑。'
+                    : compatibleUsableBetaCount > 0
+                      ? '维护当前端可用的内测码；旧体系兼容码会一并展示为只读。'
+                      : '维护当前端可用的内测码，并可继续保留内测发布。'
                   : usableBetaCount > 0
-                    ? '已满足切换为内测条件，可从当前状态切换为内测。'
+                    ? !editableUsableBetaCount && compatibleUsableBetaCount > 0
+                      ? '当前端已有可用的旧体系兼容码，可直接切换为内测；兼容码在这里仅作只读展示。'
+                      : compatibleUsableBetaCount > 0
+                        ? '已满足切换为内测条件；旧体系兼容码会一并展示为只读。'
+                        : '已满足切换为内测条件，可从当前状态切换为内测。'
                     : '请先创建至少一个当前端可用的内测码，才能切换为内测。';
                 const onlineSectionDesc = isSecondaryPage
                   ? modalRow.channels[channel].publishState === 'online'
@@ -1801,11 +1840,75 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                   : isAuthenticatedProfileSecondaryPage
                     ? `${onlineSectionDesc} 这里的顺序会同步到登录后的「我的」页菜单。`
                     : onlineSectionDesc;
+                const currentPublishState =
+                  (String(modalForm.publishState || '').trim() || String(savedView.publishState || '').trim() || 'offline') as PagePublishState;
+                const isPrimaryBetaState = !isSecondaryPage && currentPublishState === 'beta';
+                const editSectionTitle = isSecondaryPage
+                  ? secondarySectionTitle
+                  : isPrimaryBetaState
+                    ? '顶部标题'
+                    : '页面信息';
+                const editSectionDesc = isSecondaryPage
+                  ? secondarySectionDesc
+                  : isPrimaryBetaState
+                    ? '当前为内测状态，只维护页面顶部标题；小标题和底部菜单名称沿用正式配置。'
+                    : '上线、下线状态下可维护大标题、小标题与底部菜单名称。';
+                const editSectionSaveLabel = isSecondaryPage
+                  ? isAlbumDetailSecondaryPage
+                    ? '保存默认名称'
+                    : '保存页面标题'
+                  : isPrimaryBetaState
+                    ? '保存顶部标题'
+                    : '保存页面信息';
+                const editSectionSuccessText = isSecondaryPage
+                  ? isAlbumDetailSecondaryPage
+                    ? '默认名称已保存'
+                    : '页面标题已保存'
+                  : isPrimaryBetaState
+                    ? '顶部标题已保存'
+                    : '页面信息已保存';
+                const buildScopedModalRule = (
+                  targetPublishState: PagePublishState = currentPublishState
+                ): Partial<RuleForm> => {
+                  if (isSecondaryPage) {
+                    const titleText = String(modalForm.navText || '').trim();
+                    return {
+                      publishState: targetPublishState,
+                      navText: titleText,
+                      guestNavText: titleText,
+                      headerTitle: titleText,
+                      headerSubtitle: savedView.headerSubtitle,
+                      navOrder: modalForm.navOrder,
+                      notes: modalForm.notes,
+                    };
+                  }
+                  if (targetPublishState === 'beta') {
+                    return {
+                      publishState: targetPublishState,
+                      navText: savedView.navText,
+                      guestNavText: savedView.guestNavText,
+                      headerTitle: String(modalForm.headerTitle || '').trim(),
+                      headerSubtitle: savedView.headerSubtitle,
+                      navOrder: modalForm.navOrder,
+                      notes: modalForm.notes,
+                    };
+                  }
+                  const navText = String(modalForm.navText || '').trim();
+                  return {
+                    publishState: targetPublishState,
+                    navText,
+                    guestNavText: navText,
+                    headerTitle: String(modalForm.headerTitle || '').trim(),
+                    headerSubtitle: String(modalForm.headerSubtitle || '').trim(),
+                    navOrder: modalForm.navOrder,
+                    notes: modalForm.notes,
+                  };
+                };
                 return (
                   <div className="space-y-4">
                     <section className={sectionClass}>
-                      <div className={sectionTitleClass}>{secondarySectionTitle}</div>
-                      <p className={sectionDescClass}>{secondarySectionDesc}</p>
+                      <div className={sectionTitleClass}>{editSectionTitle}</div>
+                      <p className={sectionDescClass}>{editSectionDesc}</p>
                       {isSecondaryPage ? (
                         <div className="mt-4">
                           <label className="booking-modal__field">
@@ -1824,6 +1927,18 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                             />
                           </label>
                         </div>
+                      ) : isPrimaryBetaState ? (
+                        <div className="mt-4">
+                          <label className="booking-modal__field">
+                            <span className="booking-modal__label">顶部标题</span>
+                            <input
+                              value={modalForm.headerTitle}
+                              onChange={(event) => updateForm(modalRow.pageKey, { headerTitle: event.target.value })}
+                              placeholder="如：拾光谣"
+                              className="booking-modal__input"
+                            />
+                          </label>
+                        </div>
                       ) : (
                         <div className="mt-4 grid gap-3 md:grid-cols-2">
                           <label className="booking-modal__field">
@@ -1834,6 +1949,20 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                             <span className="booking-modal__label">顶部小标题</span>
                             <input value={modalForm.headerSubtitle} onChange={(event) => updateForm(modalRow.pageKey, { headerSubtitle: event.target.value })} placeholder="如：定格美好瞬间" className="booking-modal__input" />
                           </label>
+                          <label className="booking-modal__field md:col-span-2">
+                            <span className="booking-modal__label">底部菜单名称</span>
+                            <input
+                              value={modalForm.navText}
+                              onChange={(event) =>
+                                updateForm(modalRow.pageKey, {
+                                  navText: event.target.value,
+                                  guestNavText: event.target.value,
+                                })
+                              }
+                              placeholder="如：首页"
+                              className="booking-modal__input"
+                            />
+                          </label>
                         </div>
                       )}
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -1842,75 +1971,18 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                           onClick={() =>
                             void saveRule(
                               modalRow.pageKey,
-                              isSecondaryPage
-                                ? {
-                                    ...modalForm,
-                                    publishState: modalForm.publishState,
-                                  }
-                                : {
-                                    navText: savedView.navText,
-                                    guestNavText: savedView.guestNavText,
-                                  },
+                              buildScopedModalRule(),
                               `${modalRow.pageKey}:${channel}:rule:title`,
-                              isSecondaryPage
-                                ? isAlbumDetailSecondaryPage
-                                  ? '默认名称已保存'
-                                  : '页面标题已保存'
-                                : '标题设置已保存',
-                              isSecondaryPage ? [] : ['navText', 'guestNavText']
+                              editSectionSuccessText
                             )
                           }
                           disabled={savingKey === `${modalRow.pageKey}:${channel}:rule:title`}
                           className={EDIT_MODAL_SAVE_BUTTON_CLASS}
                         >
-                          {savingKey === `${modalRow.pageKey}:${channel}:rule:title`
-                            ? '保存中...'
-                            : isSecondaryPage
-                              ? isAlbumDetailSecondaryPage
-                                ? '保存默认名称'
-                                : '保存页面标题'
-                              : '保存标题设置'}
+                          {savingKey === `${modalRow.pageKey}:${channel}:rule:title` ? '保存中...' : editSectionSaveLabel}
                         </button>
                       </div>
                     </section>
-
-                    {!isSecondaryPage ? (
-                      <section className={sectionClass}>
-                        <div className={sectionTitleClass}>菜单设置</div>
-                        <p className={sectionDescClass}>只保留当前端真正需要修改的菜单文案。</p>
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <label className="booking-modal__field">
-                            <span className="booking-modal__label">底部菜单名称</span>
-                            <input value={modalForm.navText} onChange={(event) => updateForm(modalRow.pageKey, { navText: event.target.value })} placeholder="如：首页" className="booking-modal__input" />
-                          </label>
-                          <label className="booking-modal__field">
-                            <span className="booking-modal__label">未登录菜单名称</span>
-                            <input value={modalForm.guestNavText} onChange={(event) => updateForm(modalRow.pageKey, { guestNavText: event.target.value })} placeholder="未登录用户看到的名称" className="booking-modal__input" />
-                          </label>
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void saveRule(
-                                modalRow.pageKey,
-                                {
-                                  headerTitle: savedView.headerTitle,
-                                  headerSubtitle: savedView.headerSubtitle,
-                                },
-                                `${modalRow.pageKey}:${channel}:rule:menu`,
-                                '菜单设置已保存',
-                                ['headerTitle', 'headerSubtitle']
-                              )
-                            }
-                            disabled={savingKey === `${modalRow.pageKey}:${channel}:rule:menu`}
-                            className={EDIT_MODAL_SAVE_BUTTON_CLASS}
-                          >
-                            {savingKey === `${modalRow.pageKey}:${channel}:rule:menu` ? '保存中...' : '保存菜单设置'}
-                          </button>
-                        </div>
-                      </section>
-                    ) : null}
 
                     {modalRow.supportsBeta ? (
                       <section ref={betaEditorSectionRef} className={sectionClass}>
@@ -1943,7 +2015,14 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                           <button type="button" onClick={() => void saveBetaCode(modalRow.pageKey)} disabled={savingKey === `${modalRow.pageKey}:beta:${modalBetaDraft.codeId || 'create'}`} className={BETA_SETTINGS_SAVE_BUTTON_CLASS}>{savingKey === `${modalRow.pageKey}:beta:${modalBetaDraft.codeId || 'create'}` ? '保存中...' : buildBetaSaveButtonText(modalBetaDraft, modalBetaCodes)}</button>
                           <button
                             type="button"
-                            onClick={() => void handleQuickStateAction(modalRow, 'beta')}
+                            onClick={() =>
+                              void saveRule(
+                                modalRow.pageKey,
+                                buildScopedModalRule('beta'),
+                                `${modalRow.pageKey}:${channel}:state:beta`,
+                                buildQuickStateSuccessToast(modalRow.pageName, channel, 'beta', isSecondaryPage)
+                              )
+                            }
                             disabled={!canSwitchToBeta || savingKey === `${modalRow.pageKey}:${channel}:state:beta`}
                             className={BETA_SETTINGS_PRIMARY_BUTTON_CLASS}
                           >
@@ -1960,12 +2039,18 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                   <div className="flex flex-wrap items-center gap-2">
                                     <div className="text-base font-bold text-[#5D4037]">{code.betaName}</div>
                                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${code.lifecycleClassName}`}>{code.lifecycleLabel}</span>
+                                    {code.readOnly ? (
+                                      <span className="rounded-full bg-[#F4E9E2] px-3 py-1 text-xs font-semibold text-[#8D6E63]">旧体系兼容</span>
+                                    ) : null}
                                   </div>
                                   <div className="mt-2 text-sm font-semibold tracking-[0.18em] text-[#5D4037]">{code.betaCode}</div>
+                                  {code.readOnly && code.manageHint ? (
+                                    <p className="mt-2 text-sm leading-6 text-[#8D6E63]">{code.manageHint}</p>
+                                  ) : null}
                                 </div>
                                 <div className="page-center-modal__beta-item-actions flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
                                   <button type="button" onClick={() => editBetaCode(modalRow.pageKey, code)} className="whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037]">{code.editActionText}</button>
-                                  <button type="button" onClick={() => void confirmDestroyBetaCode(code.id, code.betaName)} disabled={savingKey === `beta:destroy:${code.id}`} className="whitespace-nowrap rounded-full border border-[#D46A6A]/20 bg-[#FDECEC] px-4 py-2 text-sm font-semibold text-[#A34C4C] disabled:opacity-60">{savingKey === `beta:destroy:${code.id}` ? '删除中...' : '删除'}</button>
+                                  <button type="button" onClick={() => void confirmDestroyBetaCode(code)} disabled={savingKey === `beta:destroy:${code.id}`} className="whitespace-nowrap rounded-full border border-[#D46A6A]/20 bg-[#FDECEC] px-4 py-2 text-sm font-semibold text-[#A34C4C] disabled:opacity-60">{savingKey === `beta:destroy:${code.id}` ? '删除中...' : '删除'}</button>
                                 </div>
                               </div>
                             </div>
@@ -2062,7 +2147,14 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                             ) : null}
                             <button
                               type="button"
-                              onClick={() => void handleQuickStateAction(modalRow, 'online')}
+                              onClick={() =>
+                                void saveRule(
+                                  modalRow.pageKey,
+                                  buildScopedModalRule('online'),
+                                  `${modalRow.pageKey}:${channel}:state:online`,
+                                  buildQuickStateSuccessToast(modalRow.pageName, channel, 'online', isSecondaryPage)
+                                )
+                              }
                               disabled={!canSwitchToOnline || savingKey === `${modalRow.pageKey}:${channel}:state:online`}
                               className={PAGE_CENTER_MODAL_ONLINE_BUTTON_CLASS}
                             >
@@ -2086,7 +2178,14 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                             <button type="button" onClick={() => void moveNavOrder(modalRow.pageKey, 'down')} disabled={forcedHome || currentNavIndex < 0 || !canMoveDown || savingKey === `${modalRow.pageKey}:${channel}:move:down`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037] disabled:opacity-60"><ArrowDown className="h-4 w-4" />后移</button>
                             <button
                               type="button"
-                              onClick={() => void handleQuickStateAction(modalRow, 'online')}
+                              onClick={() =>
+                                void saveRule(
+                                  modalRow.pageKey,
+                                  buildScopedModalRule('online'),
+                                  `${modalRow.pageKey}:${channel}:state:online`,
+                                  buildQuickStateSuccessToast(modalRow.pageName, channel, 'online', isSecondaryPage)
+                                )
+                              }
                               disabled={!canSwitchToOnline || savingKey === `${modalRow.pageKey}:${channel}:state:online`}
                               className={PAGE_CENTER_MODAL_ONLINE_BUTTON_CLASS}
                             >

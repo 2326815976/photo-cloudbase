@@ -5247,6 +5247,20 @@ a.icon-button > svg {
 }
 
 @media (max-width: 640px) {
+  .page-center-modal {
+    width: calc(100vw - 32px);
+    max-height: calc(100vh - 40px);
+    padding: 18px 16px 16px;
+  }
+
+  .page-center-modal .booking-modal__head {
+    padding-right: 48px;
+  }
+
+  .page-center-modal .booking-modal__body {
+    max-height: calc(100vh - 156px);
+  }
+
   .beta-admin-page { padding-top: 16px; }
   .beta-admin-head__title { font-size: 26px; }
   .beta-admin-card,
@@ -5973,6 +5987,35 @@ a.icon-button > svg {
   width: auto;
   max-width: none;
 }
+}
+
+.page-center-modal {
+  position: relative;
+  width: calc(100vw - 56px);
+  max-width: 820px;
+  max-height: min(82vh, 900px);
+  padding: 20px 18px 18px;
+  border-radius: 22px;
+}
+
+.page-center-modal .booking-modal__head {
+  position: relative;
+  min-height: 0;
+  margin-bottom: 14px;
+  padding-right: 52px;
+  gap: 8px;
+}
+
+.page-center-modal .booking-modal__head > .action-icon-btn--close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin-left: 0;
+  z-index: 2;
+}
+
+.page-center-modal .booking-modal__body {
+  max-height: calc(min(82vh, 900px) - 116px);
 }
 
 .page-center-modal__order-pills {
