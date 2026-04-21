@@ -822,9 +822,9 @@ SELECT
   'review',
   1,
   'gallery',
-  'about',
+  'login',
   'wechat_only',
-  '[{"key":"gallery","iconKey":"gallery","pagePath":"pages/gallery/index","text":"照片墙","guestText":"照片墙","enabled":true},{"key":"album","iconKey":"album","pagePath":"pages/album/index","text":"提取","guestText":"提取","enabled":true},{"key":"profile","iconKey":"profile","pagePath":"pages/profile/index","text":"我的","guestText":"关于","enabled":true}]',
+  '[{"key":"gallery","iconKey":"gallery","pagePath":"pages/gallery/index","text":"照片墙","guestText":"照片墙","enabled":true},{"key":"album","iconKey":"album","pagePath":"pages/album/index","text":"提取","guestText":"提取","enabled":true},{"key":"profile","iconKey":"profile","pagePath":"pages/profile/index","text":"我的","guestText":"我的","enabled":true}]',
   '{"showProfileEdit":false,"showProfileBookings":false,"showDonationQrCode":false,"allowPoseBetaBypass":true}',
   '初始迁移默认沿用审核版场景，可在后台切换为正式版或自定义配置。',
   1

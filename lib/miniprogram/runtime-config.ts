@@ -364,6 +364,9 @@ export function normalizeTabBarItems(
     const rawKey = toText(row.key);
     const matchedByKey = rawKey ? tabKeyOptionMap.get(rawKey) : undefined;
     const option = matchedByPath ?? matchedByKey;
+    if (!option?.pagePath) {
+      return;
+    }
     const resolvedPagePath = toText(row.pagePath) || option?.pagePath || '';
     if (!resolvedPagePath) {
       return;
@@ -377,7 +380,7 @@ export function normalizeTabBarItems(
     const isProfileTab = resolvedPagePath === 'pages/profile/index' || option?.key === 'profile';
     const text = isProfileTab ? option?.defaultText || '我的' : toText(row.text) || option?.defaultText || '页面';
     const guestText = isProfileTab
-      ? option?.defaultGuestText || text
+      ? text
       : toText(row.guestText) || toText(row.guest_label) || option?.defaultGuestText || text;
     const keyFallback = option?.key || resolvedPagePath;
     const iconFallback = option?.iconKey || 'profile';

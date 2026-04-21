@@ -8,6 +8,7 @@ interface SimpleImageProps {
   alt: string;
   className?: string;
   priority?: boolean;
+  loadingVariant?: 'rich' | 'quiet';
   onClick?: () => void;
   onLoad?: () => void;
   onError?: () => void;
@@ -20,6 +21,7 @@ export default function SimpleImage({
   alt,
   className = '',
   priority = false,
+  loadingVariant = 'rich',
   onClick,
   onLoad,
   onError,
@@ -39,6 +41,7 @@ export default function SimpleImage({
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
+  const shouldShowRichLoading = loadingVariant !== 'quiet';
 
   useEffect(() => {
     onLoadRef.current = onLoad;
@@ -113,7 +116,11 @@ export default function SimpleImage({
     setIsLoading(true);
     setShowLoadingAnimation(false);
     setLoadingTime(0);
-    scheduleLoadingAnimation();
+    if (shouldShowRichLoading) {
+      scheduleLoadingAnimation();
+    } else {
+      clearLoadingAnimationDelayTimer();
+    }
     loadStartTimeRef.current = performance.now();
 
     const img = imgRef.current;
@@ -129,7 +136,7 @@ export default function SimpleImage({
     return () => {
       clearLoadingAnimationDelayTimer();
     };
-  }, [displaySrc]);
+  }, [displaySrc, shouldShowRichLoading]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -146,23 +153,43 @@ export default function SimpleImage({
     ? Number(aspectRatio)
     : 0;
   const hasFixedAspectRatio = normalizedAspectRatio > 0;
+  const placeholderBackground = 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)';
 
   return (
     <div
       className={`relative overflow-hidden ${className}`}
       onClick={onClick}
-      style={hasFixedAspectRatio ? { aspectRatio: String(1 / normalizedAspectRatio) } : undefined}
+      style={
+        hasFixedAspectRatio
+          ? { aspectRatio: String(1 / normalizedAspectRatio), background: placeholderBackground }
+          : { background: placeholderBackground }
+      }
     >
+      {isLoading && !hasError && (
+        <div className="absolute inset-0">
+          <motion.div
+            className="absolute inset-0"
+            animate={{ opacity: [0.82, 1, 0.82] }}
+            transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}
+            style={{ background: placeholderBackground }}
+          />
+          <motion.div
+            className="absolute inset-y-0 left-[-35%] w-[35%]"
+            animate={{ x: ['0%', '420%'] }}
+            transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+            style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.45), rgba(255,255,255,0))' }}
+          />
+        </div>
+      )}
+
       <AnimatePresence>
-        {showLoadingAnimation && isLoading && !hasError && (
+        {shouldShowRichLoading && showLoadingAnimation && isLoading && !hasError && (
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-            style={{
-              background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)',
-            }}
+            style={{ background: placeholderBackground }}
           >
             <motion.div
               animate={{
@@ -312,7 +339,11 @@ export default function SimpleImage({
               setDisplaySrc(src);
               setIsLoading(true);
               setShowLoadingAnimation(false);
-              scheduleLoadingAnimation();
+              if (shouldShowRichLoading) {
+                scheduleLoadingAnimation();
+              } else {
+                clearLoadingAnimationDelayTimer();
+              }
               setHasError(false);
               loadStartTimeRef.current = performance.now();
               return;

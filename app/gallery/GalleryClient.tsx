@@ -22,6 +22,7 @@ import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { createPagingSkeletonItems, type PagingSkeletonItem } from '@/lib/paging-skeletons';
 
 interface Photo {
   id: string;
@@ -74,6 +75,7 @@ const GALLERY_SCROLL_LOAD_AHEAD_PX = 220;
 const GALLERY_VIEWPORT_FILL_BUFFER_PX = 24;
 const GALLERY_INITIAL_AUTOFILL_MAX_BATCHES = 2;
 const GALLERY_LOAD_SENTINEL_THRESHOLD = 0.01;
+const GALLERY_PAGING_SKELETON_COUNT = 8;
 const TAG_WAVE_ROUNDS = 3;
 const TAG_WAVE_STEP_DELAY_MS = 380;
 const TAG_WAVE_ROUND_GAP_MS = 240;
@@ -496,6 +498,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(hydratedInitialTotal > hydratedInitialPhotos.length);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [paginationSkeletons, setPaginationSkeletons] = useState<PagingSkeletonItem[]>([]);
   const isLoadingMoreRef = useRef(false);
   const hasClientInitialFetchStartedRef = useRef(false);
   const loadRequestTokenRef = useRef(0);
@@ -575,6 +578,19 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setFolders(nextFolders);
   }, [folders, memoryGallery, rootFolderName, selectedFolderId]);
 
+  const showPaginationSkeletons = useCallback((pageNo: number, folderId: string) => {
+    setPaginationSkeletons(
+      createPagingSkeletonItems(GALLERY_PAGING_SKELETON_COUNT, {
+        prefix: `gallery-${String(folderId || ROOT_GALLERY_FOLDER_ID)}`,
+        seed: pageNo,
+      })
+    );
+  }, []);
+
+  const clearPaginationSkeletons = useCallback(() => {
+    setPaginationSkeletons((current) => (current.length > 0 ? [] : current));
+  }, []);
+
   const loadGalleryPage = useCallback(
     async (pageNo: number, options?: { silent?: boolean; folderId?: string }) => {
       const silent = Boolean(options?.silent);
@@ -591,9 +607,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         }
         isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
+        clearPaginationSkeletons();
       } else {
         isLoadingMoreRef.current = true;
         setIsLoadingMore(true);
+        showPaginationSkeletons(pageNo, targetFolderId);
       }
 
       try {
@@ -706,11 +724,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
           setIsLoading(false);
           setHasInitialContentReady(true);
         }
+        clearPaginationSkeletons();
         isLoadingMoreRef.current = false;
         setIsLoadingMore(false);
       }
     },
-    [folders, pageSize, rootFolderName]
+    [clearPaginationSkeletons, folders, pageSize, rootFolderName, showPaginationSkeletons]
   );
 
   const refreshGallery = useCallback(
@@ -1257,6 +1276,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }, [clearTagWaveTimer, dismissTagGuide, tagFolders.length, isLoading, isLoadingMore, startTagWaveAnimation]);
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
+    const shouldAllowLiveRelayout = isSwitchingTag || isSilentTagLoadPending || pendingTagPhotoIds.length > 0;
+    if (!shouldAllowLiveRelayout) {
+      return;
+    }
+
     const nextRatio = resolveLoadedPhotoAspectRatio(dimensions.width, dimensions.height, 1);
     const currentPhoto = allPhotosRef.current.find((photo) => photo.id === photoId);
     const hasStableStoredRatio = Boolean(
@@ -1281,7 +1305,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         [photoId]: nextRatio,
       };
     });
-  }, []);
+  }, [isSilentTagLoadPending, isSwitchingTag, pendingTagPhotoIds]);
 
   const resolvePhotoAspectRatio = useCallback(
     (photo: Photo) => photoAspectRatioMap[photo.id] ?? clampPhotoAspectRatio(photo.width, photo.height, 1),
@@ -1314,6 +1338,54 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     columnCount: galleryColumnCount,
     resetKey: `${selectedFolderId}:${activeFilterPreset}:${normalizedFilterDateStart}:${normalizedFilterDateEnd}:${galleryColumnCount}`,
   });
+
+  const galleryPaginationSkeletonColumns = useMemo(() => {
+    const columns = Array.from({ length: galleryColumnCount }, () => [] as PagingSkeletonItem[]);
+    if (paginationSkeletons.length === 0) {
+      return columns;
+    }
+
+    const heights = Array.from({ length: galleryColumnCount }, (_, columnIndex) => (
+      (galleryColumns[columnIndex] || []).reduce(
+        (total, { photo }) => total + estimateGalleryCardHeight(
+          photo,
+          Boolean(storyOpenMap[photo.id]),
+          resolvePhotoAspectRatio(photo)
+        ),
+        0
+      )
+    ));
+
+    paginationSkeletons.forEach((skeleton) => {
+      let targetColumnIndex = 0;
+      for (let index = 1; index < heights.length; index += 1) {
+        if (heights[index] < heights[targetColumnIndex]) {
+          targetColumnIndex = index;
+        }
+      }
+
+      columns[targetColumnIndex].push(skeleton);
+      heights[targetColumnIndex] += estimateGalleryCardHeight(
+        {
+          id: skeleton.id,
+          folder_id: null,
+          thumbnail_url: '',
+          preview_url: '',
+          original_url: '',
+          width: 1,
+          height: skeleton.aspectRatio,
+          like_count: 0,
+          view_count: 0,
+          is_liked: false,
+          created_at: '',
+        },
+        false,
+        skeleton.aspectRatio
+      );
+    });
+
+    return columns;
+  }, [galleryColumnCount, galleryColumns, paginationSkeletons, resolvePhotoAspectRatio, storyOpenMap]);
 
   useEffect(() => {
     if (previewPhoto && !photos.some((photo) => photo.id === previewPhoto.id)) {
@@ -1494,14 +1566,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                   key={`gallery-column-${columnIndex}`}
                   className={`flex min-w-0 flex-1 flex-col ${galleryColumnGapClassName}`}
                 >
-                  {column.map(({ photo, index }) => (
-                <motion.div
-                  key={photo.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(index, 10) * 0.04 }}
-                  className="min-w-0"
-                >
+                  {column.map(({ photo }) => (
+                <div key={photo.id} className="min-w-0">
                   {/* 小红书风格卡片 */}
                   <div
                     className={`box-border bg-white rounded-[12px] overflow-hidden transition-all duration-300 ${
@@ -1532,13 +1598,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                             </div>
                           </motion.div>
                         ) : (
-                          <motion.div
-                            key={`photo-${photo.id}`}
-                            initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.992 }}
-                            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.24, ease: 'easeOut' }}
-                          >
+                          <div key={`photo-${photo.id}`}>
                             <div
                               className="relative cursor-pointer origin-top"
                               onClick={() => handlePreview(photo)}
@@ -1547,6 +1607,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                                 src={photo.thumbnail_url}
                                 alt="照片"
                                 aspectRatio={resolvePhotoAspectRatio(photo)}
+                                loadingVariant="quiet"
                                 onLoad={() => markTagSwitchPhotoSettled(photo.id)}
                                 onError={() => markTagSwitchPhotoSettled(photo.id)}
                                 onLoadDimensions={({ width, height }) => handlePhotoRatioReady(photo.id, { width, height })}
@@ -1583,7 +1644,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                                 </motion.button>
                               </div>
                             </div>
-                          </motion.div>
+                          </div>
                         )}
                       </AnimatePresence>
 
@@ -1648,7 +1709,38 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       </div>
                     </div>
                   </div>
-                </motion.div>
+                </div>
+                  ))}
+                  {galleryPaginationSkeletonColumns[columnIndex].map((skeleton) => (
+                    <div key={skeleton.id} className="min-w-0">
+                      <div className="box-border overflow-hidden rounded-[12px] border border-[#5D4037]/[0.06] bg-white/88 shadow-[0_5px_15px_rgba(93,64,55,0.08)]">
+                        <div
+                          className="relative overflow-hidden bg-[linear-gradient(135deg,rgba(255,251,240,0.98)_0%,rgba(255,247,233,0.98)_100%)]"
+                          style={{ paddingTop: skeleton.paddingTop }}
+                        >
+                          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.24)_0%,rgba(255,248,232,0.92)_52%,rgba(255,244,224,0.96)_100%)]" />
+                          <motion.div
+                            className="absolute inset-y-0 left-[-42%] w-[42%] bg-[linear-gradient(90deg,rgba(255,255,255,0)_0%,rgba(255,255,255,0.52)_48%,rgba(255,255,255,0)_100%)]"
+                            animate={{ x: ['0%', '340%'] }}
+                            transition={{ duration: 1.45, repeat: Infinity, ease: 'easeInOut' }}
+                          />
+                        </div>
+                        <div className="px-[6px] pt-[5px] pb-[5px] leading-none">
+                          <div className="flex h-[10px] w-full items-center justify-between gap-[6px] overflow-hidden">
+                            <motion.div
+                              className="h-[10px] flex-1 rounded-full bg-[linear-gradient(90deg,rgba(93,64,55,0.08)_0%,rgba(93,64,55,0.16)_50%,rgba(93,64,55,0.08)_100%)] bg-[length:220%_100%]"
+                              animate={{ backgroundPositionX: ['0%', '100%', '0%'], opacity: [0.72, 1, 0.72] }}
+                              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                            />
+                            <motion.div
+                              className="h-[10px] w-[44px] rounded-full bg-[linear-gradient(90deg,rgba(93,64,55,0.08)_0%,rgba(93,64,55,0.16)_50%,rgba(93,64,55,0.08)_100%)] bg-[length:220%_100%]"
+                              animate={{ backgroundPositionX: ['0%', '100%', '0%'], opacity: [0.72, 1, 0.72] }}
+                              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               ))}

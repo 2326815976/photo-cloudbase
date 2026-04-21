@@ -151,6 +151,7 @@ export const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS = [
   'profile-edit',
   'profile-bookings',
   'profile-beta',
+  'about',
   'profile-change-password',
   'profile-delete-account',
 ] as const;
@@ -160,6 +161,7 @@ export const PROFILE_SECONDARY_PAGE_KEYS = [
   'profile-edit',
   'profile-bookings',
   'profile-beta',
+  'about',
   'profile-change-password',
   'profile-delete-account',
 ] as const;
@@ -178,6 +180,7 @@ export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   'profile-edit': 'profile',
   'profile-bookings': 'profile',
   'profile-beta': 'profile',
+  about: 'profile',
   'profile-change-password': 'profile',
   'profile-delete-account': 'profile',
   'album-detail': 'album',
@@ -414,6 +417,25 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     isBuiltIn: true,
   },
   {
+    pageKey: 'about',
+    pageName: '关于',
+    pageDescription: '我的页关于入口',
+    routePathWeb: '/profile/about',
+    routePathMiniProgram: 'pages/profile/about/index',
+    previewRoutePathWeb: '/profile/about?presentation=preview&page_key=about',
+    previewRoutePathMiniProgram:
+      '/pages/profile/about/index?presentation=preview&page_key=about',
+    tabKey: null,
+    iconKey: null,
+    defaultTabText: '关于',
+    defaultGuestTabText: '关于',
+    isNavCandidateWeb: false,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: false,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
     pageKey: 'profile-change-password',
     pageName: '修改密码',
     pageDescription: '我的页密码修改入口',
@@ -472,6 +494,7 @@ export const DEFAULT_SECONDARY_PAGE_RULES: Array<
   { pageKey: 'profile-edit', publishState: 'online', showInNav: false, navOrder: 110, navText: '编辑个人资料', guestNavText: '编辑个人资料', headerTitle: '编辑个人资料', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-bookings', publishState: 'online', showInNav: false, navOrder: 120, navText: '我的预约记录', guestNavText: '我的预约记录', headerTitle: '我的预约记录', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-beta', publishState: 'online', showInNav: false, navOrder: 130, navText: '内测功能', guestNavText: '内测功能', headerTitle: '内测功能', headerSubtitle: '', isHomeEntry: false, notes: '' },
+  { pageKey: 'about', publishState: 'online', showInNav: false, navOrder: 140, navText: '关于', guestNavText: '关于', headerTitle: '关于', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-change-password', publishState: 'online', showInNav: false, navOrder: 150, navText: '修改密码', guestNavText: '修改密码', headerTitle: '修改密码', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile-delete-account', publishState: 'online', showInNav: false, navOrder: 160, navText: '删除账户', guestNavText: '删除账户', headerTitle: '删除账户', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'album-detail', publishState: 'online', showInNav: false, navOrder: 110, navText: '专属返图空间', guestNavText: '专属返图空间', headerTitle: '专属返图空间', headerSubtitle: '', isHomeEntry: false, notes: '' },
@@ -724,6 +747,7 @@ export function toMiniProgramTabBarItems(
 ): MiniProgramTabBarItem[] {
   return sortRuleViews(items)
     .filter((item) => item.showInNav && item.publishState === 'online' && item.iconKey)
+    .filter((item) => !isSecondaryPageKey(item.pageKey))
     .map((item) => ({
       key: (item.tabKey || item.pageKey) as MiniProgramTabKey,
       iconKey: item.iconKey as MiniProgramIconKey,

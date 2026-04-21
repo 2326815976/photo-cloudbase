@@ -287,7 +287,7 @@ export default function BookingsPage() {
       }
 
       if (!latestBooking) {
-        showActionNotice('棰勭害璁板綍宸蹭笉瀛樺湪', 'success');
+        showActionNotice('预约记录已不存在', 'success');
         await loadBookings();
         return;
       }
@@ -343,7 +343,7 @@ export default function BookingsPage() {
               className="text-center"
             >
               <p className="text-lg font-medium text-[#5D4037] mb-2">{managedTitle}</p>
-              <p className="text-sm text-[#5D4037]/60">姝ｅ湪鑾峰彇棰勭害璁板綍</p>
+              <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
             </motion.div>
           </motion.div>
       </SecondaryPageShell>
@@ -382,7 +382,7 @@ export default function BookingsPage() {
             className="flex flex-col items-center justify-center py-20"
           >
             <Calendar className="w-20 h-20 text-[#5D4037]/20 mb-4" />
-            <p className="text-[#5D4037]/60 text-center">鏆傛棤棰勭害璁板綍</p>
+            <p className="text-[#5D4037]/60 text-center">暂无预约记录</p>
           </motion.div>
         ) : (
           <div className="space-y-4">
@@ -405,12 +405,12 @@ export default function BookingsPage() {
                   </span>
                 </div>
 
-                {/* 棰勭害淇℃伅 */}
+                {/* 预约信息 */}
                 <div className="space-y-3">
                   <div className="flex items-start gap-2">
                     <Calendar className="w-4 h-4 text-[#FFC857] mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
-                      <p className="text-xs text-[#5D4037]/60">绾︽媿绫诲瀷</p>
+                      <p className="text-xs text-[#5D4037]/60">约拍类型</p>
                       <p className="text-sm font-medium text-[#5D4037]">{booking.booking_types?.name || '鏈煡'}</p>
                     </div>
                   </div>
@@ -418,7 +418,7 @@ export default function BookingsPage() {
                   <div className="flex items-start gap-2">
                     <MapPin className="w-4 h-4 text-[#FFC857] mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
-                      <p className="text-xs text-[#5D4037]/60">绾︽媿鍦扮偣</p>
+                      <p className="text-xs text-[#5D4037]/60">约拍地点</p>
                       <p className="text-sm font-medium text-[#5D4037]">{booking.location}</p>
                       {booking.city_name && (
                         <p className="text-xs text-[#5D4037]/50 mt-0.5">馃搷 {booking.city_name}</p>
@@ -452,7 +452,7 @@ export default function BookingsPage() {
                   )}
                 </div>
 
-                {/* 鎿嶄綔鎸夐挳 */}
+                {/* 操作按钮 */}
                 <div className="flex gap-2 mt-4 pt-4 border-t border-[#5D4037]/10">
                   {canCancelBooking(booking) && (
                     <motion.button
@@ -473,7 +473,7 @@ export default function BookingsPage() {
                       className="flex-1 py-2.5 px-4 bg-gradient-to-r from-red-50 to-rose-50 text-red-600 rounded-xl text-sm font-medium hover:from-red-100 hover:to-rose-100 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 border border-red-200/50 shadow-sm"
                     >
                       <Trash2 className="w-4 h-4" />
-                      <span>{deletingId === booking.id ? '鍒犻櫎涓?..' : '鍒犻櫎璁板綍'}</span>
+                      <span>{deletingId === booking.id ? '删除中...' : '删除记录'}</span>
                     </motion.button>
                   )}
                 </div>

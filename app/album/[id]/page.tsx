@@ -3,13 +3,14 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Download, Sparkles, CheckSquare, Square, Trash2, X, Heart, RotateCw } from 'lucide-react';
+import { Download, Sparkles, CheckSquare, Square, Trash2, Heart, RotateCw } from 'lucide-react';
 import LetterOpeningModal from '@/components/LetterOpeningModal';
 import DonationModal from '@/components/DonationModal';
 import WechatDownloadGuide from '@/components/WechatDownloadGuide';
 import ImagePreview from '@/components/ImagePreview';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
+import SimpleImage from '@/components/ui/SimpleImage';
 import { createClient } from '@/lib/cloudbase/client';
 import { downloadPhoto, vibrate } from '@/lib/android';
 import { isWechatBrowser } from '@/lib/wechat';
@@ -19,6 +20,7 @@ import { getSessionId } from '@/lib/utils/session';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { createPagingSkeletonItems, type PagingSkeletonItem } from '@/lib/paging-skeletons';
 import { mutate } from 'swr';
 
 type WelcomeLetterMode = 'envelope' | 'stamp' | 'none';
@@ -84,6 +86,7 @@ interface AlbumData {
 
 const ALBUM_PAGE_SIZE = 20;
 const ALBUM_SELECT_ALL_MAX_PAGES = 200;
+const ALBUM_PAGING_SKELETON_COUNT = 8;
 const ALBUM_FOLDER_GUIDE_AUTO_DISMISS_MS = 15000;
 const ALBUM_FOLDER_WAVE_ROUNDS = 3;
 const ALBUM_FOLDER_WAVE_STEP_DELAY_MS = 380;
@@ -296,14 +299,13 @@ export default function AlbumDetailPage() {
   const [totalPhotos, setTotalPhotos] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [paginationSkeletons, setPaginationSkeletons] = useState<PagingSkeletonItem[]>([]);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
   const [, setPinningPhotoIds] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
-  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set()); // 已加载的图片ID
-  const [failedImages, setFailedImages] = useState<Set<string>>(new Set()); // 加载失败的图片ID
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const [showFolderGuide, setShowFolderGuide] = useState(false);
   const [storyOpenMap, setStoryOpenMap] = useState<Record<string, boolean>>({});
@@ -718,6 +720,19 @@ export default function AlbumDetailPage() {
     return normalized;
   };
 
+  const showPaginationSkeletons = useCallback((folderId: string, nextPageNo: number) => {
+    setPaginationSkeletons(
+      createPagingSkeletonItems(ALBUM_PAGING_SKELETON_COUNT, {
+        prefix: `album-${String(folderId || 'all')}`,
+        seed: nextPageNo,
+      })
+    );
+  }, []);
+
+  const clearPaginationSkeletons = useCallback(() => {
+    setPaginationSkeletons((current) => (current.length > 0 ? [] : current));
+  }, []);
+
   const loadAlbumPhotoPage = async (
     folderId: string,
     targetPageNo: number,
@@ -741,8 +756,12 @@ export default function AlbumDetailPage() {
       if (!silent) {
         setLoading(true);
       }
+      clearPaginationSkeletons();
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     } else {
+      loadingMoreRef.current = true;
+      showPaginationSkeletons(normalizedFolderId, nextPageNo);
       setLoadingMore(true);
     }
 
@@ -805,6 +824,8 @@ export default function AlbumDetailPage() {
       return false;
     } finally {
       if (loadToken === photoLoadTokenRef.current) {
+        clearPaginationSkeletons();
+        loadingMoreRef.current = false;
         setLoading(false);
         setLoadingMore(false);
         if (reset && silent) {
@@ -888,8 +909,6 @@ export default function AlbumDetailPage() {
     setPhotos([]);
     setPreviewPhotoPool(null);
     setSelectedPhotos(new Set());
-    setLoadedImages(new Set());
-    setFailedImages(new Set());
     setPhotoAspectRatioMap({});
     setStoryOpenMap({});
     setFullscreenPhoto(null);
@@ -1094,6 +1113,10 @@ export default function AlbumDetailPage() {
   const isHighlighted = (photo: Photo): boolean => hasStory(photo) || Boolean(photo.is_highlight);
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
+    if (!switchingFolderLoading) {
+      return;
+    }
+
     const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 4 / 3);
     const currentPhoto = photosRef.current.find((photo) => photo.id === photoId);
     const hasStableStoredRatio = Boolean(
@@ -1118,7 +1141,7 @@ export default function AlbumDetailPage() {
         [photoId]: nextRatio,
       };
     });
-  }, []);
+  }, [switchingFolderLoading]);
 
   const toggleStoryCard = (photoId: string, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -1139,6 +1162,48 @@ export default function AlbumDetailPage() {
     estimateItemHeight: ({ photo }) => estimateAlbumCardHeight(photo, Boolean(storyOpenMap[photo.id]), photoAspectRatioMap),
     resetKey: `${normalizedAccessKey}_${selectedFolder}`,
   });
+
+  const albumPaginationSkeletonColumns = useMemo(() => {
+    const columns = Array.from({ length: albumColumns.length || 2 }, () => [] as PagingSkeletonItem[]);
+    if (paginationSkeletons.length === 0) {
+      return columns;
+    }
+
+    const heights = columns.map((_, columnIndex) => (
+      (albumColumns[columnIndex] || []).reduce(
+        (total, { photo }) => total + estimateAlbumCardHeight(photo, Boolean(storyOpenMap[photo.id]), photoAspectRatioMap),
+        0
+      )
+    ));
+
+    paginationSkeletons.forEach((skeleton) => {
+      let targetColumnIndex = 0;
+      for (let index = 1; index < heights.length; index += 1) {
+        if (heights[index] < heights[targetColumnIndex]) {
+          targetColumnIndex = index;
+        }
+      }
+
+      columns[targetColumnIndex].push(skeleton);
+      heights[targetColumnIndex] += estimateAlbumCardHeight(
+        {
+          id: skeleton.id,
+          folder_id: null,
+          thumbnail_url: '',
+          preview_url: '',
+          original_url: '',
+          width: 1,
+          height: skeleton.aspectRatio,
+          is_public: false,
+          created_at: '',
+        } as Photo,
+        false,
+        { [skeleton.id]: skeleton.aspectRatio }
+      );
+    });
+
+    return columns;
+  }, [albumColumns, paginationSkeletons, photoAspectRatioMap, storyOpenMap]);
 
   useEffect(() => {
     loadingMoreRef.current = loadingMore;
@@ -1635,14 +1700,8 @@ export default function AlbumDetailPage() {
               key={`album-column-${columnIndex}`}
               className="flex min-w-0 flex-1 flex-col gap-2"
             >
-              {column.map(({ photo, index }) => (
-            <motion.div
-              key={photo.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              className="min-w-0"
-            >
+              {column.map(({ photo }) => (
+            <div key={photo.id} className="min-w-0">
               {/* 瀑布流卡片 */}
               <motion.div
                 layout
@@ -1683,120 +1742,23 @@ export default function AlbumDetailPage() {
                         </div>
                       </motion.div>
                     ) : (
-                      <motion.div
-                        key={`photo-${photo.id}`}
-                        initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.992 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.992 }}
-                        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.24, ease: 'easeOut' }}
-                      >
+                      <div key={`photo-${photo.id}`}>
                         <div
-                        className="relative w-full overflow-hidden bg-[linear-gradient(135deg,#f8f2e6,#efe5d2)]"
-                        style={{ paddingTop: photo.__media_padding_top || `${resolveAlbumPhotoRatio(photo, photoAspectRatioMap) * 100}%` }}
-                      >
-                        <img
-                          src={photo.card_url_resolved || photo.thumbnail_url_resolved || photo.thumbnail_url}
-                          alt="照片"
-                          loading="lazy"
-                          decoding="async"
-                          className="album-card-image absolute inset-0 h-full w-full object-cover"
-                          style={{ width: '100%', height: '100%', maxWidth: 'none', objectFit: 'cover' }}
-                          onLoad={(event) => {
-                            const target = event.currentTarget;
-                            setLoadedImages((prev) => new Set([...prev, photo.id]));
-                            setFailedImages((prev) => {
-                              if (!prev.has(photo.id)) {
-                                return prev;
-                              }
-                              const next = new Set(prev);
-                              next.delete(photo.id);
-                              return next;
-                            });
-                            handlePhotoRatioReady(photo.id, {
-                              width: target.naturalWidth,
-                              height: target.naturalHeight,
-                            });
-                          }}
-                          onError={() => {
-                            setFailedImages((prev) => new Set([...prev, photo.id]));
-                          }}
-                        />
-                      </div>
-
-                        {!loadedImages.has(photo.id) && !failedImages.has(photo.id) && (
-                        <div
-                          className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                          style={{ background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)' }}
+                          className="relative w-full overflow-hidden bg-[linear-gradient(135deg,#f8f2e6,#efe5d2)]"
+                          style={{ paddingTop: photo.__media_padding_top || `${resolveAlbumPhotoRatio(photo, photoAspectRatioMap) * 100}%` }}
                         >
-                          <motion.div
-                            animate={{ rotate: [-2, 2, -2], scale: [1, 1.05, 1] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                            className="relative"
-                          >
-                            <motion.div
-                              className="text-4xl"
-                              animate={{ filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)'] }}
-                              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-                            >
-                              📷
-                            </motion.div>
-                            <motion.div
-                              className="absolute -top-1 -right-1 text-xl"
-                              animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 0.5] }}
-                              transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
-                            >
-                              ✨
-                            </motion.div>
-                          </motion.div>
-                          <motion.p
-                            className="text-xs font-medium text-[#5D4037]/60"
-                            animate={{ opacity: [0.6, 1, 0.6] }}
-                            transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-                            style={{ fontFamily: "'ZQKNNY', cursive" }}
-                          >
-                            拾光中...
-                          </motion.p>
-                          <motion.div
-                            className="absolute left-1/4 top-1/4 text-sm opacity-30"
-                            animate={{ y: [-10, 10, -10], x: [-5, 5, -5], rotate: [0, 360] }}
-                            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                          >
-                            ✨
-                          </motion.div>
-                          <motion.div
-                            className="absolute bottom-1/4 right-1/4 text-sm opacity-30"
-                            animate={{ y: [10, -10, 10], x: [5, -5, 5], rotate: [360, 0] }}
-                            transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
-                          >
-                            💫
-                          </motion.div>
+                          <SimpleImage
+                            src={photo.card_url_resolved || photo.thumbnail_url_resolved || photo.thumbnail_url}
+                            alt="照片"
+                            aspectRatio={resolveAlbumPhotoRatio(photo, photoAspectRatioMap)}
+                            loadingVariant="quiet"
+                            className="album-card-image absolute inset-0 h-full w-full"
+                            onLoadDimensions={({ width, height }) => {
+                              handlePhotoRatioReady(photo.id, { width, height });
+                            }}
+                          />
                         </div>
-                      )}
-
-                        {failedImages.has(photo.id) && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-[#FFFBF0]">
-                          <div className="flex flex-col items-center gap-2 px-4 text-center">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-                              <X className="h-6 w-6 text-red-500" />
-                            </div>
-                            <p className="text-xs text-[#5D4037]/60">加载失败</p>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setFailedImages((prev) => {
-                                  const next = new Set(prev);
-                                  next.delete(photo.id);
-                                  return next;
-                                });
-                              }}
-                              className="text-xs text-[#FFC857] underline"
-                            >
-                              重试
-                            </button>
-                          </div>
-                        </div>
-                        )}
-                      </motion.div>
+                      </div>
                     )}
                   </AnimatePresence>
 
@@ -1892,7 +1854,29 @@ export default function AlbumDetailPage() {
                 </div>
 
               </motion.div>
-            </motion.div>
+            </div>
+              ))}
+              {albumPaginationSkeletonColumns[columnIndex]?.map((skeleton) => (
+                <div key={skeleton.id} className="box-border overflow-hidden rounded-[24px] border border-[#5D4037]/[0.06] bg-white/88 shadow-[0_8px_22px_rgba(93,64,55,0.08)]">
+                  <div
+                    className="relative overflow-hidden bg-[linear-gradient(135deg,rgba(255,251,240,0.98)_0%,rgba(255,247,233,0.98)_100%)]"
+                    style={{ paddingTop: skeleton.paddingTop }}
+                  >
+                    <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.24)_0%,rgba(255,248,232,0.92)_52%,rgba(255,244,224,0.96)_100%)]" />
+                    <motion.div
+                      className="absolute inset-y-0 left-[-42%] w-[42%] bg-[linear-gradient(90deg,rgba(255,255,255,0)_0%,rgba(255,255,255,0.52)_48%,rgba(255,255,255,0)_100%)]"
+                      animate={{ x: ['0%', '340%'] }}
+                      transition={{ duration: 1.45, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                  </div>
+                  <div className="px-3 pt-3 pb-[14px]">
+                    <motion.div
+                      className="h-[22px] w-[132px] rounded-full bg-[linear-gradient(90deg,rgba(93,64,55,0.08)_0%,rgba(93,64,55,0.16)_50%,rgba(93,64,55,0.08)_100%)] bg-[length:220%_100%]"
+                      animate={{ backgroundPositionX: ['0%', '100%', '0%'], opacity: [0.72, 1, 0.72] }}
+                      transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           ))}

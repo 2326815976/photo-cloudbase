@@ -105,7 +105,11 @@ const CHANNEL_META: Record<
   },
 };
 
-const MINIPROGRAM_HIDDEN_PAGE_KEYS = new Set(['login', 'register']);
+const MINIPROGRAM_HIDDEN_PAGE_KEYS = new Set([
+  'login',
+  'register',
+  'profile-change-password',
+]);
 
 function shouldHidePageForChannel(pageKey: string, channel: AppChannel) {
   const normalizedPageKey = String(pageKey || '').trim();
