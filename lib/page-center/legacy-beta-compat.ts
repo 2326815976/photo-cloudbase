@@ -201,6 +201,45 @@ export async function checkLegacyUserPageBetaAccess(
   return buildFeatureIndex(rows).get(pageKey) || null;
 }
 
+export async function unbindLegacyUserPageBetaFeature(
+  userId: string,
+  featureIdInput: unknown,
+  channelInput: unknown = 'miniprogram'
+): Promise<boolean> {
+  const featureId = normalizeText(featureIdInput);
+  if (!featureId) {
+    throw new Error('参数错误：缺少功能标识');
+  }
+
+  const rows = await getLegacyUserPageBetaFeatures(userId, channelInput);
+  const bindingIds = rows
+    .filter((row) => normalizeText(row && row.feature_id) === featureId)
+    .map((row) => normalizeText(row && row.binding_id))
+    .filter(Boolean);
+
+  if (bindingIds.length === 0) {
+    return false;
+  }
+
+  await Promise.all(
+    bindingIds.map((bindingId) =>
+      executeSQL(
+        `
+          DELETE FROM user_beta_feature_bindings
+          WHERE user_id = {{user_id}}
+            AND id = {{binding_id}}
+        `,
+        {
+          user_id: userId,
+          binding_id: bindingId,
+        }
+      )
+    )
+  );
+
+  return true;
+}
+
 export function mergeCompatibleBetaFeatures(
   primaryRows: UserPageBetaFeatureRow[],
   fallbackRows: UserPageBetaFeatureRow[]

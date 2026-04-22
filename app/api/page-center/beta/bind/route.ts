@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       canUsePageCenterBeta(),
       canUseLegacyPageCenterBeta(),
     ]);
-    const legacyEnabled = channel === 'web' && legacyAvailable;
+    const legacyEnabled = legacyAvailable;
 
     if (pageCenterEnabled) {
       try {

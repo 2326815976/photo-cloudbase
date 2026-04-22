@@ -173,6 +173,7 @@ const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEY_SET = new Set<string>(
   PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS
 );
 const REMOVED_APP_PAGE_KEY_SET = new Set<string>(REMOVED_APP_PAGE_KEYS);
+const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>(['register', 'profile-change-password']);
 
 export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   login: 'profile',
@@ -349,9 +350,9 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     pageName: '注册',
     pageDescription: '我的页访客注册入口',
     routePathWeb: '/register',
-    routePathMiniProgram: 'pages/register/index',
+    routePathMiniProgram: '',
     previewRoutePathWeb: '/register?presentation=preview&page_key=register',
-    previewRoutePathMiniProgram: '/pages/register/index?presentation=preview&page_key=register',
+    previewRoutePathMiniProgram: '',
     tabKey: null,
     iconKey: null,
     defaultTabText: '注册',
@@ -440,10 +441,9 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     pageName: '修改密码',
     pageDescription: '我的页密码修改入口',
     routePathWeb: '/profile/change-password',
-    routePathMiniProgram: 'pages/profile/change-password/index',
+    routePathMiniProgram: '',
     previewRoutePathWeb: '/profile/change-password?presentation=preview&page_key=profile-change-password',
-    previewRoutePathMiniProgram:
-      '/pages/profile/change-password/index?presentation=preview&page_key=profile-change-password',
+    previewRoutePathMiniProgram: '',
     tabKey: null,
     iconKey: null,
     defaultTabText: '修改密码',
@@ -524,6 +524,10 @@ export function normalizeText(input: unknown): string {
   return text;
 }
 
+export function isMiniProgramPageEnabled(pageKey: unknown): boolean {
+  return !MINIPROGRAM_DISABLED_PAGE_KEYS.has(normalizeText(pageKey));
+}
+
 export function normalizeBoolean(input: unknown, fallback = false): boolean {
   if (input === true || input === 1 || input === '1') return true;
   if (input === false || input === 0 || input === '0') return false;
@@ -575,7 +579,9 @@ export function createFallbackMiniProgramRuleMap(runtimeConfig: MiniProgramRunti
   const enabledItems = Array.isArray(runtimeConfig.tabBarItems) ? runtimeConfig.tabBarItems.filter((item) => item && item.enabled) : [];
   const pagePathToRule = new Map(enabledItems.map((item, index) => [normalizeMiniProgramPath(item.pagePath), { item, index }]));
   buildRegistryFallbackItems().forEach((page, index) => {
-    const matched = pagePathToRule.get(normalizeMiniProgramPath(page.routePathMiniProgram));
+    const matched = isMiniProgramPageEnabled(page.pageKey)
+      ? pagePathToRule.get(normalizeMiniProgramPath(page.routePathMiniProgram))
+      : null;
     map.set(page.pageKey, {
       id: index + 1,
       pageKey: page.pageKey,
@@ -593,12 +599,13 @@ export function createFallbackMiniProgramRuleMap(runtimeConfig: MiniProgramRunti
     });
   });
   DEFAULT_SECONDARY_PAGE_RULES.forEach((item, index) => {
+    const isEnabled = isMiniProgramPageEnabled(item.pageKey);
     map.set(item.pageKey, {
       id: buildRegistryFallbackItems().length + index + 1,
       pageKey: item.pageKey,
       channel: 'miniprogram',
-      publishState: item.publishState,
-      showInNav: item.showInNav,
+      publishState: isEnabled ? item.publishState : 'offline',
+      showInNav: isEnabled && item.showInNav,
       navOrder: item.navOrder,
       navText: item.navText,
       guestNavText: item.guestNavText,
@@ -667,6 +674,7 @@ export function resolvePageRuleView(
   const fallback = fallbackMap?.get(page.pageKey);
   const resolved = rule || fallback;
   const isSecondaryPage = isSecondaryPageKey(page.pageKey);
+  const isMiniProgramPageAvailable = channel !== 'miniprogram' || isMiniProgramPageEnabled(page.pageKey);
   const isMiniProgramProfilePrimaryPage =
     channel === 'miniprogram' && page.pageKey === 'profile' && !isSecondaryPage;
   const navText = isMiniProgramProfilePrimaryPage
@@ -684,8 +692,8 @@ export function resolvePageRuleView(
 
   return {
     channel,
-    publishState: resolved?.publishState || 'offline',
-    showInNav: isSecondaryPage ? false : Boolean(resolved?.showInNav),
+    publishState: isMiniProgramPageAvailable ? resolved?.publishState || 'offline' : 'offline',
+    showInNav: isSecondaryPage ? false : isMiniProgramPageAvailable && Boolean(resolved?.showInNav),
     navOrder: normalizeNumber(resolved?.navOrder, 99),
     navText,
     guestNavText,
@@ -693,8 +701,9 @@ export function resolvePageRuleView(
     headerSubtitle: normalizeText(resolved?.headerSubtitle),
     isHomeEntry: isSecondaryPage ? false : Boolean(resolved?.isHomeEntry),
     notes: normalizeText(resolved?.notes),
-    routePath: channel === 'web' ? page.routePathWeb : page.routePathMiniProgram,
-    previewRoutePath: channel === 'web' ? page.previewRoutePathWeb : page.previewRoutePathMiniProgram,
+    routePath: channel === 'web' ? page.routePathWeb : isMiniProgramPageAvailable ? page.routePathMiniProgram : '',
+    previewRoutePath:
+      channel === 'web' ? page.previewRoutePathWeb : isMiniProgramPageAvailable ? page.previewRoutePathMiniProgram : '',
   };
 }
 

@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/cloudbase/server';
+import {
+  canUseLegacyPageCenterBeta,
+  unbindLegacyUserPageBetaFeature,
+} from '@/lib/page-center/legacy-beta-compat';
 import { canUsePageCenterBeta, unbindUserPageBetaFeature } from '@/lib/page-center/user-beta';
 
 export const dynamic = 'force-dynamic';
@@ -30,8 +34,12 @@ export async function DELETE(
       return NextResponse.json({ error: '请先登录' }, { status: 401 });
     }
 
-    const pageCenterEnabled = await canUsePageCenterBeta();
-    if (!pageCenterEnabled) {
+    const [pageCenterEnabled, legacyAvailable] = await Promise.all([
+      canUsePageCenterBeta(),
+      canUseLegacyPageCenterBeta(),
+    ]);
+    const legacyEnabled = legacyAvailable;
+    if (!pageCenterEnabled && !legacyEnabled) {
       return NextResponse.json(
         {
           error: '页面内测新体系尚未就绪，请先完成页面中心内测配置',
@@ -41,11 +49,23 @@ export async function DELETE(
       );
     }
 
-    const removed = await unbindUserPageBetaFeature(String(user.id), featureId, channel);
+    let removed = false;
+    let source = 'page_center';
+
+    if (pageCenterEnabled) {
+      removed = await unbindUserPageBetaFeature(String(user.id), featureId, channel);
+    }
+
+    if (!removed && legacyEnabled) {
+      removed = await unbindLegacyUserPageBetaFeature(String(user.id), featureId, channel);
+      if (removed) {
+        source = 'legacy_compatible';
+      }
+    }
     return NextResponse.json({
       success: true,
       removed,
-      source: 'page_center',
+      source,
     });
   } catch (error) {
     console.error('解绑页面内测功能失败:', error);

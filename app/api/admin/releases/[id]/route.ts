@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/cloudbase/server';
+import { ensureAdminSession } from '@/app/api/admin/_utils/ensure-admin-session';
+import { createAdminClient } from '@/lib/cloudbase/server';
 import { deleteCloudBaseFiles, deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
 import { getReleaseByIdWithCompat } from '@/lib/releases/release-compat';
 
@@ -16,18 +17,18 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invalid release id' }, { status: 400 });
     }
 
-    const dbClient = await createClient();
+    const adminCheck = await ensureAdminSession();
+    if (!adminCheck.ok) {
+      return adminCheck.response;
+    }
+    const dbClient = createAdminClient();
 
-    const { data: authUser } = await dbClient.auth.getUser();
+    const authUser = { user: { id: adminCheck.userId } };
     if (!authUser?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: profile } = await dbClient
-      .from('profiles')
-      .select('role')
-      .eq('id', authUser.user.id)
-      .single();
+    const profile = { role: 'admin' };
 
     if (profile?.role !== 'admin') {
       return NextResponse.json({ error: 'Admin role required' }, { status: 403 });

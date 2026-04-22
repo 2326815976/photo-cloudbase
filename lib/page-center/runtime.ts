@@ -12,6 +12,7 @@ import {
   buildRegistryFallbackItems,
   createFallbackMiniProgramRuleMap,
   createFallbackWebRuleMap,
+  isMiniProgramPageEnabled,
   isRemovedAppPageKey,
   isSecondaryPageKey,
   normalizeBoolean,
@@ -215,33 +216,36 @@ export async function loadPageCenterRows(): Promise<PageCenterRows> {
     );
 
     const registryItems = (Array.isArray(registryResult.rows) ? registryResult.rows : [])
-      .map((row, index): AppPageRegistryItem => ({
-        id: normalizeNumber(row.id, index + 1),
-        pageKey: normalizeText(row.page_key),
-        pageName: normalizeText(row.page_name),
-        pageDescription: normalizeText(row.page_description),
-        routePathWeb: normalizePath(row.route_path_web),
-        routePathMiniProgram: normalizeMiniProgramPath(row.route_path_miniprogram),
-        previewRoutePathWeb: normalizePath(row.preview_route_path_web || row.route_path_web),
-        previewRoutePathMiniProgram: resolveMiniProgramPreviewRoute(
-          normalizeText(row.page_key),
-          row.preview_route_path_miniprogram,
-          row.route_path_miniprogram
-        ),
-        tabKey: (normalizeText(row.tab_key) || null) as AppPageRegistryItem['tabKey'],
-        iconKey: (normalizeText(row.icon_key) || null) as AppPageRegistryItem['iconKey'],
-        defaultTabText: normalizeText(row.default_tab_text),
-        defaultGuestTabText: normalizeText(row.default_guest_tab_text),
-        isNavCandidateWeb: normalizeBoolean(
-          row.is_nav_candidate_web,
-          Boolean(normalizeText(row.icon_key))
-        ),
-        isTabCandidateMiniProgram: normalizeBoolean(row.is_tab_candidate_miniprogram, false),
-        supportsBeta: normalizeBoolean(row.supports_beta, true),
-        supportsPreview: normalizeBoolean(row.supports_preview, true),
-        isBuiltIn: normalizeBoolean(row.is_builtin, false),
-        isActive: normalizeBoolean(row.is_active, true),
-      }))
+      .map((row, index): AppPageRegistryItem => {
+        const pageKey = normalizeText(row.page_key);
+        const miniprogramEnabled = isMiniProgramPageEnabled(pageKey);
+
+        return {
+          id: normalizeNumber(row.id, index + 1),
+          pageKey,
+          pageName: normalizeText(row.page_name),
+          pageDescription: normalizeText(row.page_description),
+          routePathWeb: normalizePath(row.route_path_web),
+          routePathMiniProgram: miniprogramEnabled ? normalizeMiniProgramPath(row.route_path_miniprogram) : '',
+          previewRoutePathWeb: normalizePath(row.preview_route_path_web || row.route_path_web),
+          previewRoutePathMiniProgram: miniprogramEnabled
+            ? resolveMiniProgramPreviewRoute(pageKey, row.preview_route_path_miniprogram, row.route_path_miniprogram)
+            : '',
+          tabKey: (normalizeText(row.tab_key) || null) as AppPageRegistryItem['tabKey'],
+          iconKey: (normalizeText(row.icon_key) || null) as AppPageRegistryItem['iconKey'],
+          defaultTabText: normalizeText(row.default_tab_text),
+          defaultGuestTabText: normalizeText(row.default_guest_tab_text),
+          isNavCandidateWeb: normalizeBoolean(
+            row.is_nav_candidate_web,
+            Boolean(normalizeText(row.icon_key))
+          ),
+          isTabCandidateMiniProgram: normalizeBoolean(row.is_tab_candidate_miniprogram, false),
+          supportsBeta: normalizeBoolean(row.supports_beta, true),
+          supportsPreview: normalizeBoolean(row.supports_preview, true),
+          isBuiltIn: normalizeBoolean(row.is_builtin, false),
+          isActive: normalizeBoolean(row.is_active, true),
+        };
+      })
       .filter((item) => item.pageKey);
 
     const publishRuleItems: AppPagePublishRuleItem[] = [];
