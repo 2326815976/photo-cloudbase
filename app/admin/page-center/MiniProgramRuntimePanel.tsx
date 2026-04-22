@@ -55,8 +55,8 @@ function toFormState(config: MiniProgramRuntimeConfig): FormState {
     configName: config.configName,
     sceneCode: config.sceneCode,
     homeMode: config.homeMode,
-    guestProfileMode: 'login',
-    authMode: 'wechat_only',
+    guestProfileMode: config.guestProfileMode,
+    authMode: config.authMode,
     tabBarItems: cloneTabBarItems(config.tabBarItems),
     featureFlags: cloneFeatureFlags(config.featureFlags),
     notes: config.notes,
@@ -69,8 +69,8 @@ function buildPayload(form: FormState) {
     config_name: form.configName.trim(),
     scene_code: form.sceneCode,
     home_mode: form.homeMode,
-    guest_profile_mode: 'login',
-    auth_mode: 'wechat_only',
+    guest_profile_mode: form.guestProfileMode,
+    auth_mode: form.authMode,
     tab_bar_items_json: serializeTabBarItems(form.tabBarItems),
     feature_flags_json: serializeFeatureFlags(form.featureFlags),
     notes: form.notes.trim() || null,
@@ -411,6 +411,8 @@ export default function MiniProgramRuntimePanel() {
                   className="mt-1 h-11 w-full rounded-2xl border border-[#5D4037]/12 bg-white px-4 outline-none"
                 >
                   <option value="wechat_only">仅微信登录</option>
+                  <option value="mixed">微信 + 手机号登录</option>
+                  <option value="phone_password">仅手机号登录</option>
                 </select>
               </label>
               <div />

@@ -57,25 +57,32 @@ function serializeJsonInput(fallback: string, ...candidates: unknown[]): string 
 }
 
 async function loadLatestRuntimeConfig() {
-  const dbClient = await createClient();
-  const { data, error } = await dbClient
-    .from('miniprogram_runtime_settings')
-    .select(SELECT_COLUMNS)
-    .eq('is_active', true)
-    .order('updated_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  try {
+    const dbClient = await createClient();
+    const { data, error } = await dbClient
+      .from('miniprogram_runtime_settings')
+      .select(SELECT_COLUMNS)
+      .eq('is_active', true)
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (error) {
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    const runtimeConfig = normalizeRuntimeConfigRow(data || null);
+    return {
+      rowId: Number((data as { id?: number })?.id || 0) || null,
+      runtimeConfig: runtimeConfig || buildRuntimeConfigPreset('standard'),
+    };
+  } catch {
+    return {
+      rowId: null,
+      runtimeConfig: buildRuntimeConfigPreset('standard'),
+    };
   }
-
-  const runtimeConfig = normalizeRuntimeConfigRow(data || null);
-  return {
-    rowId: Number((data as { id?: number })?.id || 0) || null,
-    runtimeConfig: runtimeConfig || buildRuntimeConfigPreset('standard'),
-  };
 }
 
 export async function GET() {

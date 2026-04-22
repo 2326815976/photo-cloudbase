@@ -1468,10 +1468,6 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   };
 
   const confirmDestroyBetaCode = async (code: DecoratedBetaCode) => {
-    if (code.readOnly) {
-      showToast(code.manageHint || '旧体系兼容码在这里仅支持查看，不支持删除。');
-      return;
-    }
     const codeId = code.id;
     const targetName = String(code.betaName || '').trim() || '该内测码';
     const confirmed = window.confirm(`确认删除“${targetName}”？\n\n删除后该内测码将立即失效，且无法继续使用。`);

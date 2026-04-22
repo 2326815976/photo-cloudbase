@@ -6,6 +6,8 @@ import { deleteCloudBaseObjects } from '@/lib/cloudbase/storage';
 
 export const ADMIN_USERS_MIGRATION_REQUIRED_MESSAGE =
   '用户禁用能力尚未完成数据库升级，请先执行 photo/sql/migrations/30_admin_user_disable_flag.sql';
+const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
+const DISABLED_AT_UTC8_EXPR = 'DATE_ADD(u.disabled_at, INTERVAL 8 HOUR)';
 
 export interface AdminUserListItem {
   id: string;
@@ -73,7 +75,7 @@ function buildAdminUserListQuery(includeDisabledField: boolean): string {
         ELSE 'user'
       END AS role,
       ${includeDisabledField ? 'COALESCE(u.is_disabled, 0)' : '0'} AS is_disabled,
-      ${includeDisabledField ? 'u.disabled_at' : 'NULL'} AS disabled_at,
+      ${includeDisabledField ? `CASE WHEN u.disabled_at IS NULL THEN NULL ELSE ${DISABLED_AT_UTC8_EXPR} END` : 'NULL'} AS disabled_at,
       u.created_at,
       p.last_active_at,
       session_stats.last_session_at,
@@ -82,7 +84,7 @@ function buildAdminUserListQuery(includeDisabledField: boolean): string {
     FROM users u
     LEFT JOIN profiles p ON p.id = u.id
     LEFT JOIN (
-      SELECT user_id, MAX(last_seen_at) AS last_session_at
+      SELECT user_id, DATE_ADD(MAX(last_seen_at), INTERVAL 8 HOUR) AS last_session_at
       FROM user_sessions
       WHERE is_revoked = 0
       GROUP BY user_id
@@ -248,10 +250,10 @@ export async function setAdminUserDisabled(userId: string, isDisabled: boolean) 
         SET
           is_disabled = {{is_disabled}},
           disabled_at = CASE
-            WHEN {{is_disabled}} = 1 THEN UTC_TIMESTAMP()
+            WHEN {{is_disabled}} = 1 THEN ${NOW_UTC8_EXPR}
             ELSE NULL
           END,
-          updated_at = UTC_TIMESTAMP()
+          updated_at = ${NOW_UTC8_EXPR}
         WHERE id = {{user_id}}
           AND deleted_at <=> NULL
       `,

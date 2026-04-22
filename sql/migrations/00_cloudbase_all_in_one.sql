@@ -788,7 +788,7 @@ CREATE TABLE IF NOT EXISTS miniprogram_runtime_settings (
   scene_code VARCHAR(32) NOT NULL DEFAULT 'review',
   legacy_hide_audit TINYINT(1) NOT NULL DEFAULT 1,
   home_mode VARCHAR(32) NOT NULL DEFAULT 'gallery',
-  guest_profile_mode VARCHAR(32) NOT NULL DEFAULT 'about',
+  guest_profile_mode VARCHAR(32) NOT NULL DEFAULT 'login',
   auth_mode VARCHAR(32) NOT NULL DEFAULT 'wechat_only',
   tab_bar_items_json LONGTEXT NOT NULL,
   feature_flags_json LONGTEXT NOT NULL,

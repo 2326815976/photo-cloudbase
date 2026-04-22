@@ -3,6 +3,18 @@ import { type AppPageBetaCodeItem, normalizeBoolean, normalizeText } from '@/lib
 import { resolveLegacyBetaPageKeyFromRoute } from '@/lib/page-center/legacy-beta';
 import { tableExists } from '@/lib/page-center/sql-compat';
 
+export function extractLegacyOverviewBetaVersionId(codeId: unknown): string {
+  const normalizedCodeId = normalizeText(codeId);
+  if (!normalizedCodeId.startsWith('legacy:')) {
+    return '';
+  }
+  return normalizeText(normalizedCodeId.slice('legacy:'.length));
+}
+
+export function isLegacyOverviewBetaCodeId(codeId: unknown): boolean {
+  return Boolean(extractLegacyOverviewBetaVersionId(codeId));
+}
+
 export async function canUseLegacyOverviewBetaCodes(): Promise<boolean> {
   const [hasVersions, hasRoutes] = await Promise.all([
     tableExists('feature_beta_versions'),
@@ -66,6 +78,61 @@ export async function loadLegacyOverviewBetaCodes(): Promise<AppPageBetaCodeItem
   }
 
   return items;
+}
+
+export async function loadLegacyOverviewBetaCodeById(codeId: unknown): Promise<AppPageBetaCodeItem | null> {
+  const versionId = extractLegacyOverviewBetaVersionId(codeId);
+  if (!versionId || !(await canUseLegacyOverviewBetaCodes())) {
+    return null;
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT
+        v.id AS feature_id,
+        v.feature_name,
+        v.feature_code,
+        v.is_active AS feature_is_active,
+        v.expires_at,
+        v.created_at,
+        v.updated_at,
+        r.route_path,
+        r.is_active AS route_is_active
+      FROM feature_beta_versions v
+      JOIN feature_beta_routes r ON r.id = v.route_id
+      WHERE v.id = {{feature_id}}
+      LIMIT 1
+    `,
+    { feature_id: versionId }
+  );
+
+  const row = Array.isArray(result.rows) && result.rows.length > 0 ? result.rows[0] : null;
+  if (!row) {
+    return null;
+  }
+
+  const pageKey = resolveLegacyBetaPageKeyFromRoute(row.route_path);
+  const betaCode = normalizeText(row.feature_code);
+  if (!pageKey || !betaCode) {
+    return null;
+  }
+
+  return {
+    id: `legacy:${normalizeText(row.feature_id)}`,
+    pageKey,
+    channel: 'web',
+    betaName: normalizeText(row.feature_name) || '旧体系内测码',
+    betaCode,
+    isActive:
+      normalizeBoolean(row.feature_is_active, true) &&
+      normalizeBoolean(row.route_is_active, true),
+    expiresAt: normalizeText(row.expires_at),
+    createdAt: normalizeText(row.created_at),
+    updatedAt: normalizeText(row.updated_at || row.created_at),
+    source: 'legacy',
+    readOnly: true,
+    manageHint: '旧体系兼容码仅在 Web 页面管理中展示；小程序端已切换为页面中心新体系。',
+  };
 }
 
 export function mergeCompatibleAdminBetaCodes(

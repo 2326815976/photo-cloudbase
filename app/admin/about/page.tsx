@@ -190,9 +190,9 @@ export default function AdminAboutPage() {
   };
   const buildPayload = (source: AboutFormData) => ({
     author_name: toText(source.author_name) || null,
-    phone: toText(source.phone) || null,
-    wechat: toText(source.wechat) || null,
-    email: toText(source.email) || null,
+    phone: toText(source.phone),
+    wechat: toText(source.wechat),
+    email: toText(source.email),
     donation_qr_code: toText(source.donation_qr_code) || null,
     author_message: toMessageText(source.author_message) || null,
   });
