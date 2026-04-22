@@ -439,6 +439,10 @@ async function hasTable(tableName: string): Promise<boolean> {
 }
 
 let sharpModulePromise: Promise<any> | null = null;
+const PHOTO_DIMENSION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const PHOTO_DIMENSION_PROBE_CONCURRENCY = 6;
+const PHOTO_DIMENSION_EAGER_LIMIT = 48;
+const photoDimensionCache = new Map<string, { width: number; height: number; expiresAt: number }>();
 
 async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
   const now = Date.now();
@@ -840,6 +844,225 @@ async function downloadImageBuffer(url: string): Promise<Buffer> {
   return Buffer.from(arrayBuffer);
 }
 
+function resolvePhotoDimensionProbeUrl(row: Record<string, any>): string {
+  const candidates = [
+    row.thumbnail_url,
+    row.preview_url,
+    row.original_url,
+    row.url,
+  ];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const value = normalizeMaybeUrlText(candidates[index]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function buildPhotoDimensionCacheKeys(row: Record<string, any>): string[] {
+  const keys: string[] = [];
+  const photoId = String(row.id ?? '').trim();
+  if (photoId) {
+    keys.push(`photo:${photoId}`);
+  }
+
+  const probeUrl = resolvePhotoDimensionProbeUrl(row);
+  if (probeUrl) {
+    keys.push(`url:${createHash('sha1').update(probeUrl).digest('hex')}`);
+  }
+
+  return keys;
+}
+
+function readCachedPhotoDimensions(row: Record<string, any>): { width: number; height: number } | null {
+  const now = Date.now();
+  const cacheKeys = buildPhotoDimensionCacheKeys(row);
+
+  for (let index = 0; index < cacheKeys.length; index += 1) {
+    const cacheKey = cacheKeys[index];
+    const cached = photoDimensionCache.get(cacheKey);
+    if (!cached) {
+      continue;
+    }
+    if (cached.expiresAt <= now) {
+      photoDimensionCache.delete(cacheKey);
+      continue;
+    }
+    return {
+      width: cached.width,
+      height: cached.height,
+    };
+  }
+
+  return null;
+}
+
+function writeCachedPhotoDimensions(row: Record<string, any>, dimensions: { width: number; height: number }) {
+  const width = toNumber(dimensions.width, 0);
+  const height = toNumber(dimensions.height, 0);
+  if (!(width > 0 && height > 0)) {
+    return;
+  }
+
+  const expiresAt = Date.now() + PHOTO_DIMENSION_CACHE_TTL_MS;
+  buildPhotoDimensionCacheKeys(row).forEach((cacheKey) => {
+    photoDimensionCache.set(cacheKey, { width, height, expiresAt });
+  });
+}
+
+function resolveOrientedImageDimensions(width: number, height: number, orientation: number): { width: number; height: number } {
+  if (orientation >= 5 && orientation <= 8) {
+    return {
+      width: height,
+      height: width,
+    };
+  }
+
+  return { width, height };
+}
+
+async function probePhotoDimensionsFromUrl(url: string): Promise<{ width: number; height: number } | null> {
+  const target = String(url || '').trim();
+  if (!target) {
+    return null;
+  }
+
+  const buffer = await downloadImageBuffer(target);
+  const sharp = await getSharp();
+  const metadata = await sharp(buffer).metadata();
+  const safeWidth = toNumber(metadata.width, 0);
+  const safeHeight = toNumber(metadata.height, 0);
+  if (!(safeWidth > 0 && safeHeight > 0)) {
+    return null;
+  }
+
+  const oriented = resolveOrientedImageDimensions(
+    safeWidth,
+    safeHeight,
+    toNumber((metadata as { orientation?: unknown }).orientation, 1)
+  );
+  if (!(oriented.width > 0 && oriented.height > 0)) {
+    return null;
+  }
+
+  return oriented;
+}
+
+async function persistAlbumPhotoDimensions(photoId: string, dimensions: { width: number; height: number }) {
+  const normalizedPhotoId = String(photoId || '').trim();
+  const width = toNumber(dimensions.width, 0);
+  const height = toNumber(dimensions.height, 0);
+  if (!normalizedPhotoId || !(width > 0 && height > 0)) {
+    return;
+  }
+
+  try {
+    await executeSQL(
+      `
+        UPDATE album_photos
+        SET width = {{width}},
+            height = {{height}}
+        WHERE id = {{photo_id}}
+          AND (COALESCE(width, 0) <= 0 OR COALESCE(height, 0) <= 0)
+      `,
+      {
+        photo_id: normalizedPhotoId,
+        width,
+        height,
+      }
+    );
+  } catch {
+    // ignore dimension backfill persistence failures
+  }
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+) {
+  const queue = Array.isArray(items) ? items : [];
+  if (queue.length <= 0) {
+    return;
+  }
+
+  const safeConcurrency = Math.max(1, Math.min(queue.length, Math.floor(Number(concurrency) || 1)));
+  let cursor = 0;
+
+  await Promise.all(
+    Array.from({ length: safeConcurrency }, async () => {
+      while (cursor < queue.length) {
+        const currentIndex = cursor;
+        cursor += 1;
+        try {
+          await worker(queue[currentIndex]);
+        } catch {
+          // ignore single-row probe failures
+        }
+      }
+    })
+  );
+}
+
+async function ensurePhotoRowsHaveDimensions(
+  rows: Record<string, any>[],
+  options?: { maxProbeCount?: number }
+) {
+  const photoRows = Array.isArray(rows) ? rows : [];
+  if (photoRows.length <= 0) {
+    return;
+  }
+
+  const missingRows = photoRows.filter((row) => {
+    const width = toNumber(row?.width, 0);
+    const height = toNumber(row?.height, 0);
+    return !(width > 0 && height > 0);
+  });
+  if (missingRows.length <= 0) {
+    return;
+  }
+
+  const rawMaxProbeCount = Number(options?.maxProbeCount);
+  const maxProbeCount = Number.isFinite(rawMaxProbeCount) && rawMaxProbeCount > 0
+    ? Math.floor(rawMaxProbeCount)
+    : missingRows.length;
+  const targetRows = missingRows.slice(0, maxProbeCount);
+  if (targetRows.length <= 0) {
+    return;
+  }
+
+  await runWithConcurrency(targetRows, PHOTO_DIMENSION_PROBE_CONCURRENCY, async (row) => {
+    const cached = readCachedPhotoDimensions(row);
+    if (cached) {
+      row.width = cached.width;
+      row.height = cached.height;
+      return;
+    }
+
+    const probeUrl = resolvePhotoDimensionProbeUrl(row);
+    if (!probeUrl) {
+      return;
+    }
+
+    const dimensions = await probePhotoDimensionsFromUrl(probeUrl);
+    if (!dimensions) {
+      return;
+    }
+
+    row.width = dimensions.width;
+    row.height = dimensions.height;
+    writeCachedPhotoDimensions(row, dimensions);
+
+    const photoId = String(row.id ?? '').trim();
+    if (photoId) {
+      await persistAlbumPhotoDimensions(photoId, dimensions);
+    }
+  });
+}
+
 async function buildWallImageVariantsFromSource(sourceUrl: string): Promise<{
   thumbnailBuffer: Buffer;
   previewBuffer: Buffer;
@@ -1047,6 +1270,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   );
 
   await hydrateCloudBaseTempUrlsInRows(photos, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
+  await ensurePhotoRowsHaveDimensions(photos);
 
   return {
     photos: photos.map((row) => ({
@@ -1190,6 +1414,7 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
 
     photoRows = photosResult.rows;
     await hydrateCloudBaseTempUrlsInRows(photoRows, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
+    await ensurePhotoRowsHaveDimensions(photoRows, { maxProbeCount: PHOTO_DIMENSION_EAGER_LIMIT });
 
     const photoIds = photoRows.map((row) => String(row.id));
     if (photoIds.length > 0) {
@@ -1346,6 +1571,7 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
     }
   );
   await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
+  await ensurePhotoRowsHaveDimensions(photosResult.rows);
 
   const countResult = await executeSQL(
     `

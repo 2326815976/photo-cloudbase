@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Download, Sparkles, CheckSquare, Square, Trash2, Heart, RotateCw } from 'lucide-react';
@@ -20,7 +20,8 @@ import { getSessionId } from '@/lib/utils/session';
 import { markGalleryCacheDirty } from '@/lib/gallery/cache-sync';
 import { useStableMasonryColumns } from '@/lib/hooks/useStableMasonryColumns';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
-import { createPagingSkeletonItems, type PagingSkeletonItem } from '@/lib/paging-skeletons';
+import { createPagingSkeletonItems, createPagingSkeletonItemsFromPhotos, type PagingSkeletonItem } from '@/lib/paging-skeletons';
+import { hydratePhotoDimensions } from '@/lib/photo-dimensions';
 import { mutate } from 'swr';
 
 type WelcomeLetterMode = 'envelope' | 'stamp' | 'none';
@@ -84,13 +85,74 @@ interface AlbumData {
   photos: Photo[];
 }
 
+interface DownloadProgressState {
+  visible: boolean;
+  running: boolean;
+  done: boolean;
+  current: number;
+  total: number;
+  success: number;
+  fail: number;
+  percent: number;
+  title: string;
+  message: string;
+}
+
+interface FetchedAlbumPhotoPageData {
+  errorMessage: string;
+  folderId: string;
+  pageNo: number;
+  rows: Photo[];
+  total: number;
+  hasMore: boolean;
+}
+
+const INITIAL_DOWNLOAD_PROGRESS_STATE: DownloadProgressState = {
+  visible: false,
+  running: false,
+  done: false,
+  current: 0,
+  total: 0,
+  success: 0,
+  fail: 0,
+  percent: 0,
+  title: '',
+  message: '',
+};
+
+function normalizeDownloadProgressState(state: Partial<DownloadProgressState>): DownloadProgressState {
+  const total = Math.max(0, Number(state.total ?? 0));
+  const currentRaw = Number(state.current ?? 0);
+  const current = total > 0 ? Math.max(0, Math.min(total, currentRaw)) : Math.max(0, currentRaw);
+  const success = Math.max(0, Number(state.success ?? 0));
+  const fail = Math.max(0, Number(state.fail ?? 0));
+  const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((current / total) * 100))) : 0;
+
+  return {
+    ...INITIAL_DOWNLOAD_PROGRESS_STATE,
+    ...state,
+    current,
+    total,
+    success,
+    fail,
+    percent,
+    title: String(state.title ?? ''),
+    message: String(state.message ?? ''),
+  };
+}
+
 const ALBUM_PAGE_SIZE = 20;
 const ALBUM_SELECT_ALL_MAX_PAGES = 200;
 const ALBUM_PAGING_SKELETON_COUNT = 8;
+const ALBUM_SCROLL_LOAD_AHEAD_PX = 720;
+const ALBUM_VIEWPORT_FILL_BUFFER_PX = 24;
+const ALBUM_INITIAL_AUTOFILL_MAX_BATCHES = 2;
+const ALBUM_LOAD_SENTINEL_THRESHOLD = 0.01;
 const ALBUM_FOLDER_GUIDE_AUTO_DISMISS_MS = 15000;
 const ALBUM_FOLDER_WAVE_ROUNDS = 3;
 const ALBUM_FOLDER_WAVE_STEP_DELAY_MS = 380;
 const ALBUM_FOLDER_WAVE_ROUND_GAP_MS = 240;
+const ALBUM_SWITCH_OVERLAY_TRACK_COUNT = 6;
 const ALBUM_SWITCH_OVERLAY_TIMEOUT_MS = 8500;
 const ALBUM_CARD_FLOATING_ICON_STYLE = {
   width: '30px',
@@ -142,7 +204,7 @@ function clampPhotoAspectRatio(width: number, height: number, fallback = 4 / 3) 
   const safeWidth = Number(width || 0);
   const safeHeight = Number(height || 0);
   const ratio = safeWidth > 0 && safeHeight > 0 ? safeHeight / safeWidth : fallback;
-  return Math.min(2.8, Math.max(0.72, ratio));
+  return ratio;
 }
 
 function toNonNegativeInteger(value: unknown): number | null {
@@ -191,12 +253,16 @@ function resolveAlbumPhotoRatio(photo: Photo, ratioMap?: Record<string, number>)
     return clampPhotoAspectRatio(1, runtimeRatio, 4 / 3);
   }
 
+  if (Number(photo?.width || 0) > 0 && Number(photo?.height || 0) > 0) {
+    return clampPhotoAspectRatio(photo.width, photo.height, 4 / 3);
+  }
+
   const photoRatio = Number(photo?.__ratio || 0);
   if (photoRatio > 0) {
     return clampPhotoAspectRatio(1, photoRatio, 4 / 3);
   }
 
-  return clampPhotoAspectRatio(photo.width, photo.height, 4 / 3);
+  return 4 / 3;
 }
 
 function resolveAlbumPhotoListRatios(list: Photo[], ratioMap?: Record<string, number>) {
@@ -293,6 +359,7 @@ export default function AlbumDetailPage() {
   const [showToast, setShowToast] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [switchingFolderLoading, setSwitchingFolderLoading] = useState(false);
+  const [pendingFolderPhotoIds, setPendingFolderPhotoIds] = useState<string[]>([]);
   const [folderSwitchSnapshot, setFolderSwitchSnapshot] = useState<Photo[] | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [pageNo, setPageNo] = useState(0);
@@ -305,6 +372,7 @@ export default function AlbumDetailPage() {
   const [, setPinningPhotoIds] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgressState>(INITIAL_DOWNLOAD_PROGRESS_STATE);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // 全屏查看的照片ID
   const [photoAspectRatioMap, setPhotoAspectRatioMap] = useState<Record<string, number>>({});
   const [showFolderGuide, setShowFolderGuide] = useState(false);
@@ -316,18 +384,95 @@ export default function AlbumDetailPage() {
   const pinningPhotoIdsRef = useRef<Set<string>>(new Set());
   const photosRef = useRef<Photo[]>([]);
   const photoScrollRef = useRef<HTMLDivElement | null>(null);
+  const paginationSentinelRef = useRef<HTMLDivElement | null>(null);
   const folderButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const loadingMoreRef = useRef(false);
+  const albumPrefetchTokenRef = useRef(0);
+  const albumPrefetchPromiseRef = useRef<Promise<FetchedAlbumPhotoPageData | null> | null>(null);
+  const prefetchedAlbumPageRef = useRef<FetchedAlbumPhotoPageData | null>(null);
+  const prefetchingAlbumPageRef = useRef<{ pageNo: number; folderId: string } | null>(null);
+  const pendingAppendScrollTopRef = useRef<number | null>(null);
+  const appendScrollRestoreRafRef = useRef<number | null>(null);
+  const paginationZoneArmedRef = useRef(true);
+  const autoFillRemainingRef = useRef(ALBUM_INITIAL_AUTOFILL_MAX_BATCHES);
+  const folderOverlayPendingRef = useRef(false);
   const albumLoadTokenRef = useRef(0);
   const photoLoadTokenRef = useRef(0);
   const previewPhotoLoadTokenRef = useRef(0);
   const folderGuideTimerRef = useRef<number | null>(null);
   const folderGuideShownOnceRef = useRef(false);
   const folderWaveTimerRef = useRef<number | null>(null);
+  const downloadProgressHideTimerRef = useRef<number | null>(null);
   const folderWaveRunTokenRef = useRef(0);
   const selectedFolderRef = useRef(selectedFolder);
   const [folderWaveActiveIndex, setFolderWaveActiveIndex] = useState(-1);
   const [folderWaveTick, setFolderWaveTick] = useState(0);
+
+  const clearDownloadProgressHideTimer = useCallback(() => {
+    if (downloadProgressHideTimerRef.current !== null) {
+      window.clearTimeout(downloadProgressHideTimerRef.current);
+      downloadProgressHideTimerRef.current = null;
+    }
+  }, []);
+
+  const hideDownloadProgress = useCallback(() => {
+    clearDownloadProgressHideTimer();
+    setDownloadProgress(INITIAL_DOWNLOAD_PROGRESS_STATE);
+  }, [clearDownloadProgressHideTimer]);
+
+  const openDownloadProgress = useCallback((patch: Partial<DownloadProgressState>) => {
+    clearDownloadProgressHideTimer();
+    setDownloadProgress(normalizeDownloadProgressState({
+      ...INITIAL_DOWNLOAD_PROGRESS_STATE,
+      visible: true,
+      running: true,
+      ...patch,
+    }));
+  }, [clearDownloadProgressHideTimer]);
+
+  const updateDownloadProgress = useCallback((patch: Partial<DownloadProgressState>) => {
+    setDownloadProgress((previous) => normalizeDownloadProgressState({
+      ...previous,
+      visible: true,
+      ...patch,
+    }));
+  }, []);
+
+  const finishDownloadProgress = useCallback((patch: Pick<DownloadProgressState, 'total' | 'success' | 'fail'>) => {
+    const total = Math.max(0, Number(patch.total || 0));
+    const success = Math.max(0, Number(patch.success || 0));
+    const fail = Math.max(0, Number(patch.fail || 0));
+
+    if (total <= 0) {
+      hideDownloadProgress();
+      return;
+    }
+
+    clearDownloadProgressHideTimer();
+    setDownloadProgress(normalizeDownloadProgressState({
+      visible: true,
+      running: false,
+      done: true,
+      current: total,
+      total,
+      success,
+      fail,
+      percent: 100,
+      title: '保存完成',
+      message: fail > 0
+        ? `成功 ${success} 张 · 失败 ${fail} 张`
+        : `已成功保存 ${success} 张照片`,
+    }));
+
+    downloadProgressHideTimerRef.current = window.setTimeout(() => {
+      setDownloadProgress(INITIAL_DOWNLOAD_PROGRESS_STATE);
+      downloadProgressHideTimerRef.current = null;
+    }, 3200);
+  }, [clearDownloadProgressHideTimer, hideDownloadProgress]);
+
+  useEffect(() => () => {
+    clearDownloadProgressHideTimer();
+  }, [clearDownloadProgressHideTimer]);
 
   const startPinPhotoAction = useCallback((photoId: string) => {
     const normalizedPhotoId = String(photoId || '').trim();
@@ -653,6 +798,43 @@ export default function AlbumDetailPage() {
     setIsWechat(isWechatBrowser());
   }, []);
 
+  useEffect(() => () => {
+    if (appendScrollRestoreRafRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(appendScrollRestoreRafRef.current);
+      appendScrollRestoreRafRef.current = null;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    const targetScrollTop = pendingAppendScrollTopRef.current;
+    const scrollContainer = photoScrollRef.current;
+    if (targetScrollTop == null || !scrollContainer) {
+      return;
+    }
+
+    const restoreScrollTop = () => {
+      const activeContainer = photoScrollRef.current;
+      if (!activeContainer) {
+        return;
+      }
+      activeContainer.scrollTop = targetScrollTop;
+    };
+
+    restoreScrollTop();
+    appendScrollRestoreRafRef.current = window.requestAnimationFrame(() => {
+      restoreScrollTop();
+      pendingAppendScrollTopRef.current = null;
+      appendScrollRestoreRafRef.current = null;
+    });
+
+    return () => {
+      if (appendScrollRestoreRafRef.current !== null) {
+        window.cancelAnimationFrame(appendScrollRestoreRafRef.current);
+        appendScrollRestoreRafRef.current = null;
+      }
+    };
+  }, [photos.length]);
+
   // 加载相册数据
   useEffect(() => {
     void loadAlbumData();
@@ -720,18 +902,226 @@ export default function AlbumDetailPage() {
     return normalized;
   };
 
-  const showPaginationSkeletons = useCallback((folderId: string, nextPageNo: number) => {
-    setPaginationSkeletons(
-      createPagingSkeletonItems(ALBUM_PAGING_SKELETON_COUNT, {
-        prefix: `album-${String(folderId || 'all')}`,
-        seed: nextPageNo,
-      })
-    );
+  const showPaginationSkeletons = useCallback((folderId: string, nextPageNo: number, pagePhotos?: Photo[]) => {
+    const normalizedFolderId = String(folderId || 'all').trim() || 'all';
+    const prefix = `album_${normalizedFolderId}_${Math.max(1, Math.round(Number(nextPageNo || 1)))}`;
+    const nextSkeletons =
+      Array.isArray(pagePhotos) && pagePhotos.length > 0
+        ? createPagingSkeletonItemsFromPhotos(pagePhotos, { prefix, seed: Date.now() })
+        : createPagingSkeletonItems(ALBUM_PAGING_SKELETON_COUNT, { prefix, seed: Date.now() });
+    setPaginationSkeletons(nextSkeletons);
   }, []);
 
   const clearPaginationSkeletons = useCallback(() => {
     setPaginationSkeletons((current) => (current.length > 0 ? [] : current));
   }, []);
+
+  const invalidateAlbumPrefetch = useCallback((invalidateToken: boolean = true) => {
+    if (invalidateToken) {
+      albumPrefetchTokenRef.current += 1;
+    }
+    albumPrefetchPromiseRef.current = null;
+    prefetchedAlbumPageRef.current = null;
+    prefetchingAlbumPageRef.current = null;
+  }, []);
+
+  const canUsePrefetchedAlbumPage = useCallback((folderId: string, nextPageNo: number) => {
+    const prefetched = prefetchedAlbumPageRef.current;
+    if (!prefetched) {
+      return false;
+    }
+    return (
+      prefetched.folderId === (String(folderId || 'all').trim() || 'all') &&
+      prefetched.pageNo === Math.max(1, Math.round(Number(nextPageNo || 1)))
+    );
+  }, []);
+
+  const fetchAlbumPhotoPageData = useCallback(async (
+    folderId: string,
+    targetPageNo: number
+  ): Promise<FetchedAlbumPhotoPageData> => {
+    if (!normalizedAccessKey) {
+      return {
+        errorMessage: '提取码无效',
+        folderId,
+        pageNo: targetPageNo,
+        rows: [],
+        total: 0,
+        hasMore: false,
+      };
+    }
+
+    const dbClient = createClient();
+    if (!dbClient) {
+      return {
+        errorMessage: '服务初始化失败，请刷新页面后重试',
+        folderId,
+        pageNo: targetPageNo,
+        rows: [],
+        total: 0,
+        hasMore: false,
+      };
+    }
+
+    const { data, error } = await dbClient.rpc('get_album_photo_page', {
+      input_key: normalizedAccessKey,
+      folder_id: resolveFolderRpcArg(folderId),
+      page_no: targetPageNo,
+      page_size: ALBUM_PAGE_SIZE,
+    });
+
+    if (error) {
+      return {
+        errorMessage: String(error.message || '加载失败').trim() || '加载失败',
+        folderId,
+        pageNo: targetPageNo,
+        rows: [],
+        total: 0,
+        hasMore: false,
+      };
+    }
+
+    const payload = (data && typeof data === 'object') ? (data as any) : {};
+    const rawPageRows = Array.isArray(payload.photos) ? (payload.photos as Photo[]) : [];
+    const hydratedPageRows = rawPageRows.length > 0
+      ? await hydratePhotoDimensions(rawPageRows)
+      : rawPageRows;
+    const pageRows = hydratedPageRows.length > 0
+      ? resolveAlbumPhotoListRatios(hydratedPageRows.map(normalizeAlbumPhoto), photoAspectRatioMap)
+      : [];
+    const payloadTotal = Number(payload.total);
+    const normalizedTotal = Number.isFinite(payloadTotal) && payloadTotal >= 0
+      ? Math.round(payloadTotal)
+      : pageRows.length;
+    const hasMoreFromPayload = typeof payload.has_more === 'boolean' ? payload.has_more : null;
+    const computedHasMore = hasMoreFromPayload === null
+      ? pageRows.length >= ALBUM_PAGE_SIZE
+      : hasMoreFromPayload;
+
+    return {
+      errorMessage: '',
+      folderId,
+      pageNo: targetPageNo,
+      rows: pageRows,
+      total: normalizedTotal,
+      hasMore: Boolean(computedHasMore),
+    };
+  }, [normalizedAccessKey, photoAspectRatioMap]);
+
+  const prefetchAlbumPhotoPage = useCallback(async (
+    folderId: string,
+    targetPageNo: number
+  ): Promise<FetchedAlbumPhotoPageData | null> => {
+    const normalizedFolderId = String(folderId || 'all').trim() || 'all';
+    const normalizedPageNo = Math.max(1, Math.round(Number(targetPageNo || 1)));
+    if (normalizedPageNo <= 1 || !normalizedAccessKey) {
+      return null;
+    }
+    if (selectedFolderRef.current !== normalizedFolderId) {
+      return null;
+    }
+    if (canUsePrefetchedAlbumPage(normalizedFolderId, normalizedPageNo)) {
+      return prefetchedAlbumPageRef.current;
+    }
+
+    const inFlight = prefetchingAlbumPageRef.current;
+    if (
+      inFlight &&
+      inFlight.folderId === normalizedFolderId &&
+      inFlight.pageNo === normalizedPageNo &&
+      albumPrefetchPromiseRef.current
+    ) {
+      return albumPrefetchPromiseRef.current;
+    }
+
+    const token = albumPrefetchTokenRef.current + 1;
+    albumPrefetchTokenRef.current = token;
+    prefetchedAlbumPageRef.current = null;
+    prefetchingAlbumPageRef.current = { folderId: normalizedFolderId, pageNo: normalizedPageNo };
+
+    const task = fetchAlbumPhotoPageData(normalizedFolderId, normalizedPageNo)
+      .then((pageData) => {
+        if (token !== albumPrefetchTokenRef.current) {
+          return null;
+        }
+        if (!pageData || pageData.errorMessage) {
+          return null;
+        }
+        if (selectedFolderRef.current !== normalizedFolderId) {
+          return null;
+        }
+        prefetchedAlbumPageRef.current = { ...pageData };
+        return prefetchedAlbumPageRef.current;
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (token === albumPrefetchTokenRef.current) {
+          albumPrefetchPromiseRef.current = null;
+          prefetchingAlbumPageRef.current = null;
+        }
+      });
+
+    albumPrefetchPromiseRef.current = task;
+    return task;
+  }, [canUsePrefetchedAlbumPage, fetchAlbumPhotoPageData, normalizedAccessKey]);
+
+  const commitAlbumPhotoPageData = useCallback((
+    folderId: string,
+    targetPageNo: number,
+    pageData: FetchedAlbumPhotoPageData,
+    options?: { reset?: boolean; silent?: boolean }
+  ) => {
+    const reset = Boolean(options?.reset);
+    const silent = Boolean(options?.silent);
+    const previousRows = reset ? [] : photosRef.current;
+    const previousIds = new Set(previousRows.map((photo) => String(photo.id)));
+    const incrementalRows = pageData.rows.filter((photo) => !previousIds.has(String(photo.id)));
+    const mergedRows = reset ? pageData.rows : previousRows.concat(incrementalRows);
+
+    if (!reset && mergedRows.length > previousRows.length) {
+      const scrollContainer = photoScrollRef.current;
+      pendingAppendScrollTopRef.current = scrollContainer ? scrollContainer.scrollTop : null;
+    } else {
+      pendingAppendScrollTopRef.current = null;
+    }
+
+    const normalizedTotal = Math.max(0, Number(pageData.total || 0));
+    const computedHasMore = normalizedTotal > 0
+      ? mergedRows.length < normalizedTotal
+      : pageData.hasMore;
+
+    let nextPendingFolderPhotoIds: string[] | null = null;
+    if (reset) {
+      nextPendingFolderPhotoIds = silent
+        ? Array.from(
+          new Set(
+            mergedRows
+              .slice(0, ALBUM_SWITCH_OVERLAY_TRACK_COUNT)
+              .map((photo) => String(photo.id || '').trim())
+              .filter(Boolean)
+          )
+        )
+        : [];
+      setPendingFolderPhotoIds(nextPendingFolderPhotoIds);
+    }
+
+    setPhotos(mergedRows);
+    photosRef.current = mergedRows;
+    setPageNo(targetPageNo);
+    setTotalPhotos(normalizedTotal);
+    setHasMore(Boolean(computedHasMore));
+
+    if (computedHasMore) {
+      void prefetchAlbumPhotoPage(folderId, targetPageNo + 1);
+    } else {
+      invalidateAlbumPrefetch(false);
+    }
+
+    return {
+      success: true,
+      nextPendingFolderPhotoIds,
+    };
+  }, [invalidateAlbumPrefetch, prefetchAlbumPhotoPage]);
 
   const loadAlbumPhotoPage = async (
     folderId: string,
@@ -742,17 +1132,16 @@ export default function AlbumDetailPage() {
     const silent = Boolean(options?.silent);
     const nextPageNo = Math.max(1, Math.round(Number(targetPageNo || 1)));
     const normalizedFolderId = String(folderId || 'all');
+    let nextPendingFolderPhotoIds: string[] | null = null;
 
-    if (!normalizedAccessKey) return;
-    if (!reset && (loadingMoreRef.current || !hasMore)) return;
+    if (!normalizedAccessKey) return false;
+    if (!reset && (loadingMoreRef.current || !hasMore)) return false;
 
-    const dbClient = createClient();
-    if (!dbClient) {
-      setToast({ message: '服务初始化失败，请刷新页面后重试', type: 'error' });
-      return false;
-    }
+    const requestToken = photoLoadTokenRef.current + 1;
+    photoLoadTokenRef.current = requestToken;
 
     if (reset) {
+      invalidateAlbumPrefetch();
       if (!silent) {
         setLoading(true);
       }
@@ -760,76 +1149,82 @@ export default function AlbumDetailPage() {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     } else {
+      if (canUsePrefetchedAlbumPage(normalizedFolderId, nextPageNo)) {
+        const prefetched = prefetchedAlbumPageRef.current;
+        prefetchedAlbumPageRef.current = null;
+        const committed = commitAlbumPhotoPageData(normalizedFolderId, nextPageNo, prefetched as FetchedAlbumPhotoPageData, {
+          reset,
+          silent,
+        });
+        nextPendingFolderPhotoIds = committed?.nextPendingFolderPhotoIds ?? null;
+        loadingMoreRef.current = false;
+        return Boolean(committed);
+      }
       loadingMoreRef.current = true;
-      showPaginationSkeletons(normalizedFolderId, nextPageNo);
       setLoadingMore(true);
+      showPaginationSkeletons(normalizedFolderId, nextPageNo);
     }
 
-    const loadToken = photoLoadTokenRef.current + 1;
-    photoLoadTokenRef.current = loadToken;
-
     try {
-      const { data, error } = await dbClient.rpc('get_album_photo_page', {
-        input_key: normalizedAccessKey,
-        folder_id: resolveFolderRpcArg(normalizedFolderId),
-        page_no: nextPageNo,
-        page_size: ALBUM_PAGE_SIZE,
-      });
+      const pageData = nextPageNo > 1
+        ? await (prefetchAlbumPhotoPage(normalizedFolderId, nextPageNo) || fetchAlbumPhotoPageData(normalizedFolderId, nextPageNo))
+        : await fetchAlbumPhotoPageData(normalizedFolderId, nextPageNo);
 
-      if (error) {
-        if (!(reset && silent)) {
-          setToast({ message: `加载失败：${error.message}`, type: 'error' });
-          setTimeout(() => setToast(null), 3000);
-        }
-        return false;
-      }
-
-      if (loadToken !== photoLoadTokenRef.current) {
+      if (requestToken !== photoLoadTokenRef.current) {
         return false;
       }
       if (selectedFolderRef.current !== normalizedFolderId) {
         return false;
       }
+      if (!pageData || pageData.errorMessage) {
+        throw new Error(pageData?.errorMessage || '加载失败，请稍后重试');
+      }
+      if (canUsePrefetchedAlbumPage(normalizedFolderId, nextPageNo)) {
+        prefetchedAlbumPageRef.current = null;
+      }
 
-      const payload = (data && typeof data === 'object') ? (data as any) : {};
-      const pageRows = Array.isArray(payload.photos)
-        ? resolveAlbumPhotoListRatios((payload.photos as Photo[]).map(normalizeAlbumPhoto), photoAspectRatioMap)
-        : [];
-      const previousRows = reset ? [] : photosRef.current;
-      const previousIds = new Set(previousRows.map((photo) => String(photo.id)));
-      const incrementalRows = pageRows.filter((photo) => !previousIds.has(String(photo.id)));
-      const mergedRows = reset ? pageRows : previousRows.concat(incrementalRows);
-
-      const payloadTotal = Number(payload.total);
-      const normalizedTotal = Number.isFinite(payloadTotal) && payloadTotal >= 0
-        ? Math.round(payloadTotal)
-        : mergedRows.length;
-      const hasKnownTotal = normalizedTotal > 0;
-      const hasMoreFromPayload = typeof payload.has_more === 'boolean' ? payload.has_more : null;
-      const computedHasMore = hasMoreFromPayload === null
-        ? (hasKnownTotal ? mergedRows.length < normalizedTotal : pageRows.length >= ALBUM_PAGE_SIZE)
-        : hasMoreFromPayload;
-
-      setPhotos(mergedRows);
-      photosRef.current = mergedRows;
-      setPageNo(nextPageNo);
-      setTotalPhotos(normalizedTotal);
-      setHasMore(Boolean(computedHasMore));
-      return true;
+      const committed = commitAlbumPhotoPageData(normalizedFolderId, nextPageNo, pageData, {
+        reset,
+        silent,
+      });
+      nextPendingFolderPhotoIds = committed?.nextPendingFolderPhotoIds ?? null;
+      return Boolean(committed);
     } catch (error) {
+      if (requestToken !== photoLoadTokenRef.current) {
+        return false;
+      }
+      if (selectedFolderRef.current !== normalizedFolderId) {
+        return false;
+      }
+      if (reset && nextPendingFolderPhotoIds !== null) {
+        nextPendingFolderPhotoIds = [];
+        setPendingFolderPhotoIds([]);
+      }
       if (!(reset && silent)) {
-        setToast({ message: '加载失败，请稍后重试', type: 'error' });
+        const message = error instanceof Error
+          ? (String(error.message || '').trim() || '加载失败，请稍后重试')
+          : '加载失败，请稍后重试';
+        setToast({ message, type: 'error' });
         setTimeout(() => setToast(null), 3000);
       }
       return false;
     } finally {
-      if (loadToken === photoLoadTokenRef.current) {
-        clearPaginationSkeletons();
-        loadingMoreRef.current = false;
-        setLoading(false);
-        setLoadingMore(false);
-        if (reset && silent) {
-          setSwitchingFolderLoading(false);
+      if (requestToken !== photoLoadTokenRef.current) {
+        return;
+      }
+
+      clearPaginationSkeletons();
+      loadingMoreRef.current = false;
+      setLoading(false);
+      setLoadingMore(false);
+      if (reset && silent) {
+        folderOverlayPendingRef.current = false;
+        const shouldKeepSwitchOverlay = Boolean(
+          Array.isArray(nextPendingFolderPhotoIds) && nextPendingFolderPhotoIds.length > 0
+        );
+        setSwitchingFolderLoading(shouldKeepSwitchOverlay);
+        if (!shouldKeepSwitchOverlay) {
+          setFolderSwitchSnapshot(null);
         }
       }
     }
@@ -864,8 +1259,12 @@ export default function AlbumDetailPage() {
       }
 
       const payload = (data && typeof data === 'object') ? (data as any) : {};
-      const pageRows = Array.isArray(payload.photos)
-        ? resolveAlbumPhotoListRatios((payload.photos as Photo[]).map(normalizeAlbumPhoto), photoAspectRatioMap)
+      const rawPageRows = Array.isArray(payload.photos) ? (payload.photos as Photo[]) : [];
+      const hydratedPageRows = rawPageRows.length > 0
+        ? await hydratePhotoDimensions(rawPageRows)
+        : rawPageRows;
+      const pageRows = hydratedPageRows.length > 0
+        ? resolveAlbumPhotoListRatios(hydratedPageRows.map(normalizeAlbumPhoto), photoAspectRatioMap)
         : [];
 
       for (const photo of pageRows) {
@@ -900,6 +1299,12 @@ export default function AlbumDetailPage() {
   const loadAlbumData = async () => {
     const loadToken = albumLoadTokenRef.current + 1;
     albumLoadTokenRef.current = loadToken;
+    invalidateAlbumPrefetch();
+    pendingAppendScrollTopRef.current = null;
+    if (appendScrollRestoreRafRef.current !== null) {
+      window.cancelAnimationFrame(appendScrollRestoreRafRef.current);
+      appendScrollRestoreRafRef.current = null;
+    }
 
     setLoading(true);
     setLoadingMore(false);
@@ -997,6 +1402,21 @@ export default function AlbumDetailPage() {
     setShowWelcomeLetter(true);
   };
 
+  const markPendingFolderPhotoSettled = useCallback((photoId: string) => {
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId) {
+      return;
+    }
+
+    setPendingFolderPhotoIds((prev) => {
+      if (!prev.includes(normalizedPhotoId)) {
+        return prev;
+      }
+
+      return prev.filter((currentPhotoId) => currentPhotoId !== normalizedPhotoId);
+    });
+  }, []);
+
   const handleSelectFolder = async (folderId: string) => {
     dismissFolderGuide();
     const normalized = String(folderId || 'all');
@@ -1005,14 +1425,17 @@ export default function AlbumDetailPage() {
 
     setFolderSwitchSnapshot(resolvedFilteredPhotos);
     setSwitchingFolderLoading(true);
+    setPendingFolderPhotoIds([]);
     setSelectedFolder(normalized);
     selectedFolderRef.current = normalized;
+    folderOverlayPendingRef.current = true;
     setFullscreenPhoto(null);
     setSelectedPhotos(new Set());
     setPreviewPhotoPool(null);
     setHasMore(true);
     setPageNo(0);
     setTotalPhotos(0);
+    invalidateAlbumPrefetch();
     photoLoadTokenRef.current += 1;
     photoScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
 
@@ -1020,6 +1443,8 @@ export default function AlbumDetailPage() {
     if (!success && selectedFolderRef.current === normalized) {
       setSelectedFolder(previousFolder);
       selectedFolderRef.current = previousFolder;
+      setPendingFolderPhotoIds([]);
+      folderOverlayPendingRef.current = false;
       setToast({ message: '切换分组失败，请稍后重试', type: 'error' });
       setTimeout(() => setToast(null), 3000);
     }
@@ -1039,11 +1464,11 @@ export default function AlbumDetailPage() {
   );
 
   const visibleRenderPhotos = useMemo(
-    () => (switchingFolderLoading && folderSwitchSnapshot ? folderSwitchSnapshot : resolvedFilteredPhotos),
-    [folderSwitchSnapshot, resolvedFilteredPhotos, switchingFolderLoading]
+    () => ((switchingFolderLoading || pendingFolderPhotoIds.length > 0) && folderSwitchSnapshot ? folderSwitchSnapshot : resolvedFilteredPhotos),
+    [folderSwitchSnapshot, pendingFolderPhotoIds.length, resolvedFilteredPhotos, switchingFolderLoading]
   );
 
-  const isFolderSwitchOverlayLoading = switchingFolderLoading;
+  const isFolderSwitchOverlayLoading = switchingFolderLoading || pendingFolderPhotoIds.length > 0;
 
   const hasLoadedAllVisiblePhotos = !hasMore && (
     totalPhotos === 0 ? filteredPhotos.length > 0 : filteredPhotos.length >= totalPhotos
@@ -1083,6 +1508,8 @@ export default function AlbumDetailPage() {
     }
 
     const timer = window.setTimeout(() => {
+      folderOverlayPendingRef.current = false;
+      setPendingFolderPhotoIds([]);
       setSwitchingFolderLoading(false);
       setFolderSwitchSnapshot(null);
     }, ALBUM_SWITCH_OVERLAY_TIMEOUT_MS);
@@ -1090,30 +1517,87 @@ export default function AlbumDetailPage() {
     return () => window.clearTimeout(timer);
   }, [isFolderSwitchOverlayLoading]);
 
-  const loadNextPhotoPage = async () => {
-    if (loading || loadingMore || isFolderSwitchOverlayLoading || !hasMore) return;
-    await loadAlbumPhotoPage(selectedFolder, pageNo + 1, { reset: false, silent: false });
-  };
+  useEffect(() => {
+    if (folderOverlayPendingRef.current) {
+      return;
+    }
+    if (!switchingFolderLoading || pendingFolderPhotoIds.length > 0) {
+      return;
+    }
 
-  const handlePhotoScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (loading || loadingMore || isFolderSwitchOverlayLoading || !hasMore) return;
+    setSwitchingFolderLoading(false);
+    setFolderSwitchSnapshot(null);
+  }, [pendingFolderPhotoIds.length, switchingFolderLoading]);
+
+  const requestNextPhotoPage = useCallback(() => {
+    if (loading || loadingMoreRef.current || isFolderSwitchOverlayLoading || !hasMore) {
+      return false;
+    }
+
+    void loadAlbumPhotoPage(selectedFolderRef.current, pageNo + 1, { reset: false, silent: false });
+    return true;
+  }, [hasMore, isFolderSwitchOverlayLoading, loadAlbumPhotoPage, loading, pageNo]);
+
+  const maybeAutoFillViewport = useCallback(() => {
+    const scrollContainer = photoScrollRef.current;
+    if (!scrollContainer || loading || loadingMoreRef.current || isFolderSwitchOverlayLoading || !hasMore) {
+      return false;
+    }
+
+    if (!(autoFillRemainingRef.current > 0)) {
+      return false;
+    }
+
+    const viewportHeight = Number(scrollContainer.clientHeight || 0);
+    const contentHeight = Number(scrollContainer.scrollHeight || 0);
+    if (!(viewportHeight > 0) || !(contentHeight > 0)) {
+      return false;
+    }
+    if (contentHeight > viewportHeight + ALBUM_VIEWPORT_FILL_BUFFER_PX) {
+      return false;
+    }
+
+    autoFillRemainingRef.current -= 1;
+    const hasRequested = requestNextPhotoPage();
+    if (!hasRequested) {
+      autoFillRemainingRef.current += 1;
+    }
+    return hasRequested;
+  }, [hasMore, isFolderSwitchOverlayLoading, loading, requestNextPhotoPage]);
+
+  const handlePhotoScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    if (typeof window !== 'undefined' && 'IntersectionObserver' in window) {
+      return;
+    }
+    if (loading || loadingMoreRef.current || isFolderSwitchOverlayLoading || !hasMore) return;
+
     const target = event.currentTarget;
     const scrollHeight = Number(target.scrollHeight || 0);
     const clientHeight = Number(target.clientHeight || 0);
     const scrollTop = Number(target.scrollTop || 0);
-    if (!(scrollHeight > 0) || !(clientHeight > 0)) return;
+    if (!(scrollHeight > 0) || !(clientHeight > 0) || !(scrollTop >= 0)) return;
 
-    const progress = (scrollTop + clientHeight) / scrollHeight;
-    if (progress >= 0.8) {
-      void loadNextPhotoPage();
+    const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
+    if (distanceToBottom > ALBUM_SCROLL_LOAD_AHEAD_PX) {
+      paginationZoneArmedRef.current = true;
+      return;
     }
-  };
+    if (!paginationZoneArmedRef.current) {
+      return;
+    }
+
+    paginationZoneArmedRef.current = false;
+    const hasRequested = requestNextPhotoPage();
+    if (!hasRequested) {
+      paginationZoneArmedRef.current = true;
+    }
+  }, [hasMore, isFolderSwitchOverlayLoading, loading, requestNextPhotoPage]);
 
   const hasStory = (photo: Photo): boolean => Boolean(String(photo.story_text || '').trim());
   const isHighlighted = (photo: Photo): boolean => hasStory(photo) || Boolean(photo.is_highlight);
 
   const handlePhotoRatioReady = useCallback((photoId: string, dimensions: { width: number; height: number }) => {
-    if (!switchingFolderLoading) {
+    if (!(switchingFolderLoading || pendingFolderPhotoIds.length > 0)) {
       return;
     }
 
@@ -1121,10 +1605,8 @@ export default function AlbumDetailPage() {
     const currentPhoto = photosRef.current.find((photo) => photo.id === photoId);
     const hasStableStoredRatio = Boolean(
       currentPhoto
-      && (
-        Number(currentPhoto.__ratio || 0) > 0
-        || (Number(currentPhoto.width || 0) > 0 && Number(currentPhoto.height || 0) > 0)
-      )
+      && Number(currentPhoto.width || 0) > 0
+      && Number(currentPhoto.height || 0) > 0
     );
 
     if (hasStableStoredRatio) {
@@ -1141,7 +1623,7 @@ export default function AlbumDetailPage() {
         [photoId]: nextRatio,
       };
     });
-  }, [switchingFolderLoading]);
+  }, [pendingFolderPhotoIds.length, switchingFolderLoading]);
 
   const toggleStoryCard = (photoId: string, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -1208,6 +1690,83 @@ export default function AlbumDetailPage() {
   useEffect(() => {
     loadingMoreRef.current = loadingMore;
   }, [loadingMore]);
+
+  useEffect(() => {
+    const scrollContainer = photoScrollRef.current;
+    const sentinel = paginationSentinelRef.current;
+    if (!scrollContainer || !sentinel || typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) {
+          return;
+        }
+
+        if (!entry.isIntersecting) {
+          paginationZoneArmedRef.current = true;
+          return;
+        }
+
+        if (!paginationZoneArmedRef.current) {
+          return;
+        }
+
+        paginationZoneArmedRef.current = false;
+        const hasRequested = requestNextPhotoPage();
+        if (!hasRequested) {
+          paginationZoneArmedRef.current = true;
+        }
+      },
+      {
+        root: scrollContainer,
+        rootMargin: `0px 0px ${ALBUM_SCROLL_LOAD_AHEAD_PX}px 0px`,
+        threshold: ALBUM_LOAD_SENTINEL_THRESHOLD,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [photos.length, requestNextPhotoPage, selectedFolder]);
+
+  useEffect(() => {
+    if (loading || loadingMore || isFolderSwitchOverlayLoading || !hasMore || photos.length === 0) {
+      return;
+    }
+
+    let firstFrame = 0;
+    let secondFrame = 0;
+
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        maybeAutoFillViewport();
+      });
+    });
+
+    return () => {
+      if (firstFrame) {
+        window.cancelAnimationFrame(firstFrame);
+      }
+      if (secondFrame) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [hasMore, isFolderSwitchOverlayLoading, loading, loadingMore, maybeAutoFillViewport, photos.length, selectedFolder]);
+
+  useEffect(() => {
+    if (loading || loadingMore || isFolderSwitchOverlayLoading || !hasMore || photos.length === 0) {
+      return;
+    }
+
+    void prefetchAlbumPhotoPage(selectedFolderRef.current, pageNo + 1);
+  }, [hasMore, isFolderSwitchOverlayLoading, loading, loadingMore, pageNo, photos.length, prefetchAlbumPhotoPage, selectedFolder]);
+
+  useEffect(() => {
+    paginationZoneArmedRef.current = true;
+    autoFillRemainingRef.current = ALBUM_INITIAL_AUTOFILL_MAX_BATCHES;
+  }, [selectedFolder]);
 
   useEffect(() => {
     photosRef.current = photos;
@@ -1388,7 +1947,7 @@ export default function AlbumDetailPage() {
   };
 
   const handleBatchDownload = async () => {
-    if (isFolderSwitchOverlayLoading) {
+    if (isFolderSwitchOverlayLoading || downloadProgress.running) {
       return;
     }
 
@@ -1402,26 +1961,101 @@ export default function AlbumDetailPage() {
   };
 
   const executeBatchDownload = async () => {
-    // 非微信浏览器：正常批量下载
-    const photosToDownload = selectedPhotos.size > 0
-      ? photos.filter(p => selectedPhotos.has(p.id))
-      : filteredPhotos;
+    if (downloadProgress.running) {
+      return;
+    }
 
-    for (const photo of photosToDownload) {
+    const shouldDownloadAll = selectedPhotos.size === 0;
+    openDownloadProgress({
+      title: shouldDownloadAll ? '正在准备下载' : '正在保存照片',
+      message: shouldDownloadAll
+        ? '正在整理当前相册的全部照片...'
+        : `准备保存 0 / ${selectedPhotos.size} 张照片`,
+      total: shouldDownloadAll ? 0 : selectedPhotos.size,
+      current: 0,
+      success: 0,
+      fail: 0,
+      running: true,
+      done: false,
+    });
+
+    let photosToDownload = selectedPhotos.size > 0
+      ? photos.filter((photo) => selectedPhotos.has(photo.id))
+      : [];
+
+    if (shouldDownloadAll) {
       try {
-        // 使用Android原生下载（自动降级到Web下载）
-        await downloadPhoto(photo.original_url, `photo_${photo.id}.jpg`);
-        void incrementPhotoDownloadCount(photo.id, 1, photo.download_count);
-        vibrate(30); // 触觉反馈
-
-        // 添加延迟避免浏览器阻止多个下载
-        await new Promise(resolve => setTimeout(resolve, 500));
+        photosToDownload = await loadAllPhotosForFolder(selectedFolderRef.current);
       } catch (error) {
-        console.error('下载失败:', error);
+        console.error('加载全部照片失败:', error);
+        hideDownloadProgress();
+        setToast({
+          message: error instanceof Error ? error.message : '加载全部照片失败，请稍后重试',
+          type: 'error',
+        });
+        setTimeout(() => setToast(null), 3000);
+        return;
       }
     }
 
-    setToast({ message: `成功保存 ${photosToDownload.length} 张原图 📸`, type: 'success' });
+    if (photosToDownload.length === 0) {
+      hideDownloadProgress();
+      setToast({ message: '暂无可下载照片', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+
+    const total = photosToDownload.length;
+    updateDownloadProgress({
+      title: '正在保存照片',
+      message: `准备保存 0 / ${total} 张照片`,
+      total,
+      current: 0,
+      success: 0,
+      fail: 0,
+      running: true,
+      done: false,
+    });
+
+    let success = 0;
+    let fail = 0;
+
+    for (let index = 0; index < total; index += 1) {
+      const photo = photosToDownload[index];
+      updateDownloadProgress({
+        title: '正在保存照片',
+        message: total > 1 ? `正在保存第 ${index + 1} / ${total} 张...` : '正在保存照片...',
+      });
+
+      try {
+        await downloadPhoto(photo.original_url_resolved || photo.original_url, `photo_${photo.id}.jpg`);
+        void incrementPhotoDownloadCount(photo.id, 1, photo.download_count);
+        vibrate(30);
+        success += 1;
+      } catch (error) {
+        fail += 1;
+        console.error('下载失败:', error);
+      }
+
+      if (index < total - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      const current = index + 1;
+      updateDownloadProgress({
+        current,
+        total,
+        success,
+        fail,
+        message: current < total ? `已完成 ${current} / ${total} 张照片` : '正在整理保存结果...',
+      });
+    }
+
+    finishDownloadProgress({ total, success, fail });
+    setToast({
+      message: fail > 0 ? `保存完成：成功 ${success} 张，失败 ${fail} 张` : `成功保存 ${success} 张原图 📸`,
+      type: fail > 0 ? 'error' : 'success',
+    });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -1660,7 +2294,7 @@ export default function AlbumDetailPage() {
                   type="button"
                   whileTap={{ scale: 0.98 }}
                   onClick={handleBatchDownload}
-                  className={`album-toolbar-chip album-toolbar-chip--primary relative inline-flex items-center justify-center text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore || isFolderSwitchOverlayLoading ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'album-toolbar-chip--primary-selected' : ''}`}
+                  className={`album-toolbar-chip album-toolbar-chip--primary relative inline-flex items-center justify-center text-[#5D4037] shadow-[1.5px_1.5px_0_rgba(93,64,55,0.15)] transition-all duration-200 ${loadingMore || isFolderSwitchOverlayLoading || downloadProgress.running ? 'pointer-events-none opacity-60' : ''} ${selectedPhotos.size > 0 ? 'album-toolbar-chip--primary-selected' : ''}`}
                 >
                   <Download className="album-toolbar-chip__icon" />
                   <span>{batchDownloadLabel}</span>
@@ -1694,7 +2328,7 @@ export default function AlbumDetailPage() {
         onScroll={handlePhotoScroll}
         className={`relative flex-1 px-2 pt-3 pb-32 ${isFolderSwitchOverlayLoading ? 'overflow-hidden overscroll-none' : 'overflow-y-auto'}`}
       >
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2" style={{ overflowAnchor: 'none' }}>
           {albumColumns.map((column, columnIndex) => (
             <div
               key={`album-column-${columnIndex}`}
@@ -1753,6 +2387,8 @@ export default function AlbumDetailPage() {
                             aspectRatio={resolveAlbumPhotoRatio(photo, photoAspectRatioMap)}
                             loadingVariant="quiet"
                             className="album-card-image absolute inset-0 h-full w-full"
+                            onLoad={() => markPendingFolderPhotoSettled(photo.id)}
+                            onError={() => markPendingFolderPhotoSettled(photo.id)}
                             onLoadDimensions={({ width, height }) => {
                               handlePhotoRatioReady(photo.id, { width, height });
                             }}
@@ -1919,6 +2555,8 @@ export default function AlbumDetailPage() {
             </button>
           </motion.div>
         )}
+
+        <div ref={paginationSentinelRef} className="h-px w-full" aria-hidden="true" />
 
         {loadingMore && (
           <div className="flex justify-center items-center gap-2 mt-6 mb-2">
@@ -2107,6 +2745,59 @@ export default function AlbumDetailPage() {
         isBatchDownload={selectedPhotos.size > 0 || !fullscreenPhoto}
         onTryDownload={executeBatchDownload}
       />
+
+      <AnimatePresence>
+        {downloadProgress.visible && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="pointer-events-none fixed right-3 z-40 w-[calc(100vw-24px)] max-w-[360px] sm:right-4"
+            style={{ bottom: 'calc(var(--app-shell-floating-offset, calc(68px + env(safe-area-inset-bottom))) + 16px)' }}
+          >
+            <div className={`overflow-hidden rounded-[24px] border px-4 py-3 shadow-[0_18px_36px_rgba(93,64,55,0.16)] backdrop-blur-xl ${
+              downloadProgress.done
+                ? 'border-[#2E7D32]/20 bg-[#F6FFF7]/95'
+                : 'border-[#5D4037]/12 bg-[#FFFBF0]/95'
+            }`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1 text-[14px] font-semibold leading-5 text-[#5D4037]">
+                  {downloadProgress.title || '正在保存照片'}
+                </div>
+                {downloadProgress.total > 0 && (
+                  <div className="shrink-0 text-[12px] font-semibold text-[#5D4037]/70">
+                    {downloadProgress.percent}%
+                  </div>
+                )}
+              </div>
+              <div className="mt-1 text-[12px] leading-5 text-[#5D4037]/70">
+                {downloadProgress.message}
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-[11px] leading-4 text-[#5D4037]/60">
+                <span>
+                  已完成 {downloadProgress.current} / {downloadProgress.total > 0 ? downloadProgress.total : '--'}
+                </span>
+                <span>
+                  成功 {downloadProgress.success} · 失败 {downloadProgress.fail}
+                </span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#5D4037]/10">
+                <div
+                  className={`h-full rounded-full transition-[width,opacity,transform] duration-200 ${
+                    downloadProgress.done
+                      ? 'bg-gradient-to-r from-[#34D399] to-[#2E7D32]'
+                      : downloadProgress.running && downloadProgress.total === 0
+                        ? 'bg-gradient-to-r from-[#FFD875] to-[#FFC857] animate-pulse'
+                        : 'bg-gradient-to-r from-[#FFD875] to-[#FFC857]'
+                  }`}
+                  style={{ width: `${downloadProgress.total > 0 ? downloadProgress.percent : 22}%` }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Toast 提示 */}
       <AnimatePresence>

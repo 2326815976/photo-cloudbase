@@ -37,6 +37,10 @@ function mapLoginError(error: string): { status: number; message: string } {
     return { status: 500, message: '服务端未配置微信小程序登录参数' };
   }
 
+  if (normalized.includes('account_disabled')) {
+    return { status: 403, message: '账号已被禁用，请联系管理员' };
+  }
+
   if (normalized.includes('wx_mini_code_exchange_failed')) {
     const raw = String(error || '');
     if (raw.includes(':40013:') || raw.includes(':40125:')) {
@@ -80,6 +84,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
     const userAgent = request.headers.get('user-agent') ?? undefined;
     const ipAddress = getClientIp(request);
     const result = await signInWithWechatMiniProgram(code, {

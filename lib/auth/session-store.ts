@@ -8,6 +8,23 @@ const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_CACHE_TTL_MS = 15 * 1000;
 const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
+function isMissingColumnError(error: unknown, columnName: string): boolean {
+  const message = String(error instanceof Error ? error.message : error ?? '')
+    .trim()
+    .toLowerCase();
+  const normalizedColumn = String(columnName || '').trim().toLowerCase();
+  if (!message || !normalizedColumn) {
+    return false;
+  }
+
+  return (
+    message.includes(normalizedColumn) &&
+    (message.includes('unknown column') ||
+      message.includes('does not exist') ||
+      (message.includes('column') && message.includes('not found')))
+  );
+}
+
 interface SessionCacheEntry {
   user: AuthUser | null;
   expiresAt: number;
@@ -177,30 +194,63 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
 
   const task = (async () => {
     const previous = sessionCache.get(tokenHash) ?? null;
-    const result = await executeSQL(
-      `
-        SELECT
-          u.id,
-          u.email,
-          u.phone,
-          CASE
-            WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
-            ELSE 'user'
-          END AS role,
-          p.name
-        FROM user_sessions s
-        JOIN users u ON u.id = s.user_id
-        LEFT JOIN profiles p ON p.id = u.id
-        WHERE s.token_hash = {{token_hash}}
-          AND s.is_revoked = 0
-          AND s.expires_at > UTC_TIMESTAMP()
-          AND u.deleted_at <=> NULL
-        LIMIT 1
-      `,
-      {
-        token_hash: tokenHash,
+    let result;
+    try {
+      result = await executeSQL(
+        `
+          SELECT
+            u.id,
+            u.email,
+            u.phone,
+            CASE
+              WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+              ELSE 'user'
+            END AS role,
+            p.name
+          FROM user_sessions s
+          JOIN users u ON u.id = s.user_id
+          LEFT JOIN profiles p ON p.id = u.id
+          WHERE s.token_hash = {{token_hash}}
+            AND s.is_revoked = 0
+            AND s.expires_at > UTC_TIMESTAMP()
+            AND u.deleted_at <=> NULL
+            AND COALESCE(u.is_disabled, 0) = 0
+          LIMIT 1
+        `,
+        {
+          token_hash: tokenHash,
+        }
+      );
+    } catch (error) {
+      if (!isMissingColumnError(error, 'is_disabled')) {
+        throw error;
       }
-    );
+
+      result = await executeSQL(
+        `
+          SELECT
+            u.id,
+            u.email,
+            u.phone,
+            CASE
+              WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
+              ELSE 'user'
+            END AS role,
+            p.name
+          FROM user_sessions s
+          JOIN users u ON u.id = s.user_id
+          LEFT JOIN profiles p ON p.id = u.id
+          WHERE s.token_hash = {{token_hash}}
+            AND s.is_revoked = 0
+            AND s.expires_at > UTC_TIMESTAMP()
+            AND u.deleted_at <=> NULL
+          LIMIT 1
+        `,
+        {
+          token_hash: tokenHash,
+        }
+      );
+    }
 
     const row = result.rows[0];
     const user: AuthUser | null = row

@@ -49,12 +49,13 @@ export async function POST(request: Request) {
     const result = await signInWithPassword(phone, password, userAgent, ipAddress);
 
     if (result.error || !result.user || !result.sessionToken) {
+      const isDisabled = result.error === 'account_disabled';
       return NextResponse.json(
         {
           data: { user: null },
-          error: { message: 'Invalid login credentials' },
+          error: { message: isDisabled ? '账号已被禁用，请联系管理员' : 'Invalid login credentials' },
         },
-        { status: 401 }
+        { status: isDisabled ? 403 : 401 }
       );
     }
 

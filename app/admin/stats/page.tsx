@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/cloudbase/server';
 import { executeSQL } from '@/lib/cloudbase/sql-executor';
 import { parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
@@ -12,6 +13,7 @@ interface StatCardItem {
   colorStart: string;
   colorEnd: string;
   subtitle?: string;
+  href?: string;
 }
 
 interface BookingTypeItem {
@@ -120,7 +122,16 @@ function createStatCard(
   colorEnd: string,
   subtitle = ''
 ): StatCardItem {
-  return { key, title, value, icon, colorStart, colorEnd, subtitle };
+  return {
+    key,
+    title,
+    value,
+    icon,
+    colorStart,
+    colorEnd,
+    subtitle,
+    href: key === 'users-total' ? '/admin/users' : undefined,
+  };
 }
 
 const STATS_RETRY_TIMES = 2;
@@ -633,16 +644,32 @@ function StatsSection({ icon, title, children }: { icon: string; title: string; 
 function StatsCardsGrid({ cards, spaced = false }: { cards: StatCardItem[]; spaced?: boolean }) {
   return (
     <div className={`stats-cards-grid ${spaced ? 'stats-cards-grid--spaced' : ''}`}>
-      {cards.map((item) => (
-        <div key={item.key} className="stats-card">
-          <div className="stats-card__icon" style={{ background: `linear-gradient(135deg, ${item.colorStart}, ${item.colorEnd})` }}>
-            <span className="stats-card__icon-text">{item.icon}</span>
+      {cards.map((item) => {
+        const content = (
+          <>
+            <div className="stats-card__icon" style={{ background: `linear-gradient(135deg, ${item.colorStart}, ${item.colorEnd})` }}>
+              <span className="stats-card__icon-text">{item.icon}</span>
+            </div>
+            <p className="stats-card__title">{item.title}</p>
+            <p className="stats-card__value">{item.value}</p>
+            {item.subtitle ? <p className="stats-card__subtitle">{item.subtitle}</p> : null}
+          </>
+        );
+
+        if (item.href) {
+          return (
+            <Link key={item.key} href={item.href} className="stats-card stats-card--link">
+              {content}
+            </Link>
+          );
+        }
+
+        return (
+          <div key={item.key} className="stats-card">
+            {content}
           </div>
-          <p className="stats-card__title">{item.title}</p>
-          <p className="stats-card__value">{item.value}</p>
-          {item.subtitle ? <p className="stats-card__subtitle">{item.subtitle}</p> : null}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

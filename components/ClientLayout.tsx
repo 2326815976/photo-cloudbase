@@ -162,6 +162,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const shellLoadingDescription = shouldUseReconnectCopy
     ? MINI_PROGRAM_RECONNECT_COPY.description
     : '正在加载页面';
+  const shouldHoldShell = !isAdminRoute && (!shellRuntimeResolved || routeGuardLoading);
 
   useEffect(() => {
     ensureBackendRecoveryFetchInstalled();
@@ -504,7 +505,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           <div className="app-shell__viewport fixed inset-0 flex h-[100dvh] w-full min-w-0 items-center justify-center overflow-hidden bg-gray-100">
             <main className="app-shell__main relative flex h-full w-full min-w-0 max-w-[430px] flex-col overflow-hidden bg-[#FFFBF0] shadow-[0_0_40px_rgba(93,64,55,0.15)]">
               <PageCenterRuntimeProvider value={pageCenterRuntimeValue}>
-                {routeGuardLoading ? (
+                {shouldHoldShell ? (
                   <MiniProgramRecoveryScreen
                     title={shellLoadingTitle}
                     description={shellLoadingDescription}

@@ -205,9 +205,9 @@ export default function ProfileAboutPage() {
               )}
             </section>
 
-            <section className="rounded-[32px] border border-[#5D4037]/10 bg-white px-6 py-6 shadow-[0_10px_26px_rgba(93,64,55,0.08)]">
-              <h3 className="mb-4 text-xl font-extrabold text-[#5D4037]">联系方式</h3>
-              {contactItems.length > 0 ? (
+            {contactItems.length > 0 && (
+              <section className="rounded-[32px] border border-[#5D4037]/10 bg-white px-6 py-6 shadow-[0_10px_26px_rgba(93,64,55,0.08)]">
+                <h3 className="mb-4 text-xl font-extrabold text-[#5D4037]">联系方式</h3>
                 <div className="flex flex-col gap-3">
                   {contactItems.map((item) => (
                     <div
@@ -231,31 +231,21 @@ export default function ProfileAboutPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-[#5D4037]/14 bg-[#FFFDF7] px-5 py-8 text-center text-sm text-[#5D4037]/55">
-                  暂未填写联系方式
-                </div>
-              )}
-            </section>
+              </section>
+            )}
 
-            <section className="rounded-[32px] border border-[#5D4037]/10 bg-white px-6 py-6 shadow-[0_10px_26px_rgba(93,64,55,0.08)]">
-              <div className="mb-4 flex items-center gap-2 text-[#5D4037]">
-                <Heart className="h-5 w-5 text-[#FF9A3C]" />
-                <h3 className="text-xl font-extrabold">赞赏支持</h3>
-              </div>
-              {about.donation_qr_code ? (
-                <>
-                  <div className="overflow-hidden rounded-[24px] border border-[#5D4037]/12 bg-white">
-                    <img className="block w-full" src={about.donation_qr_code} alt="赞赏码" />
-                  </div>
-                  <p className="mt-3 text-center text-sm text-[#5D4037]/55">如果这份内容对你有帮助，欢迎扫码支持一下 ✨</p>
-                </>
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-[#5D4037]/14 bg-[#FFFDF7] px-5 py-8 text-center text-sm text-[#5D4037]/55">
-                  暂未上传赞赏码
+            {about.donation_qr_code && (
+              <section className="rounded-[32px] border border-[#5D4037]/10 bg-white px-6 py-6 shadow-[0_10px_26px_rgba(93,64,55,0.08)]">
+                <div className="mb-4 flex items-center gap-2 text-[#5D4037]">
+                  <Heart className="h-5 w-5 text-[#FF9A3C]" />
+                  <h3 className="text-xl font-extrabold">赞赏支持</h3>
                 </div>
-              )}
-            </section>
+                <div className="overflow-hidden rounded-[24px] border border-[#5D4037]/12 bg-white">
+                  <img className="block w-full" src={about.donation_qr_code} alt="赞赏码" />
+                </div>
+                <p className="mt-3 text-center text-sm text-[#5D4037]/55">如果这份内容对你有帮助，欢迎扫码支持一下 ✨</p>
+              </section>
+            )}
 
             {!hasContent && !error && (
               <div className="rounded-[28px] border border-dashed border-[#5D4037]/14 bg-white px-6 py-10 text-center text-sm text-[#5D4037]/55 shadow-sm">
