@@ -75,7 +75,7 @@ function buildAdminUserListQuery(includeDisabledField: boolean): string {
         ELSE 'user'
       END AS role,
       ${includeDisabledField ? 'COALESCE(u.is_disabled, 0)' : '0'} AS is_disabled,
-      ${includeDisabledField ? `CASE WHEN u.disabled_at IS NULL THEN NULL ELSE ${DISABLED_AT_UTC8_EXPR} END` : 'NULL'} AS disabled_at,
+      ${includeDisabledField ? `CASE WHEN u.disabled_at <=> NULL THEN NULL ELSE ${DISABLED_AT_UTC8_EXPR} END` : 'NULL'} AS disabled_at,
       u.created_at,
       p.last_active_at,
       session_stats.last_session_at,
