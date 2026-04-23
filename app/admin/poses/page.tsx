@@ -276,6 +276,7 @@ export default function PosesPage() {
   const [isTagSelectionMode, setIsTagSelectionMode] = useState(false);
   const [editingTag, setEditingTag] = useState<PoseTag | null>(null);
   const [editingTagName, setEditingTagName] = useState('');
+  const pendingTagNames = parseUniqueTagNames(newTagName);
   const [tagSortingId, setTagSortingId] = useState(0);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showToast, setShowToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
@@ -2236,20 +2237,46 @@ export default function PosesPage() {
                     value={newTagName}
                     onChange={(e) => setNewTagName(e.target.value)}
                     placeholder="输入标签名称，多个标签用逗号分隔&#10;例如：户外,室内,情侣,全身照,半身照"
-                    rows={4}
-                    className="w-full px-4 py-3 rounded-xl border border-[#5D4037]/20 focus:border-[#FFC857] focus:outline-none resize-none"
+                    rows={5}
+                    autoFocus
+                    className="w-full min-h-[144px] rounded-2xl border border-[#D7CCC8] px-4 py-4 text-[15px] leading-6 text-[#5D4037] placeholder:text-[#BCAAA4] focus:border-[#FFC857] focus:outline-none focus:ring-4 focus:ring-[#FFC857]/15"
                   />
-                  <p className="mt-2 text-xs text-[#5D4037]/60">
-                    💡 提示：可以一次添加多个标签，用逗号（中文或英文）分隔
+                </div>
+
+                {pendingTagNames.length > 0 && (
+                  <div className="rounded-xl bg-[#FFFBF0] p-3">
+                    <p className="mb-2 text-sm font-medium text-[#5D4037]">本次将新增的标签</p>
+                    <div className="flex flex-wrap gap-2">
+                      {pendingTagNames.map((tagName) => (
+                        <span
+                          key={tagName}
+                          className="inline-flex items-center rounded-full border border-[#E6D7B9] bg-white px-3 py-1 text-xs font-medium text-[#8D6E63]"
+                        >
+                          {tagName}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-xl bg-[#FFFBF0] px-3 py-2">
+                  <p className="text-sm leading-5 text-[#8D6E63]">
+                    <span className="mr-1">💡</span>
+                    提示：可以一次添加多个标签，用逗号（中英文均可）分隔。
                   </p>
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleAddTag}
-                  disabled={addingTag || !newTagName.trim()}
+                  disabled={addingTag || pendingTagNames.length === 0}
                   className="w-full py-3 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md transition-shadow disabled:opacity-50"
                 >
-                  {addingTag ? '添加中...' : '确认添加'}
+                  {addingTag
+                    ? '添加中...'
+                    : pendingTagNames.length > 1
+                      ? `确认添加 ${pendingTagNames.length} 个标签`
+                      : '确认添加'}
                 </button>
               </div>
             </motion.div>
