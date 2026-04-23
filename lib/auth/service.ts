@@ -489,7 +489,13 @@ async function exchangeWechatMiniCode(code: string): Promise<{ openid: string; u
   };
 }
 
-async function syncWechatMiniProfile(userId: string, avatarUrl?: string, nickName?: string): Promise<void> {
+async function syncWechatMiniProfile(
+  userId: string,
+  profileEmail: string | null,
+  profileRole: 'admin' | 'user',
+  avatarUrl?: string,
+  nickName?: string
+): Promise<void> {
   const normalizedAvatar = String(avatarUrl || '').trim();
   const normalizedName = normalizeWechatMiniNickName(nickName);
 
@@ -503,6 +509,33 @@ async function syncWechatMiniProfile(userId: string, avatarUrl?: string, nickNam
     { user_id: userId }
   );
   const currentProfile = profileResult.rows[0] ?? null;
+
+  if (!currentProfile) {
+    try {
+      await executeSQL(
+        `
+          INSERT INTO profiles (
+            id, email, name, avatar, role, phone, created_at
+          ) VALUES (
+            {{id}}, {{email}}, {{name}}, {{avatar}}, {{role}}, NULL, ${NOW_UTC8_EXPR}
+          )
+        `,
+        {
+          id: userId,
+          email: profileEmail,
+          name: normalizedName,
+          avatar: normalizedAvatar || null,
+          role: profileRole,
+        }
+      );
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      if (!/duplicate entry|1062|er_dup_entry/i.test(message)) {
+        throw error;
+      }
+    }
+  }
 
   const updates: string[] = [];
   const values: Record<string, unknown> = { user_id: userId };
@@ -550,7 +583,13 @@ async function ensureWechatMiniUser(openid: string, nickName?: string, avatarUrl
     if (Number(existingUser.is_disabled ?? 0) > 0) {
       throw new Error('account_disabled');
     }
-    await syncWechatMiniProfile(String(existingUser.id), normalizedAvatar || undefined, normalizedName);
+    await syncWechatMiniProfile(
+      String(existingUser.id),
+      existingUser.email ? String(existingUser.email) : null,
+      existingUser.role === 'admin' ? 'admin' : 'user',
+      normalizedAvatar || undefined,
+      normalizedName
+    );
     const row = {
       ...existingUser,
       name:
@@ -611,7 +650,13 @@ async function ensureWechatMiniUser(openid: string, nickName?: string, avatarUrl
         if (Number(fallbackUser.is_disabled ?? 0) > 0) {
           throw new Error('account_disabled');
         }
-        await syncWechatMiniProfile(String(fallbackUser.id), normalizedAvatar || undefined, normalizedName);
+        await syncWechatMiniProfile(
+          String(fallbackUser.id),
+          fallbackUser.email ? String(fallbackUser.email) : null,
+          fallbackUser.role === 'admin' ? 'admin' : 'user',
+          normalizedAvatar || undefined,
+          normalizedName
+        );
         return toAuthUser({
           ...fallbackUser,
           name: isWechatMiniDefaultName(String(fallbackUser.name || '')) ? normalizedName : fallbackUser.name,
