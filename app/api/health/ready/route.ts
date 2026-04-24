@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
-import { getSessionTokenFromCookieHeader } from '@/lib/auth/context';
+import { getSessionUserFromRequest } from '@/lib/auth/context';
 import { signInWithWechatMiniProgramOpenid } from '@/lib/auth/service';
 import {
   executeSQL,
@@ -112,6 +112,17 @@ function getClientIp(request: Request): string | undefined {
   return request.headers.get('x-real-ip') ?? undefined;
 }
 
+function maskOpenid(openid: string | null | undefined): string {
+  const normalized = String(openid || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.length <= 8) {
+    return `${normalized.slice(0, 2)}***${normalized.slice(-1)}`;
+  }
+  return `${normalized.slice(0, 4)}***${normalized.slice(-4)}`;
+}
+
 function getWechatMiniProgramOpenid(request: Request): string | null {
   const openid = String(request.headers.get('x-wx-openid') || '').trim();
   if (!openid) {
@@ -130,9 +141,13 @@ function getWechatMiniProgramOpenid(request: Request): string | null {
 }
 
 async function tryIssueWechatMiniProgramSession(request: Request): Promise<string | null> {
-  const cookieHeader = request.headers.get('cookie');
-  if (getSessionTokenFromCookieHeader(cookieHeader)) {
-    return null;
+  try {
+    const existingUser = await getSessionUserFromRequest(request);
+    if (existingUser && existingUser.id) {
+      return null;
+    }
+  } catch {
+    // ignore invalid / transient session lookup and continue fallback login
   }
 
   const openid = getWechatMiniProgramOpenid(request);
@@ -146,9 +161,17 @@ async function tryIssueWechatMiniProgramSession(request: Request): Promise<strin
   });
 
   if (result.error || !result.sessionToken) {
+    console.warn('[wechat-mini-auto-login][health] issue session failed', {
+      openid: maskOpenid(openid),
+      error: result.error || 'unknown',
+    });
     return null;
   }
 
+  console.info('[wechat-mini-auto-login][health] issued session', {
+    openid: maskOpenid(openid),
+    userId: result.user?.id || '',
+  });
   return result.sessionToken;
 }
 
