@@ -716,6 +716,45 @@ export async function signInWithWechatMiniProgram(
   }
 }
 
+export async function signInWithWechatMiniProgramOpenid(
+  openid: string,
+  options: {
+    nickName?: string;
+    avatarUrl?: string;
+    userAgent?: string;
+    ipAddress?: string;
+  } = {}
+): Promise<{ user: AuthUser | null; sessionToken: string | null; openid: string | null; error: string | null }> {
+  const normalizedOpenid = String(openid || '').trim();
+  if (!normalizedOpenid) {
+    return {
+      user: null,
+      sessionToken: null,
+      openid: null,
+      error: 'invalid_openid',
+    };
+  }
+
+  try {
+    const user = await ensureWechatMiniUser(normalizedOpenid, options.nickName, options.avatarUrl);
+    const sessionToken = await createSession(user.id, options.userAgent, options.ipAddress);
+
+    return {
+      user,
+      sessionToken,
+      openid: normalizedOpenid,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      user: null,
+      sessionToken: null,
+      openid: normalizedOpenid,
+      error: error instanceof Error ? error.message : 'wx_mini_login_failed',
+    };
+  }
+}
+
 export async function updateUserPassword(userId: string, newPassword: string): Promise<{ error: string | null }> {
   const result = await executeSQL(
     `

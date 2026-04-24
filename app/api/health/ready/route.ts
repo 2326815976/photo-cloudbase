@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
+import { getSessionTokenFromCookieHeader } from '@/lib/auth/context';
+import { signInWithWechatMiniProgramOpenid } from '@/lib/auth/service';
 import {
   executeSQL,
   isRetryableSqlError,
@@ -101,7 +104,64 @@ async function resolveReadyProbe(): Promise<ReadyResult> {
   return state.pending;
 }
 
-export async function GET() {
+function getClientIp(request: Request): string | undefined {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0]?.trim();
+  }
+  return request.headers.get('x-real-ip') ?? undefined;
+}
+
+function getWechatMiniProgramOpenid(request: Request): string | null {
+  const openid = String(request.headers.get('x-wx-openid') || '').trim();
+  if (!openid) {
+    return null;
+  }
+
+  const headerKeys = Array.from(request.headers.keys()).map((key) => String(key || '').toLowerCase());
+  const hasWechatProxyHeaders = headerKeys.some((key) => key.startsWith('x-wx-'));
+  const userAgent = String(request.headers.get('user-agent') || '').toLowerCase();
+
+  if (!hasWechatProxyHeaders && !userAgent.includes('miniprogram')) {
+    return null;
+  }
+
+  return openid;
+}
+
+async function tryIssueWechatMiniProgramSession(request: Request): Promise<string | null> {
+  const cookieHeader = request.headers.get('cookie');
+  if (getSessionTokenFromCookieHeader(cookieHeader)) {
+    return null;
+  }
+
+  const openid = getWechatMiniProgramOpenid(request);
+  if (!openid) {
+    return null;
+  }
+
+  const result = await signInWithWechatMiniProgramOpenid(openid, {
+    userAgent: request.headers.get('user-agent') ?? undefined,
+    ipAddress: getClientIp(request),
+  });
+
+  if (result.error || !result.sessionToken) {
+    return null;
+  }
+
+  return result.sessionToken;
+}
+
+export async function GET(request: Request) {
   const result = await resolveReadyProbe();
-  return NextResponse.json(result.payload, { status: result.status });
+  const response = NextResponse.json(result.payload, { status: result.status });
+
+  if (result.status === 200) {
+    const sessionToken = await tryIssueWechatMiniProgramSession(request);
+    if (sessionToken) {
+      response.cookies.set(SESSION_COOKIE_NAME, sessionToken, getSessionCookieOptions());
+    }
+  }
+
+  return response;
 }
