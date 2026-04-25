@@ -144,7 +144,7 @@ const metadataList: TableMetadata[] = [
   },
   {
     name: 'album_folders',
-    columns: ['id', 'album_id', 'name', 'sort_order', 'created_at'],
+    columns: ['id', 'album_id', 'name', 'is_hidden', 'sort_order', 'created_at'],
     primaryKey: 'id',
     primaryKeyKind: 'uuid',
   },

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
 import { getSessionUserFromRequest } from '@/lib/auth/context';
-import { signInWithWechatMiniProgramOpenid } from '@/lib/auth/service';
+import { signInExistingWechatMiniProgramOpenid } from '@/lib/auth/service';
 import {
   executeSQL,
   isRetryableSqlError,
@@ -155,7 +155,7 @@ async function tryIssueWechatMiniProgramSession(request: Request): Promise<strin
     return null;
   }
 
-  const result = await signInWithWechatMiniProgramOpenid(openid, {
+  const result = await signInExistingWechatMiniProgramOpenid(openid, {
     userAgent: request.headers.get('user-agent') ?? undefined,
     ipAddress: getClientIp(request),
   });

@@ -30,29 +30,29 @@ function mapLoginError(error: string): { status: number; message: string } {
   }
 
   if (normalized.includes('invalid_code') || normalized.includes('wx_mini_openid_missing')) {
-    return { status: 400, message: '微信登录参数无效，请重试' };
+    return { status: 400, message: '微信登录凭证无效，请重新登录' };
   }
 
   if (normalized.includes('wx_mini_config_missing')) {
-    return { status: 500, message: '服务端未配置微信小程序登录参数' };
+    return { status: 500, message: '微信登录服务未配置，请联系管理员' };
   }
 
   if (normalized.includes('account_disabled')) {
-    return { status: 403, message: '账号已被禁用，请联系管理员' };
+    return { status: 403, message: '当前账号已被禁用' };
   }
 
   if (normalized.includes('wx_mini_code_exchange_failed')) {
     const raw = String(error || '');
     if (raw.includes(':40013:') || raw.includes(':40125:')) {
-      return { status: 500, message: '微信小程序 AppID 或 Secret 配置错误' };
+      return { status: 500, message: '微信登录配置错误，请检查 AppID 和 Secret' };
     }
     if (raw.includes(':40029:') || raw.includes(':40226:')) {
-      return { status: 401, message: '微信登录凭证无效或已过期，请重试' };
+      return { status: 401, message: '微信登录凭证已失效，请重新授权' };
     }
     if (raw.includes(':45011:')) {
-      return { status: 429, message: '微信登录请求过于频繁，请稍后重试' };
+      return { status: 429, message: '微信登录过于频繁，请稍后再试' };
     }
-    return { status: 401, message: '微信登录凭证无效或已过期，请重试' };
+    return { status: 401, message: '微信登录失败，请重新授权' };
   }
 
   return { status: 500, message: '微信登录失败，请稍后重试' };
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           data: { user: null },
-          error: { message: '该登录方式仅支持微信小程序' },
+          error: { message: '当前请求不是微信小程序环境' },
         },
         { status: 403 }
       );
@@ -73,13 +73,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const code = String(body?.code ?? '').trim();
     const nickName = String(body?.nickName ?? '').trim();
-    const avatarUrl = String(body?.avatarUrl ?? '').trim();
 
     if (!code) {
       return NextResponse.json(
         {
           data: { user: null },
-          error: { message: 'WeChat code is required' },
+          error: { message: '缺少微信登录凭证' },
         },
         { status: 400 }
       );
@@ -89,7 +88,6 @@ export async function POST(request: Request) {
     const ipAddress = getClientIp(request);
     const result = await signInWithWechatMiniProgram(code, {
       nickName: nickName || undefined,
-      avatarUrl: avatarUrl || undefined,
       userAgent,
       ipAddress,
     });

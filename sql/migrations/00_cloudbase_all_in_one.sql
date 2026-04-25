@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS album_folders (
   id CHAR(36) NOT NULL,
   album_id CHAR(36) NOT NULL,
   name VARCHAR(255) NOT NULL,
+  is_hidden TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_album_folders_album_id (album_id),

@@ -173,7 +173,7 @@ const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEY_SET = new Set<string>(
   PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS
 );
 const REMOVED_APP_PAGE_KEY_SET = new Set<string>(REMOVED_APP_PAGE_KEYS);
-const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>(['register', 'profile-change-password']);
+const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>();
 
 export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   login: 'profile',
@@ -350,9 +350,9 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     pageName: '注册',
     pageDescription: '我的页访客注册入口',
     routePathWeb: '/register',
-    routePathMiniProgram: '',
+    routePathMiniProgram: 'pages/register/index',
     previewRoutePathWeb: '/register?presentation=preview&page_key=register',
-    previewRoutePathMiniProgram: '',
+    previewRoutePathMiniProgram: '/pages/register/index?presentation=preview&page_key=register',
     tabKey: null,
     iconKey: null,
     defaultTabText: '注册',
@@ -441,9 +441,10 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     pageName: '修改密码',
     pageDescription: '我的页密码修改入口',
     routePathWeb: '/profile/change-password',
-    routePathMiniProgram: '',
+    routePathMiniProgram: 'pages/profile/change-password/index',
     previewRoutePathWeb: '/profile/change-password?presentation=preview&page_key=profile-change-password',
-    previewRoutePathMiniProgram: '',
+    previewRoutePathMiniProgram:
+      '/pages/profile/change-password/index?presentation=preview&page_key=profile-change-password',
     tabKey: null,
     iconKey: null,
     defaultTabText: '修改密码',

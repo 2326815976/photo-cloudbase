@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { executeSQL } from '@/lib/cloudbase/sql-executor';
 import { AuthUser } from './types';
+import { normalizeOptionalAuthText } from './text';
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_CACHE_TTL_MS = 15 * 1000;
@@ -206,7 +207,8 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
               WHEN p.role = 'admin' AND u.role = 'admin' THEN 'admin'
               ELSE 'user'
             END AS role,
-            p.name
+            p.name,
+            p.avatar
           FROM user_sessions s
           JOIN users u ON u.id = s.user_id
           LEFT JOIN profiles p ON p.id = u.id
@@ -257,9 +259,10 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
       ? {
           id: String(row.id),
           email: String(row.email ?? ''),
-          phone: row.phone ? String(row.phone) : null,
+          phone: normalizeOptionalAuthText(row.phone),
           role: row.role === 'admin' ? 'admin' : 'user',
-          name: row.name ? String(row.name) : null,
+          name: normalizeOptionalAuthText(row.name),
+          avatar: normalizeOptionalAuthText(row.avatar),
         }
       : null;
 

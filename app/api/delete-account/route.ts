@@ -32,7 +32,7 @@ async function collectUserStorageTargets(userId: string): Promise<string[]> {
     ),
     executeSQL(
       `
-        SELECT p.thumbnail_url, p.preview_url, p.original_url
+        SELECT p.url, p.thumbnail_url, p.preview_url, p.original_url
         FROM album_photos p
         JOIN albums a ON a.id = p.album_id
         WHERE a.created_by = {{user_id}}
@@ -51,6 +51,7 @@ async function collectUserStorageTargets(userId: string): Promise<string[]> {
 
   const profileRow = profileAssetsResult.rows[0] ?? {};
   const photoTargets = photoAssetsResult.rows.flatMap((row) => [
+    row.url,
     row.thumbnail_url,
     row.preview_url,
     row.original_url,
@@ -130,5 +131,4 @@ export async function POST() {
     return NextResponse.json({ error: '系统错误' }, { status: 500 });
   }
 }
-
 

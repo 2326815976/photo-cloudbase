@@ -4,6 +4,14 @@
  */
 
 import imageCompression from 'browser-image-compression';
+import {
+  WALL_PREVIEW_INITIAL_QUALITY,
+  WALL_PREVIEW_MAX_SIZE_MB,
+  WALL_PREVIEW_MAX_WIDTH,
+  WALL_THUMBNAIL_INITIAL_QUALITY,
+  WALL_THUMBNAIL_MAX_SIZE_MB,
+  WALL_THUMBNAIL_MAX_WIDTH,
+} from '@/lib/gallery/wall-image-config';
 
 export interface ImageVersion {
   file: File;
@@ -17,9 +25,9 @@ interface PoseImageGenerateOptions {
 }
 
 const GALLERY_THUMBNAIL_VERSION_OPTIONS = {
-  maxWidthOrHeight: 1280,
-  maxSizeMB: 0.9,
-  initialQuality: 0.82,
+  maxWidthOrHeight: WALL_THUMBNAIL_MAX_WIDTH,
+  maxSizeMB: WALL_THUMBNAIL_MAX_SIZE_MB,
+  initialQuality: WALL_THUMBNAIL_INITIAL_QUALITY,
   fileType: 'image/webp' as const,
   useWebWorker: true
 };
@@ -33,9 +41,9 @@ const ALBUM_THUMBNAIL_VERSION_OPTIONS = {
 };
 
 const PREVIEW_VERSION_OPTIONS = {
-  maxWidthOrHeight: 2560,
-  maxSizeMB: 3.5,
-  initialQuality: 0.92,
+  maxWidthOrHeight: WALL_PREVIEW_MAX_WIDTH,
+  maxSizeMB: WALL_PREVIEW_MAX_SIZE_MB,
+  initialQuality: WALL_PREVIEW_INITIAL_QUALITY,
   useWebWorker: true,
   fileType: 'image/webp' as const
 };

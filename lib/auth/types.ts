@@ -6,10 +6,10 @@ export interface AuthUser {
   phone: string | null;
   role: 'user' | 'admin';
   name: string | null;
+  avatar: string | null;
 }
 
 export interface AuthContext {
   role: SessionRole;
   user: AuthUser | null;
 }
-

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/cloudbase/server';
+import { createAdminClient, createClient } from '@/lib/cloudbase/server';
 import {
   extractErrorMessage,
   isRetryableSqlError,
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get('authorization');
     const expectedToken = process.env.MAINTENANCE_TOKEN;
     const tokenValid = Boolean(expectedToken && authHeader === `Bearer ${expectedToken}`);
-    const dbClient = await createClient();
+    const dbClient = tokenValid ? createAdminClient() : await createClient();
 
     if (!tokenValid) {
       const authResult = await withTimeout(

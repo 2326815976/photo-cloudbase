@@ -27,6 +27,7 @@ async function handleMaintenanceCron(request: NextRequest) {
         phone: null,
         role: 'admin',
         name: 'system',
+        avatar: null,
       },
     };
 

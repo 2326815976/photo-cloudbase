@@ -66,6 +66,7 @@ function toCompatAuthUser(user: AuthUser | null): AuthUser | null {
     phone: user.phone,
     role: user.role,
     name: user.name,
+    avatar: user.avatar,
   };
 }
 
@@ -454,6 +455,7 @@ export function createAdminClient(): CompatClient {
       phone: null,
       role: 'admin',
       name: 'system',
+      avatar: null,
     },
   };
 

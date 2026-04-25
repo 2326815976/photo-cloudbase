@@ -30,7 +30,12 @@ interface Album {
   expires_at: string | null;
 }
 
-const FIXED_PUBLIC_ORIGIN = 'https://guangyao666.xyz';
+const resolvePublicOrigin = () => {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+  return '';
+};
 
 type AlbumFilterKey = 'all' | 'expiring' | 'expired' | 'no_cover' | 'welcome_off';
 
@@ -983,7 +988,13 @@ const copyAccessKey = async (accessKey: string) => {
     setTimeout(() => setShowToast(null), 3000);
   };
   const copyAccessLink = async (accessKey: string) => {
-    const link = `${FIXED_PUBLIC_ORIGIN}/album/${accessKey}`;
+    const origin = resolvePublicOrigin();
+    const link = origin ? `${origin}/album/${accessKey}` : '';
+    if (!link) {
+      setShowToast({ message: '当前站点域名未就绪，请刷新页面后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { setClipboardText } = await import('@/lib/android');
     const success = setClipboardText(link);
     if (success) {
@@ -995,7 +1006,11 @@ const copyAccessKey = async (accessKey: string) => {
   };
 
   const generateQrCode = (accessKey: string) => {
-    const link = `${FIXED_PUBLIC_ORIGIN}/album/${accessKey}`;
+    const origin = resolvePublicOrigin();
+    const link = origin ? `${origin}/album/${accessKey}` : '';
+    if (!link) {
+      return '';
+    }
     return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(link)}`;
   };
 

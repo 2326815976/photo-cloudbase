@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -411,7 +411,7 @@ export default function BookingsPage() {
                     <Calendar className="w-4 h-4 text-[#FFC857] mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
                       <p className="text-xs text-[#5D4037]/60">约拍类型</p>
-                      <p className="text-sm font-medium text-[#5D4037]">{booking.booking_types?.name || '鏈煡'}</p>
+                      <p className="text-sm font-medium text-[#5D4037]">{booking.booking_types?.name || "未知"}</p>
                     </div>
                   </div>
 
@@ -482,7 +482,7 @@ export default function BookingsPage() {
           </div>
         )}
 
-      {/* 鍒犻櫎纭寮圭獥 */}
+      {/* 删除确认弹窗 */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <motion.div
@@ -500,7 +500,7 @@ export default function BookingsPage() {
               className="relative bg-white rounded-2xl p-6 max-w-sm w-full"
             >
               <div className="flex items-center justify-between mb-4 pr-12">
-                <h3 className="text-lg font-bold text-[#5D4037]">纭鍒犻櫎</h3>
+                <h3 className="text-lg font-bold text-[#5D4037]">确认删除</h3>
                 <button
                   onClick={() => setShowDeleteConfirm(null)}
                   className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
@@ -522,7 +522,7 @@ export default function BookingsPage() {
                   onClick={() => showDeleteConfirm && handleDelete(showDeleteConfirm)}
                   className="flex-1 py-2.5 px-4 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
                 >
-                  纭鍒犻櫎
+                  确认删除
                 </button>
               </div>
             </motion.div>

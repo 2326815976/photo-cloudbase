@@ -3,6 +3,8 @@ import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { DbQueryPayload, QueryFilter } from './query-types';
 
+const WECHAT_MINI_EMAIL_DOMAIN = 'wechat.miniprogram.local';
+
 function clonePayload(payload: DbQueryPayload): DbQueryPayload {
   return {
     ...payload,
@@ -19,6 +21,11 @@ function ensureAuthenticated(context: AuthContext) {
 
 function isAdmin(context: AuthContext): boolean {
   return context.role === 'admin' || context.role === 'system';
+}
+
+function isWechatMiniProgramAccount(context: AuthContext): boolean {
+  const email = String(context.user?.email ?? '').trim().toLowerCase();
+  return email.endsWith(`@${WECHAT_MINI_EMAIL_DOMAIN}`);
 }
 
 function addFilter(payload: DbQueryPayload, filter: QueryFilter): void {
@@ -104,6 +111,20 @@ function ensureObjectValues(values: DbQueryPayload['values']): Record<string, un
   return values;
 }
 
+function restrictWechatMiniProfileValues(values: DbQueryPayload['values']): void {
+  const record = ensureObjectValues(values);
+  const keys = Object.keys(record);
+  if (keys.length !== 1 || keys[0] !== 'name') {
+    throw new Error('微信登录账号仅允许修改用户名');
+  }
+
+  const name = String(record.name ?? '').trim();
+  if (!name) {
+    throw new Error('用户名不能为空');
+  }
+  record.name = name;
+}
+
 export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthContext): DbQueryPayload {
   const scoped = clonePayload(payload);
 
@@ -153,7 +174,11 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
       }
 
       if (scoped.action === 'update') {
-        sanitizeChinaMobileInValues(scoped.values, { allowNull: true });
+        if (isWechatMiniProgramAccount(context)) {
+          restrictWechatMiniProfileValues(scoped.values);
+        } else {
+          sanitizeChinaMobileInValues(scoped.values, { allowNull: true });
+        }
       }
 
       addFilter(scoped, {

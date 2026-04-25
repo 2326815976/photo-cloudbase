@@ -4,6 +4,12 @@ import { Buffer } from 'buffer';
 import { createHash, randomUUID } from 'crypto';
 import { AuthContext } from '@/lib/auth/types';
 import { deleteCloudBaseObjects, uploadFileToCloudBase } from '@/lib/cloudbase/storage';
+import {
+  WALL_PREVIEW_MAX_WIDTH,
+  WALL_PREVIEW_QUALITY,
+  WALL_THUMBNAIL_MAX_WIDTH,
+  WALL_THUMBNAIL_QUALITY,
+} from '@/lib/gallery/wall-image-config';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import {
@@ -365,10 +371,6 @@ const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_WALL_ALBUM_ACCESS_KEY = 'WALL0000';
 const SYSTEM_WALL_FREEZE_FOLDER_NAME = '定格';
 const SYSTEM_WALL_FREEZE_FOLDER_ID = '00000000-0000-0000-0000-000000000001';
-const WALL_THUMBNAIL_MAX_WIDTH = 1280;
-const WALL_PREVIEW_MAX_WIDTH = 2560;
-const WALL_THUMBNAIL_QUALITY = 82;
-const WALL_PREVIEW_QUALITY = 92;
 const SHOT_DATE_COLUMN_CACHE_TTL_MS = 60 * 1000;
 
 let albumPhotoShotDateColumnCache: {
@@ -392,6 +394,11 @@ let albumEnableFreezeColumnCache: {
 } | null = null;
 
 let albumWelcomeLetterModeColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumFolderHiddenColumnCache: {
   value: boolean;
   expiresAt: number;
 } | null = null;
@@ -537,6 +544,39 @@ async function hasAlbumPhotoDownloadCountColumn(): Promise<boolean> {
   }
 
   albumPhotoDownloadCountColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumFolderHiddenColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumFolderHiddenColumnCache && albumFolderHiddenColumnCache.expiresAt > now) {
+    return albumFolderHiddenColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'album_folders'
+          AND column_name = 'is_hidden'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
+    exists = false;
+  }
+
+  albumFolderHiddenColumnCache = {
     value: exists,
     expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
   };
@@ -781,7 +821,13 @@ function splitWallPhotoDuplicates<T extends Record<string, any>>(rows: T[]) {
   };
 }
 
-async function deleteWallPhotoRows(rows: Array<Record<string, any>>) {
+async function deleteWallPhotoRows(
+  rows: Array<Record<string, any>>,
+  options?: {
+    strictStorageCleanup?: boolean;
+  }
+) {
+  const strictStorageCleanup = Boolean(options?.strictStorageCleanup);
   const targets = Array.from(
     new Set(
       rows
@@ -799,6 +845,10 @@ async function deleteWallPhotoRows(rows: Array<Record<string, any>>) {
     try {
       await deleteCloudBaseObjects(targets);
     } catch (error) {
+      if (strictStorageCleanup) {
+        const message = error instanceof Error ? error.message : 'unknown error';
+        throw new Error(`删除照片墙对象存储失败：${message}`);
+      }
       console.warn('delete wall photo assets failed:', error);
     }
   }
@@ -1112,13 +1162,13 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
   const offset = (pageNo - 1) * pageSize;
   const clientSource = String(args.client_source ?? '').trim();
-  const clientSourceKind = normalizeGalleryClientSource(clientSource);
   if (clientSource === '__mini__') {
     throw new Error('微信小程序暂不支持定格照片，请在 Web 端操作');
   }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
   const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
+  const hasFolderHiddenColumn = await hasAlbumFolderHiddenColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
   const shotLocationSelect = hasShotLocationColumn
     ? 'p.shot_location AS shot_location'
@@ -1126,6 +1176,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const downloadCountSelect = hasDownloadCountColumn
     ? 'p.download_count AS download_count'
     : '0 AS download_count';
+  const folderHiddenSelect = hasFolderHiddenColumn ? 'is_hidden' : '0 AS is_hidden';
   const photoOrderBy = hasShotDateColumn
     ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
     : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
@@ -1145,7 +1196,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
 
   const foldersResult = await executeSQL(
     `
-      SELECT id, name, sort_order
+      SELECT id, name, sort_order, ${folderHiddenSelect}
       FROM album_folders
       WHERE album_id = {{wall_album_id}}
       ORDER BY sort_order ASC, created_at ASC
@@ -1154,19 +1205,18 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
       wall_album_id: SYSTEM_WALL_ALBUM_ID,
     }
   );
-  const hiddenFreezeFolderIds = new Set(
-    clientSourceKind === 'mini'
-      ? foldersResult.rows
-          .filter((row) => String(row.name ?? '').trim() === SYSTEM_WALL_FREEZE_FOLDER_NAME)
-          .map((row) => String(row.id ?? '').trim())
-          .filter(Boolean)
-      : []
+  const folderRows = Array.isArray(foldersResult.rows) ? foldersResult.rows : [];
+  const hiddenFolderIds = new Set(
+    folderRows
+      .filter((row) => toBoolean(row?.is_hidden))
+      .map((row) => String(row?.id ?? '').trim())
+      .filter(Boolean)
   );
-  const requestedFolderId = String(args.folder_id ?? '').trim();
+  const requestedFolderFilter = resolveAlbumFolderFilter(args.folder_id);
   const folderFilter =
-    hiddenFreezeFolderIds.size > 0 && hiddenFreezeFolderIds.has(requestedFolderId)
+    requestedFolderFilter.normalizedFolderId && hiddenFolderIds.has(requestedFolderFilter.normalizedFolderId)
       ? resolveAlbumFolderFilter(null)
-      : resolveAlbumFolderFilter(args.folder_id);
+      : requestedFolderFilter;
   const wallValues: Record<string, unknown> = {
     wall_album_id: SYSTEM_WALL_ALBUM_ID,
     ...folderFilter.params,
@@ -1294,13 +1344,13 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     folder_id: folderFilter.normalizedFolderId,
     root_folder_name:
       String(wallMetaRow?.root_folder_name ?? '').trim() || '根目录',
-    folders: foldersResult.rows
-      .filter((row) => !hiddenFreezeFolderIds.has(String(row.id ?? '').trim()))
+    folders: folderRows
+      .filter((row) => !hiddenFolderIds.has(String(row?.id ?? '').trim()))
       .map((row) => ({
-        id: String(row.id),
-        name: String(row.name ?? ''),
-        sort_order: toNumber(row.sort_order, 2147483647),
-      })),
+      id: String(row.id),
+      name: String(row.name ?? ''),
+      sort_order: toNumber(row.sort_order, 2147483647),
+    })),
   };
 }
 
@@ -2025,22 +2075,24 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
   const existingWallRows = Array.isArray(existingWallResult.rows) ? existingWallResult.rows : [];
 
   if (existingWallRows.length > 0) {
-    await deleteWallPhotoRows(existingWallRows);
+    await deleteWallPhotoRows(existingWallRows, {
+      strictStorageCleanup: true,
+    });
+  }
 
-    if (toBoolean(sourcePhoto.is_public)) {
-      await executeSQL(
-        `
-          UPDATE album_photos
-          SET is_public = 0
-          WHERE id = {{photo_id}}
-        `,
-        {
-          photo_id: photoId,
-        }
-      );
+  if (toBoolean(sourcePhoto.is_public)) {
+    await executeSQL(
+      `
+        UPDATE album_photos
+        SET is_public = 0
+        WHERE id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+      }
+    );
 
-      return false;
-    }
+    return false;
   }
 
   const sourceUrl = resolveSourcePhotoBestUrl(sourcePhoto);
@@ -3210,6 +3262,7 @@ async function updateDailyAnalyticsSnapshot() {
       phone: null,
       role: 'admin',
       name: 'system',
+      avatar: null,
     },
   } as AuthContext);
 

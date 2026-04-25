@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as Record<string, unknown>;
     const hasPassword = Object.prototype.hasOwnProperty.call(body, 'password');
-    const hasProfilePatch = ['name', 'phone', 'wechat'].some((key) =>
+    const hasProfilePatch = ['name', 'phone', 'wechat', 'avatar'].some((key) =>
       Object.prototype.hasOwnProperty.call(body, key)
     );
 
@@ -61,6 +61,8 @@ export async function POST(request: Request) {
         phone: body.phone === null ? null : typeof body.phone === 'string' ? body.phone : String(body.phone ?? ''),
         wechat:
           body.wechat === null ? null : typeof body.wechat === 'string' ? body.wechat : String(body.wechat ?? ''),
+        avatar:
+          body.avatar === null ? null : typeof body.avatar === 'string' ? body.avatar : String(body.avatar ?? ''),
       });
 
       if (profileResult.error) {

@@ -24,6 +24,7 @@ interface Album {
 interface AlbumFolder {
   id: string;
   name: string;
+  is_hidden?: boolean | null;
   sort_order?: number | null;
   created_at: string;
   photoCount?: number | null;
@@ -60,6 +61,7 @@ const DELETE_FOLDER_CONFIRM_PHRASE = '确认删除';
 const DELETE_FOLDER_MANUAL_CONFIRM_THRESHOLD = 10;
 const ALBUM_PHOTO_STORY_SORT_MIGRATION_HINT = '数据库缺少 story_text / is_highlight / sort_order 字段，请先执行 SQL 迁移：photo/sql/migrations/06_album_photo_story_sort.sql';
 const ALBUM_FOLDER_SORT_MIGRATION_HINT = '\u6570\u636e\u5e93\u7f3a\u5c11 album_folders.sort_order \u5b57\u6bb5\uff0c\u8bf7\u5148\u6267\u884c SQL \u8fc1\u79fb\uff1aphoto/sql/migrations/15_album_folder_sort_order.sql';
+const ALBUM_FOLDER_VISIBILITY_MIGRATION_HINT = '数据库缺少 album_folders.is_hidden 字段，请先执行 SQL 迁移：photo/sql/migrations/32_album_folder_visibility.sql';
 const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
 const ALBUM_PHOTO_SHOT_LOCATION_MIGRATION_HINT = '数据库缺少 shot_location 字段，请先执行 SQL 迁移：photo/sql/migrations/08_album_photo_shot_location.sql';
 
@@ -381,6 +383,7 @@ export function AlbumDetailPageContent({
         sortAlbumFolders(
           foldersRes.data.map((folder: AlbumFolder) => ({
             ...folder,
+            is_hidden: normalizeDbBoolean(folder.is_hidden, false),
             sort_order: normalizeFolderSortOrder(folder.sort_order),
           }))
         )
@@ -615,6 +618,60 @@ export function AlbumDetailPageContent({
     setShowToast({ message: '文件夹名称已更新', type: 'success' });
     setTimeout(() => setShowToast(null), 3000);
   };
+
+  const handleToggleFolderVisibility = async (folder: AlbumFolder) => {
+    if (actionLoading) {
+      return;
+    }
+
+    const nextHidden = !normalizeDbBoolean(folder.is_hidden, false);
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { data: updatedFolder, error } = await dbClient
+      .from('album_folders')
+      .update({ is_hidden: nextHidden ? 1 : 0 })
+      .eq('id', folder.id)
+      .eq('album_id', albumId)
+      .select('id, is_hidden')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      if (isColumnMissingError(error.message || '', 'is_hidden')) {
+        setShowToast({ message: ALBUM_FOLDER_VISIBILITY_MIGRATION_HINT, type: 'warning' });
+      } else {
+        setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+      }
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!updatedFolder) {
+      setShowToast({ message: '文件夹不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    setFolders((prev) =>
+      prev.map((item) => (
+        String(item.id) === String(folder.id)
+          ? { ...item, is_hidden: normalizeDbBoolean(updatedFolder.is_hidden, nextHidden) }
+          : item
+      ))
+    );
+    invalidatePublicGalleryCache();
+    setShowToast({ message: nextHidden ? '文件夹已隐藏' : '文件夹已显示', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
   const persistFolderOrder = async (reordered: AlbumFolder[], successMessage: string) => {
     const currentMap = new Map<string, number>();
     folders.forEach((item, index) => {
@@ -2089,6 +2146,7 @@ export function AlbumDetailPageContent({
   const canMoveSelectedFolderUp = selectedFolderIndex > 0;
   const canMoveSelectedFolderDown = selectedFolderIndex >= 0 && selectedFolderIndex < folders.length - 1;
   const selectedFolderName = selectedFolderEntity ? String(selectedFolderEntity.name || '').trim() : rootFolderName;
+  const selectedFolderHidden = selectedFolderEntity ? normalizeDbBoolean(selectedFolderEntity.is_hidden, false) : false;
   const currentFolderLoadedCount = filteredPhotos.length;
   const currentFolderDisplayTotalCount = Math.max(currentFolderTotalCount, currentFolderLoadedCount);
   const systemWallRows = filteredPhotos.map((photo) => {
@@ -2274,7 +2332,7 @@ export function AlbumDetailPageContent({
                       onClick={() => handleSelectFolder(folder.id)}
                     >
                       <Folder className="folder-tab__icon" />
-                      <span className="folder-tab__text">{folder.name} ({folder.photoCount})</span>
+                      <span className="folder-tab__text">{folder.name}{normalizeDbBoolean(folder.is_hidden, false) ? ' ·已隐藏' : ''} ({folder.photoCount})</span>
                     </button>
                   </div>
                 ))}
@@ -2317,6 +2375,14 @@ export function AlbumDetailPageContent({
                         disabled={!canMoveSelectedFolderDown || actionLoading}
                       >
                         下移
+                      </button>
+                      <button
+                        type="button"
+                        className="folder-current-action-btn"
+                        onClick={() => handleToggleFolderVisibility(selectedFolderEntity)}
+                        disabled={actionLoading}
+                      >
+                        {selectedFolderHidden ? '显示文件夹' : '隐藏文件夹'}
                       </button>
                       <button
                         type="button"
@@ -2660,7 +2726,7 @@ export function AlbumDetailPageContent({
               }`}
             >
               <Folder className="w-4 h-4 inline mr-1" />
-              {folder.name} ({photos.filter((p) => p.folder_id === folder.id).length})
+              {folder.name}{normalizeDbBoolean(folder.is_hidden, false) ? ' ·已隐藏' : ''} ({photos.filter((p) => p.folder_id === folder.id).length})
             </button>
             <button
               onClick={(e) => {
