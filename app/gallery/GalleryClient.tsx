@@ -66,6 +66,7 @@ interface FetchedGalleryPageData {
   total: number;
   rootFolderName: string;
   folders: GalleryFolder[];
+  hideRootFolder: boolean;
 }
 
 type GallerySortMode = 'time_desc' | 'time_asc';
@@ -119,6 +120,40 @@ function normalizeGalleryFolderId(folderId: string | null | undefined) {
 
 function doesGalleryPhotoBelongToFolder(photo: Photo, folderId: string) {
   return normalizeGalleryFolderId(photo.folder_id) === normalizeGalleryFolderId(folderId);
+}
+
+function normalizeGalleryBoolean(value: unknown, fallback = false): boolean {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+    return false;
+  }
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue !== 0;
+  }
+  return fallback;
+}
+
+function resolveDefaultGalleryFolderId(
+  folders: GalleryFolder[],
+  hideRootFolder: boolean
+): string {
+  if (!hideRootFolder) {
+    return ROOT_GALLERY_FOLDER_ID;
+  }
+  const firstFolder = Array.isArray(folders)
+    ? folders.find((folder) => normalizeGalleryFolder(folder)?.id)
+    : null;
+  return firstFolder ? normalizeGalleryFolderId(firstFolder.id) : ROOT_GALLERY_FOLDER_ID;
 }
 
 
@@ -198,11 +233,15 @@ function normalizeGalleryFolder(folder: unknown): GalleryFolder | null {
 function buildGalleryFolderList(
   incomingFolders: unknown,
   rootFolderName: string,
-  previousFolders: GalleryFolder[] = []
+  previousFolders: GalleryFolder[] = [],
+  options?: { includeRoot?: boolean }
 ): GalleryFolder[] {
   const resolvedRootName = String(rootFolderName || '').trim() || '根目录';
-  const mergedFolders: GalleryFolder[] = [{ id: ROOT_GALLERY_FOLDER_ID, name: resolvedRootName }];
-  const seenIds = new Set<string>([ROOT_GALLERY_FOLDER_ID]);
+  const includeRoot = options?.includeRoot !== false;
+  const mergedFolders: GalleryFolder[] = includeRoot
+    ? [{ id: ROOT_GALLERY_FOLDER_ID, name: resolvedRootName }]
+    : [];
+  const seenIds = new Set<string>(includeRoot ? [ROOT_GALLERY_FOLDER_ID] : []);
 
   const appendFolders = (source: unknown) => {
     if (!Array.isArray(source)) {
@@ -241,6 +280,9 @@ interface GalleryRootCachePayload {
   total: number;
   folders: GalleryFolder[];
   rootFolderName: string;
+  hideRootFolder: boolean;
+  folderSnapshotReady: boolean;
+  targetFolderId: string;
   cachedAt: number;
 }
 
@@ -249,6 +291,9 @@ const createEmptyGalleryRootCache = (): GalleryRootCachePayload => ({
   total: 0,
   folders: [],
   rootFolderName: '根目录',
+  hideRootFolder: false,
+  folderSnapshotReady: false,
+  targetFolderId: ROOT_GALLERY_FOLDER_ID,
   cachedAt: 0,
 });
 
@@ -257,8 +302,10 @@ function resolveGalleryRootFolderName(value: unknown): string {
   return normalized || '根目录';
 }
 
-function hasGalleryRootCacheContent(cache: Pick<GalleryRootCachePayload, 'photos' | 'folders'>): boolean {
-  return cache.photos.length > 0 || cache.folders.length > 1;
+function hasGalleryRootCacheContent(
+  cache: Pick<GalleryRootCachePayload, 'photos' | 'folders' | 'hideRootFolder'>
+): boolean {
+  return cache.photos.length > 0 || cache.folders.length > (cache.hideRootFolder ? 0 : 1);
 }
 
 let galleryMemoryCache: GalleryRootCachePayload = createEmptyGalleryRootCache();
@@ -277,13 +324,30 @@ const readGalleryMemoryCache = (): Omit<GalleryRootCachePayload, 'cachedAt'> | n
     return null;
   }
 
+  if (!normalizeGalleryBoolean(galleryMemoryCache.folderSnapshotReady, false)) {
+    return null;
+  }
+
   const normalizedRootFolderName = resolveGalleryRootFolderName(galleryMemoryCache.rootFolderName);
+  const hideRootFolder = normalizeGalleryBoolean(galleryMemoryCache.hideRootFolder, false);
+  const normalizedFolders = buildGalleryFolderList(
+    galleryMemoryCache.folders,
+    normalizedRootFolderName,
+    [],
+    { includeRoot: !hideRootFolder }
+  );
+  const targetFolderId = normalizeGalleryFolderId(
+    galleryMemoryCache.targetFolderId || resolveDefaultGalleryFolderId(normalizedFolders, hideRootFolder)
+  );
 
   return {
     photos: galleryMemoryCache.photos.map((photo) => ({ ...photo })),
     total: galleryMemoryCache.total,
-    folders: buildGalleryFolderList(galleryMemoryCache.folders, normalizedRootFolderName),
+    folders: normalizedFolders,
     rootFolderName: normalizedRootFolderName,
+    hideRootFolder,
+    folderSnapshotReady: true,
+    targetFolderId,
   };
 };
 
@@ -291,12 +355,28 @@ const writeGalleryMemoryCache = (
   photos: Photo[],
   total: number,
   folders: GalleryFolder[],
-  rootFolderName: string
+  rootFolderName: string,
+  hideRootFolder: boolean,
+  targetFolderId: string,
+  folderSnapshotReady: boolean
 ) => {
   const normalizedRootFolderName = resolveGalleryRootFolderName(rootFolderName);
-  const normalizedFolders = buildGalleryFolderList(folders, normalizedRootFolderName);
+  const normalizedHideRootFolder = normalizeGalleryBoolean(hideRootFolder, false);
+  const normalizedFolderSnapshotReady = normalizeGalleryBoolean(folderSnapshotReady, false);
+  const normalizedFolders = buildGalleryFolderList(
+    folders,
+    normalizedRootFolderName,
+    [],
+    { includeRoot: !normalizedHideRootFolder }
+  );
+  const normalizedTargetFolderId = normalizeGalleryFolderId(
+    targetFolderId || resolveDefaultGalleryFolderId(normalizedFolders, normalizedHideRootFolder)
+  );
 
-  if (photos.length === 0 && normalizedFolders.length <= 1) {
+  if (
+    !normalizedFolderSnapshotReady ||
+    (photos.length === 0 && normalizedFolders.length <= (normalizedHideRootFolder ? 0 : 1))
+  ) {
     galleryMemoryCache = createEmptyGalleryRootCache();
     return;
   }
@@ -306,6 +386,9 @@ const writeGalleryMemoryCache = (
     total,
     folders: normalizedFolders.map((folder) => ({ ...folder })),
     rootFolderName: normalizedRootFolderName,
+    hideRootFolder: normalizedHideRootFolder,
+    folderSnapshotReady: normalizedFolderSnapshotReady,
+    targetFolderId: normalizedTargetFolderId,
     cachedAt: Date.now(),
   };
 };
@@ -432,7 +515,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     String.fromCodePoint(0x7167, 0x7247, 0x5899),
     String.fromCodePoint(0x1f4f8) + ' ' + String.fromCodePoint(0x8d29, 0x5356, 0x4eba, 0x95f4, 0x8def, 0x8fc7, 0x7684, 0x6e29, 0x67d4) + ' ' + String.fromCodePoint(0x1f4f8)
   );
-  const [selectedFolderId, setSelectedFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
 
   const [galleryCacheToken] = useState<string>(() => {
     const shouldForceRefresh = consumeGalleryCacheDirtyFlag();
@@ -450,15 +532,28 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     initialPhotos.length > 0 || shouldForceRefreshFromDirty
       ? null
       : readGalleryMemoryCache();
+  const hydratedInitialSelectedFolderId = normalizeGalleryFolderId(
+    memoryGallery?.targetFolderId ?? ROOT_GALLERY_FOLDER_ID
+  );
   const hydratedInitialRootFolderName = memoryGallery?.rootFolderName ?? '根目录';
-  const hydratedInitialFolders = memoryGallery?.folders ?? buildGalleryFolderList([], hydratedInitialRootFolderName);
+  const hydratedInitialHideRootFolder = memoryGallery?.hideRootFolder ?? false;
+  const hydratedInitialFolderSnapshotReady = memoryGallery?.folderSnapshotReady ?? false;
+  const hydratedInitialFolders = memoryGallery?.folders ?? buildGalleryFolderList(
+    [],
+    hydratedInitialRootFolderName,
+    [],
+    { includeRoot: !hydratedInitialHideRootFolder }
+  );
   const hydratedInitialPhotos = memoryGallery?.photos ?? initialPhotos;
   const hydratedInitialTotal = memoryGallery?.total ?? initialTotal;
   const hydratedInitialPage = memoryGallery ? 1 : initialPage;
   const hasHydratedInitialGalleryData = Boolean(memoryGallery) || initialPhotos.length > 0;
 
+  const [selectedFolderId, setSelectedFolderId] = useState<string>(hydratedInitialSelectedFolderId);
   const [folders, setFolders] = useState<GalleryFolder[]>(hydratedInitialFolders);
   const [rootFolderName, setRootFolderName] = useState<string>(hydratedInitialRootFolderName);
+  const [hideRootFolder, setHideRootFolder] = useState<boolean>(hydratedInitialHideRootFolder);
+  const [folderSnapshotReady, setFolderSnapshotReady] = useState<boolean>(hydratedInitialFolderSnapshotReady);
   const [hasInitialContentReady, setHasInitialContentReady] = useState<boolean>(hasHydratedInitialGalleryData);
   const backendState = useBackendRecoveryState();
   const [showTagGuide, setShowTagGuide] = useState(false);
@@ -467,7 +562,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const [filterMode, setFilterMode] = useState<GalleryFilterMode>('all');
   const [filterDateStart, setFilterDateStart] = useState('');
   const [filterDateEnd, setFilterDateEnd] = useState('');
-  const [tempFolderId, setTempFolderId] = useState<string>(ROOT_GALLERY_FOLDER_ID);
+  const [tempFolderId, setTempFolderId] = useState<string>(hydratedInitialSelectedFolderId);
   const [tempFilterPreset, setTempFilterPreset] = useState<GalleryFilterPreset>('default_desc');
   const [tempFilterDateStart, setTempFilterDateStart] = useState('');
   const [tempFilterDateEnd, setTempFilterDateEnd] = useState('');
@@ -529,7 +624,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const paginationZoneArmedRef = useRef(true);
   const autoFillRemainingRef = useRef(GALLERY_INITIAL_AUTOFILL_MAX_BATCHES);
   const pageSize = 20;
-  const GALLERY_CACHE_KEY = `${GALLERY_PAGE_CACHE_KEY}_${selectedFolderId}`;
+  const GALLERY_CACHE_KEY = `${GALLERY_PAGE_CACHE_KEY}_${ROOT_GALLERY_FOLDER_ID}`;
   const maxFilterDate = useMemo(() => getTodayUTC8(), []);
   const activeFilterPreset = useMemo(
     () => getActiveGalleryFilterPreset(filterMode, sortMode),
@@ -573,10 +668,19 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     allPhotosRef.current = allPhotos;
     pageRef.current = page;
     selectedFolderIdRef.current = selectedFolderId;
-    if (selectedFolderId === ROOT_GALLERY_FOLDER_ID) {
-      writeGalleryMemoryCache(allPhotos, Math.max(total, allPhotos.length), folders, rootFolderName);
+    const defaultFolderId = resolveDefaultGalleryFolderId(folders, hideRootFolder);
+    if (selectedFolderId === defaultFolderId) {
+      writeGalleryMemoryCache(
+        allPhotos,
+        Math.max(total, allPhotos.length),
+        folders,
+        rootFolderName,
+        hideRootFolder,
+        selectedFolderId,
+        folderSnapshotReady
+      );
     }
-  }, [allPhotos, folders, page, rootFolderName, selectedFolderId, total]);
+  }, [allPhotos, folderSnapshotReady, folders, hideRootFolder, page, rootFolderName, selectedFolderId, total]);
 
   useEffect(() => () => {
     if (appendScrollRestoreRafRef.current !== null && typeof window !== 'undefined') {
@@ -616,13 +720,22 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }, [allPhotos.length]);
 
   useEffect(() => {
-    if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
     if (!memoryGallery) return;
 
     const nextRootFolderName = resolveGalleryRootFolderName(memoryGallery.rootFolderName);
-    const nextFolders = buildGalleryFolderList(memoryGallery.folders, nextRootFolderName);
+    const nextHideRootFolder = normalizeGalleryBoolean(memoryGallery.hideRootFolder, false);
+    const nextFolderSnapshotReady = normalizeGalleryBoolean(memoryGallery.folderSnapshotReady, false);
+    const nextFolders = buildGalleryFolderList(
+      memoryGallery.folders,
+      nextRootFolderName,
+      [],
+      { includeRoot: !nextHideRootFolder }
+    );
     const hasFolderChanges =
-      nextRootFolderName !== rootFolderName
+      nextFolderSnapshotReady !== folderSnapshotReady
+      || nextHideRootFolder !== hideRootFolder
+      || selectedFolderId !== normalizeGalleryFolderId(memoryGallery.targetFolderId)
+      || nextRootFolderName !== rootFolderName
       || nextFolders.length !== folders.length
       || nextFolders.some((folder, index) => {
         const currentFolder = folders[index];
@@ -631,9 +744,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     if (!hasFolderChanges) return;
 
+    setFolderSnapshotReady(nextFolderSnapshotReady);
+    setHideRootFolder(nextHideRootFolder);
     setRootFolderName(nextRootFolderName);
     setFolders(nextFolders);
-  }, [folders, memoryGallery, rootFolderName, selectedFolderId]);
+  }, [folderSnapshotReady, folders, hideRootFolder, memoryGallery, rootFolderName, selectedFolderId]);
 
   const showPaginationSkeletons = useCallback((pageNo: number, folderId: string, pagePhotos?: Photo[]) => {
     const normalizedFolderId = String(folderId || ROOT_GALLERY_FOLDER_ID).trim() || ROOT_GALLERY_FOLDER_ID;
@@ -683,6 +798,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         total: 0,
         rootFolderName,
         folders,
+        hideRootFolder,
       };
     }
 
@@ -702,6 +818,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         total: 0,
         rootFolderName,
         folders,
+        hideRootFolder,
       };
     }
 
@@ -714,22 +831,34 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       typeof payload.root_folder_name === 'string' && payload.root_folder_name.trim()
         ? payload.root_folder_name.trim()
         : rootFolderName;
+    const nextHideRootFolder = normalizeGalleryBoolean(
+      (payload as { hide_root_folder?: unknown; hideRootFolder?: unknown }).hide_root_folder
+        ?? (payload as { hide_root_folder?: unknown; hideRootFolder?: unknown }).hideRootFolder,
+      false
+    );
     const nextFolders = buildGalleryFolderList(
       Array.isArray(payload.folders) ? payload.folders : folders,
       nextRootFolderName,
-      folders
+      folders,
+      { includeRoot: !nextHideRootFolder }
+    );
+    const resolvedFolderId = normalizeGalleryFolderId(
+      String((payload as { folder_id?: unknown; folderId?: unknown }).folder_id
+        ?? (payload as { folder_id?: unknown; folderId?: unknown }).folderId
+        ?? folderId)
     );
 
     return {
       errorMessage: '',
       pageNo,
-      targetFolderId: folderId,
+      targetFolderId: resolvedFolderId,
       rows: pagePhotos,
       total: Math.max(0, Number(payload.total ?? 0) || 0),
       rootFolderName: nextRootFolderName,
       folders: nextFolders,
+      hideRootFolder: nextHideRootFolder,
     };
-  }, [folders, pageSize, rootFolderName]);
+  }, [folders, hideRootFolder, pageSize, rootFolderName]);
 
   const prefetchGalleryPage = useCallback(async (
     pageNo: number,
@@ -795,6 +924,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     options?: { silent?: boolean }
   ) => {
     const isFirstPage = pageNo === 1;
+    const resolvedFolderId = normalizeGalleryFolderId(pageData.targetFolderId || targetFolderId);
     const mergedPhotos = isFirstPage
       ? pageData.rows
       : appendUniquePhotos(allPhotosRef.current, pageData.rows);
@@ -812,6 +942,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       ? pageData.rows.length >= pageSize && mergedPhotos.length < nextTotal
       : pageData.rows.length >= pageSize;
 
+    setFolderSnapshotReady(true);
+    setHideRootFolder(pageData.hideRootFolder);
     setRootFolderName(pageData.rootFolderName);
     setFolders(pageData.folders);
     setAllPhotos(mergedPhotos);
@@ -820,7 +952,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     setPage(pageNo);
     setHasMore(nextHasMore);
     if (isFirstPage) {
-      resolvedFirstPageFolderIdRef.current = targetFolderId;
+      selectedFolderIdRef.current = resolvedFolderId;
+      resolvedFirstPageFolderIdRef.current = resolvedFolderId;
+      setSelectedFolderId(resolvedFolderId);
+      setTempFolderId(resolvedFolderId);
       if (options?.silent) {
         setPendingTagPhotoIds(
           Array.from(
@@ -838,16 +973,20 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
     setIsSwitchingTag(false);
 
-    if (targetFolderId === ROOT_GALLERY_FOLDER_ID && isFirstPage) {
-      const galleryCacheKey = `${GALLERY_PAGE_CACHE_KEY}_${targetFolderId}`;
+    const defaultFolderId = resolveDefaultGalleryFolderId(pageData.folders, pageData.hideRootFolder);
+    if (resolvedFolderId === defaultFolderId && isFirstPage) {
+      const galleryCacheKey = `${GALLERY_PAGE_CACHE_KEY}_${ROOT_GALLERY_FOLDER_ID}`;
       try {
-        if (mergedPhotos.length > 0 || pageData.folders.length > 1) {
+        if (mergedPhotos.length > 0 || pageData.folders.length > (pageData.hideRootFolder ? 0 : 1)) {
           localStorage.setItem(
             galleryCacheKey,
             JSON.stringify({
               photos: mergedPhotos,
               total: nextTotal || mergedPhotos.length,
               folders: pageData.folders,
+              folder_id: resolvedFolderId,
+              folder_snapshot_ready: 1,
+              hide_root_folder: pageData.hideRootFolder,
               root_folder_name: pageData.rootFolderName,
               cachedAt: Date.now(),
             })
@@ -860,7 +999,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
 
     if (nextHasMore) {
-      void prefetchGalleryPage(pageNo + 1, targetFolderId);
+      void prefetchGalleryPage(pageNo + 1, resolvedFolderId);
     } else {
       invalidateGalleryPrefetch(false);
     }
@@ -966,7 +1105,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   // 无初始数据时尝试读取本地缓存，避免反复进入加载动画
   useEffect(() => {
-    if (selectedFolderId !== ROOT_GALLERY_FOLDER_ID) return;
     if (shouldForceRefreshFromDirty) return;
     if (memoryGallery) return;
     if (initialPhotos.length > 0) return;
@@ -980,13 +1118,27 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
         photos?: Photo[];
         total?: number;
         folders?: unknown;
+        folder_id?: string;
+        folder_snapshot_ready?: boolean | number | string;
+        hide_root_folder?: boolean | number | string;
         root_folder_name?: string;
         cachedAt?: number;
       };
+      const cachedFolderSnapshotReady = normalizeGalleryBoolean(parsed?.folder_snapshot_ready, false);
+      if (!cachedFolderSnapshotReady) return;
       const cachedPhotos = Array.isArray(parsed?.photos) ? parsed.photos : [];
       const cachedRootFolderName = resolveGalleryRootFolderName(parsed?.root_folder_name);
-      const cachedFolders = buildGalleryFolderList(parsed?.folders, cachedRootFolderName);
-      if (cachedPhotos.length === 0 && cachedFolders.length <= 1) return;
+      const cachedHideRootFolder = normalizeGalleryBoolean(parsed?.hide_root_folder, false);
+      const cachedFolders = buildGalleryFolderList(
+        parsed?.folders,
+        cachedRootFolderName,
+        [],
+        { includeRoot: !cachedHideRootFolder }
+      );
+      const cachedTargetFolderId = normalizeGalleryFolderId(
+        parsed?.folder_id ?? resolveDefaultGalleryFolderId(cachedFolders, cachedHideRootFolder)
+      );
+      if (cachedPhotos.length === 0 && cachedFolders.length <= (cachedHideRootFolder ? 0 : 1)) return;
 
       const isExpired = typeof parsed.cachedAt === 'number' && Date.now() - parsed.cachedAt > 30 * 60 * 1000;
       if (isExpired || photoListHasMissingDimensions(cachedPhotos)) {
@@ -995,6 +1147,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       }
 
       const cachedTotal = typeof parsed.total === 'number' ? parsed.total : cachedPhotos.length;
+      selectedFolderIdRef.current = cachedTargetFolderId;
+      setSelectedFolderId(cachedTargetFolderId);
+      setTempFolderId(cachedTargetFolderId);
+      setFolderSnapshotReady(true);
+      setHideRootFolder(cachedHideRootFolder);
       setRootFolderName(cachedRootFolderName);
       setFolders(cachedFolders);
       setAllPhotos(cachedPhotos);
@@ -1002,11 +1159,11 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       setPage(1);
       setHasMore(cachedPhotos.length < cachedTotal);
       setHasInitialContentReady(true);
-      resolvedFirstPageFolderIdRef.current = ROOT_GALLERY_FOLDER_ID;
+      resolvedFirstPageFolderIdRef.current = cachedTargetFolderId;
     } catch {
       // 忽略缓存解析失败
     }
-  }, [GALLERY_CACHE_KEY, initialPhotos.length, allPhotos.length, memoryGallery, selectedFolderId, shouldForceRefreshFromDirty]);
+  }, [GALLERY_CACHE_KEY, allPhotos.length, initialPhotos.length, memoryGallery, shouldForceRefreshFromDirty]);
 
   const requestNextPage = useCallback(() => {
     if (isLoading || isLoadingMoreRef.current || !hasMore) {
@@ -1420,12 +1577,12 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   }, [activeFilterPreset, normalizedFilterDateEnd, normalizedFilterDateStart, selectedFolderId]);
 
   const handleResetFolderSelector = useCallback(() => {
-    setTempFolderId(ROOT_GALLERY_FOLDER_ID);
+    setTempFolderId(resolveDefaultGalleryFolderId(folders, hideRootFolder));
     setTempFilterPreset('default_desc');
     setTempFilterDateStart('');
     setTempFilterDateEnd('');
     setFilterModalError('');
-  }, []);
+  }, [folders, hideRootFolder]);
 
   const handleApplyFolderSelector = useCallback(() => {
     const nextPreset = String(tempFilterPreset || activeFilterPreset);

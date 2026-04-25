@@ -315,6 +315,18 @@ function resolveAlbumFolderFilter(folderIdInput: unknown): {
   };
 }
 
+function createNeverMatchAlbumFolderFilter(): {
+  clause: string;
+  params: Record<string, unknown>;
+  normalizedFolderId: string | null;
+} {
+  return {
+    clause: '1 = 0',
+    params: {},
+    normalizedFolderId: null,
+  };
+}
+
 function mapAlbumPhotoRow(
   row: Record<string, any>,
   commentsByPhotoId?: Map<string, Array<Record<string, any>>>
@@ -399,6 +411,11 @@ let albumWelcomeLetterModeColumnCache: {
 } | null = null;
 
 let albumFolderHiddenColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumHideRootFolderColumnCache: {
   value: boolean;
   expiresAt: number;
 } | null = null;
@@ -577,6 +594,39 @@ async function hasAlbumFolderHiddenColumn(): Promise<boolean> {
   }
 
   albumFolderHiddenColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumHideRootFolderColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumHideRootFolderColumnCache && albumHideRootFolderColumnCache.expiresAt > now) {
+    return albumHideRootFolderColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'albums'
+          AND column_name = 'hide_root_folder'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
+    exists = false;
+  }
+
+  albumHideRootFolderColumnCache = {
     value: exists,
     expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
   };
@@ -1169,6 +1219,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
   const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
   const hasFolderHiddenColumn = await hasAlbumFolderHiddenColumn();
+  const hasHideRootFolderColumn = await hasAlbumHideRootFolderColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
   const shotLocationSelect = hasShotLocationColumn
     ? 'p.shot_location AS shot_location'
@@ -1177,13 +1228,16 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     ? 'p.download_count AS download_count'
     : '0 AS download_count';
   const folderHiddenSelect = hasFolderHiddenColumn ? 'is_hidden' : '0 AS is_hidden';
+  const hideRootFolderSelect = hasHideRootFolderColumn
+    ? 'hide_root_folder'
+    : '0 AS hide_root_folder';
   const photoOrderBy = hasShotDateColumn
     ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
     : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
 
   const wallMetaResult = await executeSQL(
     `
-      SELECT root_folder_name
+      SELECT root_folder_name, ${hideRootFolderSelect}
       FROM albums
       WHERE id = {{wall_album_id}}
       LIMIT 1
@@ -1193,6 +1247,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     }
   );
   const wallMetaRow = wallMetaResult.rows[0];
+  const hideRootFolder = toBoolean(wallMetaRow?.hide_root_folder);
 
   const foldersResult = await executeSQL(
     `
@@ -1212,11 +1267,24 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
       .map((row) => String(row?.id ?? '').trim())
       .filter(Boolean)
   );
+  const visibleFolders = folderRows.filter(
+    (row) => !hiddenFolderIds.has(String(row?.id ?? '').trim())
+  );
+  const firstVisibleFolderId = visibleFolders[0]
+    ? String(visibleFolders[0].id ?? '').trim() || null
+    : null;
   const requestedFolderFilter = resolveAlbumFolderFilter(args.folder_id);
-  const folderFilter =
-    requestedFolderFilter.normalizedFolderId && hiddenFolderIds.has(requestedFolderFilter.normalizedFolderId)
-      ? resolveAlbumFolderFilter(null)
-      : requestedFolderFilter;
+  const fallbackFolderFilter = hideRootFolder
+    ? (firstVisibleFolderId ? resolveAlbumFolderFilter(firstVisibleFolderId) : createNeverMatchAlbumFolderFilter())
+    : resolveAlbumFolderFilter(null);
+  let folderFilter = requestedFolderFilter;
+  if (requestedFolderFilter.normalizedFolderId) {
+    if (hiddenFolderIds.has(requestedFolderFilter.normalizedFolderId)) {
+      folderFilter = fallbackFolderFilter;
+    }
+  } else if (hideRootFolder) {
+    folderFilter = fallbackFolderFilter;
+  }
   const wallValues: Record<string, unknown> = {
     wall_album_id: SYSTEM_WALL_ALBUM_ID,
     ...folderFilter.params,
@@ -1342,11 +1410,10 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     })),
     total: toNumber(countResult.rows[0]?.total, 0),
     folder_id: folderFilter.normalizedFolderId,
+    hide_root_folder: hideRootFolder,
     root_folder_name:
       String(wallMetaRow?.root_folder_name ?? '').trim() || '根目录',
-    folders: folderRows
-      .filter((row) => !hiddenFolderIds.has(String(row?.id ?? '').trim()))
-      .map((row) => ({
+    folders: visibleFolders.map((row) => ({
       id: String(row.id),
       name: String(row.name ?? ''),
       sort_order: toNumber(row.sort_order, 2147483647),

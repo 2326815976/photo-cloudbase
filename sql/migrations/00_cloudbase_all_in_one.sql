@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS albums (
   enable_welcome_letter TINYINT(1) NOT NULL DEFAULT 1,
   welcome_letter_mode VARCHAR(24) NOT NULL DEFAULT 'envelope',
   enable_freeze TINYINT(1) NOT NULL DEFAULT 1,
+  hide_root_folder TINYINT(1) NOT NULL DEFAULT 0,
   donation_qr_code_url VARCHAR(1024) NULL,
   expires_at DATETIME NULL,
   created_by CHAR(36) NULL,

@@ -13,8 +13,17 @@ function pickBestAddress(result: Record<string, any>): string {
   const streetNumber = normalizeText(result?.address_component?.street_number);
   const landmarkL2 = normalizeText(result?.address_reference?.landmark_l2?.title);
   const landmarkL1 = normalizeText(result?.address_reference?.landmark_l1?.title);
+  const poi = Array.isArray(result?.pois)
+    ? result.pois.find((item: any) => item && typeof item === 'object')
+    : null;
+  const poiTitle = normalizeText(poi?.title ?? poi?.name);
+  const poiAddress = normalizeText(poi?.address ?? poi?.addr);
+  const poiText =
+    poiTitle && poiAddress && !poiAddress.includes(poiTitle)
+      ? `${poiTitle}（${poiAddress}）`
+      : poiTitle || poiAddress;
 
-  let address = recommendedAddress || formattedAddress || roughAddress;
+  let address = recommendedAddress || poiText || formattedAddress || roughAddress;
   const streetDetail = `${street}${streetNumber}`.trim();
   const landmark = landmarkL2 || landmarkL1;
 
@@ -57,6 +66,7 @@ export async function POST(request: NextRequest) {
         rawAddress: normalizeText(result.address),
         formattedAddresses: result.formatted_addresses ?? undefined,
         addressReference: result.address_reference ?? undefined,
+        pois: Array.isArray(result.pois) ? result.pois : undefined,
         addressComponent: {
           cityName: String(component.city ?? adInfo.city ?? '').trim(),
           province: String(component.province ?? adInfo.province ?? '').trim(),

@@ -12,6 +12,14 @@ function normalizeRoutePath(input: unknown) {
   return text.startsWith('/') ? text : `/${text}`;
 }
 
+function normalizeEnvVersion(input: unknown): 'release' | 'trial' | 'develop' {
+  const value = String(input || '').trim().toLowerCase();
+  if (value === 'release' || value === 'trial' || value === 'develop') {
+    return value;
+  }
+  return 'trial';
+}
+
 async function getWechatAccessToken() {
   const now = Date.now();
   if (cachedAccessToken && cachedAccessTokenExpiresAt - now > 60_000) {
@@ -49,13 +57,14 @@ async function getWechatAccessToken() {
   return cachedAccessToken;
 }
 
-async function generateMiniProgramScheme(routePathInput: unknown) {
+async function generateMiniProgramScheme(routePathInput: unknown, envVersionInput: unknown = 'trial') {
   const normalizedRoute = normalizeRoutePath(routePathInput);
   if (!normalizedRoute) {
     throw new Error('缺少小程序预览路由');
   }
 
   const [pathPart, queryPart] = normalizedRoute.split('?');
+  const envVersion = normalizeEnvVersion(envVersionInput);
   const accessToken = await getWechatAccessToken();
   const requestUrl = new URL('https://api.weixin.qq.com/wxa/generatescheme');
   requestUrl.searchParams.set('access_token', accessToken);
@@ -70,7 +79,7 @@ async function generateMiniProgramScheme(routePathInput: unknown) {
       jump_wxa: {
         path: String(pathPart || '').replace(/^\//, ''),
         query: String(queryPart || '').trim(),
-        env_version: 'release',
+        env_version: envVersion,
       },
       is_expire: true,
       expire_interval: 1800,
@@ -99,16 +108,19 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as Record<string, unknown>;
     const routePath = normalizeRoutePath(body.routePath);
+    const envVersion = normalizeEnvVersion(
+      body.envVersion || process.env.WX_MINI_SCHEME_ENV_VERSION || 'trial'
+    );
     if (!routePath) {
       return NextResponse.json({ error: '缺少小程序预览路由' }, { status: 400 });
     }
 
-    const openlink = await generateMiniProgramScheme(routePath);
+    const openlink = await generateMiniProgramScheme(routePath, envVersion);
     return NextResponse.json({ success: true, openlink });
   } catch (error) {
-    console.error('生成小程序查看 Scheme 失败:', error);
+    console.error('生成小程序预览 Scheme 失败:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : '生成小程序查看 Scheme 失败' },
+      { error: error instanceof Error ? error.message : '生成小程序预览 Scheme 失败' },
       { status: 500 }
     );
   }

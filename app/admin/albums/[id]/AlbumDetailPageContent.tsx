@@ -19,6 +19,7 @@ interface Album {
   title: string;
   access_key: string;
   root_folder_name?: string | null;
+  hide_root_folder?: boolean | null;
 }
 
 interface AlbumFolder {
@@ -64,6 +65,8 @@ const ALBUM_FOLDER_SORT_MIGRATION_HINT = '\u6570\u636e\u5e93\u7f3a\u5c11 album_f
 const ALBUM_FOLDER_VISIBILITY_MIGRATION_HINT = '数据库缺少 album_folders.is_hidden 字段，请先执行 SQL 迁移：photo/sql/migrations/32_album_folder_visibility.sql';
 const ALBUM_PHOTO_SHOT_DATE_MIGRATION_HINT = '数据库缺少 shot_date 字段，请先执行 SQL 迁移：photo/sql/migrations/07_album_photo_shot_date.sql';
 const ALBUM_PHOTO_SHOT_LOCATION_MIGRATION_HINT = '数据库缺少 shot_location 字段，请先执行 SQL 迁移：photo/sql/migrations/08_album_photo_shot_location.sql';
+
+const ALBUM_ROOT_FOLDER_VISIBILITY_MIGRATION_HINT = '数据库缺少 albums.hide_root_folder 字段，请先执行 SQL 迁移：photo/sql/migrations/33_album_root_folder_visibility.sql';
 
 const normalizeStoryText = (value: unknown): string | null => {
   const text = String(value ?? '').trim();
@@ -545,6 +548,53 @@ export function AlbumDetailPageContent({
     setShowEditRootModal(false);
     invalidatePublicGalleryCache();
     setShowToast({ message: '根目录名称已更新', type: 'success' });
+    setTimeout(() => setShowToast(null), 3000);
+  };
+
+  const handleToggleRootFolderVisibility = async () => {
+    if (actionLoading) {
+      return;
+    }
+
+    const nextHidden = !normalizeDbBoolean(album?.hide_root_folder, false);
+    setActionLoading(true);
+    const dbClient = createClient();
+    if (!dbClient) {
+      setActionLoading(false);
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const { data: updatedAlbum, error } = await dbClient
+      .from('albums')
+      .update({ hide_root_folder: nextHidden ? 1 : 0 })
+      .eq('id', albumId)
+      .select('id, hide_root_folder')
+      .maybeSingle();
+
+    setActionLoading(false);
+
+    if (error) {
+      if (isColumnMissingError(error.message || '', 'hide_root_folder')) {
+        setShowToast({ message: ALBUM_ROOT_FOLDER_VISIBILITY_MIGRATION_HINT, type: 'warning' });
+      } else {
+        setShowToast({ message: `更新失败：${error.message}`, type: 'error' });
+      }
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    if (!updatedAlbum) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'warning' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    const resolvedHidden = normalizeDbBoolean(updatedAlbum.hide_root_folder, nextHidden);
+    setAlbum((prev) => (prev ? { ...prev, hide_root_folder: resolvedHidden } : prev));
+    invalidatePublicGalleryCache();
+    setShowToast({ message: resolvedHidden ? '根目录已隐藏' : '根目录已显示', type: 'success' });
     setTimeout(() => setShowToast(null), 3000);
   };
 
@@ -2136,6 +2186,7 @@ export function AlbumDetailPageContent({
     ...folder,
     photoCount: Number(folderPhotoCountMap.get(String(folder.id)) || 0),
   }));
+  const rootFolderHidden = normalizeDbBoolean(album?.hide_root_folder, false);
   const selectedFolderEntity = selectedFolder
     ? folders.find((folder) => String(folder.id) === String(selectedFolder)) || null
     : null;
@@ -2146,7 +2197,9 @@ export function AlbumDetailPageContent({
   const canMoveSelectedFolderUp = selectedFolderIndex > 0;
   const canMoveSelectedFolderDown = selectedFolderIndex >= 0 && selectedFolderIndex < folders.length - 1;
   const selectedFolderName = selectedFolderEntity ? String(selectedFolderEntity.name || '').trim() : rootFolderName;
-  const selectedFolderHidden = selectedFolderEntity ? normalizeDbBoolean(selectedFolderEntity.is_hidden, false) : false;
+  const selectedFolderHidden = selectedFolderEntity
+    ? normalizeDbBoolean(selectedFolderEntity.is_hidden, false)
+    : rootFolderHidden;
   const currentFolderLoadedCount = filteredPhotos.length;
   const currentFolderDisplayTotalCount = Math.max(currentFolderTotalCount, currentFolderLoadedCount);
   const systemWallRows = filteredPhotos.map((photo) => {
@@ -2321,7 +2374,7 @@ export function AlbumDetailPageContent({
                     className={`folder-tab ${selectedFolder === null ? 'folder-tab--active' : ''}`}
                     onClick={() => handleSelectFolder(null)}
                   >
-                    <span className="folder-tab__text">{rootFolderName} ({rootPhotoCount})</span>
+                    <span className="folder-tab__text">{rootFolderName}{rootFolderHidden ? ' ·已隐藏' : ''} ({rootPhotoCount})</span>
                   </button>
                 </div>
                 {foldersWithCounts.map((folder) => (
@@ -2349,6 +2402,14 @@ export function AlbumDetailPageContent({
                       >
                         编辑根目录
                       </button>
+                    <button
+                      type="button"
+                      className="folder-current-action-btn folder-current-action-btn--edit folder-current-action-btn--single"
+                      onClick={handleToggleRootFolderVisibility}
+                      disabled={actionLoading}
+                    >
+                      {rootFolderHidden ? '显示根目录' : '隐藏根目录'}
+                    </button>
                     </>
                   ) : selectedFolderEntity ? (
                     <>
@@ -2703,7 +2764,7 @@ export function AlbumDetailPageContent({
               selectedFolder === null ? 'bg-[#FFC857] text-[#5D4037] shadow-sm' : 'bg-white text-[#5D4037] border border-[#5D4037]/20 hover:bg-[#5D4037]/5'
             }`}
           >
-            {rootFolderName} ({photos.filter((p) => !p.folder_id).length})
+            {rootFolderName}{rootFolderHidden ? ' ·已隐藏' : ''} ({photos.filter((p) => !p.folder_id).length})
           </button>
           <button
             onClick={(e) => {
@@ -3318,7 +3379,7 @@ export function AlbumDetailPageContent({
                 >
                   <span className="flex items-center gap-2 min-w-0">
                     <Folder className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{rootFolderName}</span>
+                    <span className="truncate">{rootFolderName}{rootFolderHidden ? ' ·已隐藏' : ''}</span>
                   </span>
                   <span className="text-xs">{photos.filter((p) => !p.folder_id).length}</span>
                 </button>

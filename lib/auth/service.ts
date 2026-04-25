@@ -165,6 +165,18 @@ export async function findUserById(userId: string): Promise<Record<string, any> 
   return result.rows[0] ?? null;
 }
 
+async function readLatestAuthUserById(userId: string, fallbackName?: string): Promise<AuthUser | null> {
+  const latestUser = await findUserById(userId);
+  if (!latestUser) {
+    return null;
+  }
+
+  return toAuthUser({
+    ...latestUser,
+    name: normalizeOptionalAuthText(latestUser.name) || normalizeWechatMiniNickName(fallbackName),
+  });
+}
+
 export async function updateUserProfile(
   userId: string,
   input: {
@@ -465,77 +477,35 @@ async function exchangeWechatMiniCode(code: string): Promise<{ openid: string; u
   };
 }
 
-async function syncWechatMiniProfile(
+async function ensureWechatMiniProfile(
   userId: string,
   profileEmail: string | null,
   profileRole: 'admin' | 'user',
   nickName?: string
 ): Promise<void> {
   const normalizedName = normalizeWechatMiniNickName(nickName);
-
-  const profileResult = await executeSQL(
-    `
-      SELECT name, avatar
-      FROM profiles
-      WHERE id = {{user_id}}
-      LIMIT 1
-    `,
-    { user_id: userId }
-  );
-  const currentProfile = profileResult.rows[0] ?? null;
-
-  if (!currentProfile) {
-    try {
-      await executeSQL(
-        `
-          INSERT INTO profiles (
-            id, email, name, avatar, role, phone, created_at
-          ) VALUES (
-            {{id}}, {{email}}, {{name}}, NULL, {{role}}, NULL, ${NOW_UTC8_EXPR}
-          )
-        `,
-        {
-          id: userId,
-          email: profileEmail,
-          name: normalizedName,
-          role: profileRole,
-        }
-      );
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error ?? '');
-      if (!/duplicate entry|1062|er_dup_entry/i.test(message)) {
-        throw error;
+  try {
+    await executeSQL(
+      `
+        INSERT INTO profiles (
+          id, email, name, avatar, role, phone, created_at
+        ) VALUES (
+          {{id}}, {{email}}, {{name}}, NULL, {{role}}, NULL, ${NOW_UTC8_EXPR}
+        )
+      `,
+      {
+        id: userId,
+        email: profileEmail,
+        name: normalizedName,
+        role: profileRole,
       }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (!/duplicate entry|1062|er_dup_entry/i.test(message)) {
+      throw error;
     }
   }
-
-  const updates: string[] = [];
-  const values: Record<string, unknown> = { user_id: userId };
-
-  const currentName = String((currentProfile && currentProfile.name) || '').trim();
-  if (currentName !== normalizedName) {
-    updates.push('name = {{name}}');
-    values.name = normalizedName;
-  }
-
-  const currentAvatar = String((currentProfile && currentProfile.avatar) || '').trim();
-  if (currentAvatar) {
-    updates.push('avatar = NULL');
-  }
-
-  if (!updates.length) {
-    return;
-  }
-
-  await executeSQL(
-    `
-      UPDATE profiles
-      SET ${updates.join(', ')}
-      WHERE id = {{user_id}}
-    `,
-    values
-  );
 }
 
 async function ensureWechatMiniUser(openid: string, nickName?: string): Promise<AuthUser> {
@@ -552,17 +522,19 @@ async function ensureWechatMiniUser(openid: string, nickName?: string): Promise<
     if (Number(existingUser.is_disabled ?? 0) > 0) {
       throw new Error('account_disabled');
     }
-    await syncWechatMiniProfile(
+    await ensureWechatMiniProfile(
       String(existingUser.id),
       existingUser.email ? String(existingUser.email) : null,
       existingUser.role === 'admin' ? 'admin' : 'user',
       normalizedName
     );
-    return toAuthUser({
-      ...existingUser,
-      name: normalizedName,
-      avatar: null,
-    });
+    return (
+      (await readLatestAuthUserById(String(existingUser.id), normalizedName)) ||
+      toAuthUser({
+        ...existingUser,
+        name: normalizeOptionalAuthText(existingUser.name) || normalizedName,
+      })
+    );
   }
 
   const userId = randomUUID();
@@ -614,17 +586,19 @@ async function ensureWechatMiniUser(openid: string, nickName?: string): Promise<
         if (Number(fallbackUser.is_disabled ?? 0) > 0) {
           throw new Error('account_disabled');
         }
-        await syncWechatMiniProfile(
+        await ensureWechatMiniProfile(
           String(fallbackUser.id),
           fallbackUser.email ? String(fallbackUser.email) : null,
           fallbackUser.role === 'admin' ? 'admin' : 'user',
           normalizedName
         );
-        return toAuthUser({
-          ...fallbackUser,
-          name: normalizedName,
-          avatar: null,
-        });
+        return (
+          (await readLatestAuthUserById(String(fallbackUser.id), normalizedName)) ||
+          toAuthUser({
+            ...fallbackUser,
+            name: normalizeOptionalAuthText(fallbackUser.name) || normalizedName,
+          })
+        );
       }
     }
 
