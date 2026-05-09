@@ -79,6 +79,7 @@ export async function POST(request: Request) {
         await upsertPageRegistryItem({
           ...builtIn,
           isActive: true,
+          scopeChannel: channel,
         });
         registryItem = await loadRegistryItemByPageKey(pageKey);
       }

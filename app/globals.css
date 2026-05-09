@@ -169,6 +169,43 @@ body {
   font-family: 'ZQKNNY', 'YouYuan', '幼圆', sans-serif;
 }
 
+.chat-bubble-container {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+.chat-bubble-container * {
+  max-width: 100%;
+}
+
+.chat-bubble-container pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.chat-bubble-container code {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+.chat-bubble-container img,
+.chat-bubble-container video {
+  max-width: 100%;
+  height: auto;
+}
+
+.chat-bubble-container table {
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+
 button.icon-button,
 a.icon-button {
   display: inline-flex;

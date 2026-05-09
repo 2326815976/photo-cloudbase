@@ -351,7 +351,7 @@ export default function MiniProgramRuntimePanel() {
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-[#5D4037]">运行时基础配置</h3>
-                <p className="mt-1 text-xs text-[#8D6E63]">这里维护小程序运行态的兼容配置；页面管理里的首页入口、底栏顺序优先级更高，此处主要用于旧逻辑回退。</p>
+                <p className="mt-1 text-xs text-[#8D6E63]">这里维护小程序运行态基础配置；页面显示隐藏、首页入口与底栏顺序以页面管理为准。</p>
               </div>
               <Smartphone className="h-5 w-5 text-[#8D6E63]" />
             </div>

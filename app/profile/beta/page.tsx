@@ -46,6 +46,32 @@ function normalizeBetaCodeInput(value: string) {
     .slice(0, 8);
 }
 
+function buildWebBetaRoutePath(routePathInput: string | null | undefined, pageKeyInput: string | null | undefined) {
+  const rawRoutePath = String(routePathInput || '').trim();
+  const pageKey = String(pageKeyInput || '').trim();
+  if (!rawRoutePath) {
+    return '';
+  }
+
+  try {
+    const url = new URL(rawRoutePath, 'https://shiguangyao.local');
+    url.searchParams.set('presentation', 'beta');
+    if (pageKey && !url.searchParams.get('page_key')) {
+      url.searchParams.set('page_key', pageKey);
+    }
+    return `${url.pathname}${url.search}`;
+  } catch {
+    const [pathname, rawQuery = ''] = rawRoutePath.split('?');
+    const params = new URLSearchParams(rawQuery);
+    params.set('presentation', 'beta');
+    if (pageKey && !params.get('page_key')) {
+      params.set('page_key', pageKey);
+    }
+    const query = params.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }
+}
+
 export default function ProfileBetaPage() {
   const router = useRouter();
   const { title: managedTitle } = useManagedPageMeta('profile-beta', '内测功能');
@@ -135,7 +161,10 @@ export default function ProfileBetaPage() {
         throw new Error(payload.error || '绑定内测码失败');
       }
 
-      const targetPath = String(payload.data?.route_path_web || payload.data?.route_path || '').trim();
+      const targetPath = buildWebBetaRoutePath(
+        payload.data?.route_path_web || payload.data?.route_path,
+        payload.data?.feature_id
+      );
       setCodeInput('');
       if (targetPath) {
         router.push(targetPath);
@@ -336,7 +365,7 @@ export default function ProfileBetaPage() {
                 <div className="flex flex-col gap-3 sm:gap-3.5">
                   {orderedRows.map((row, index) => {
                     const expiresText = extractDateText(row.expires_at);
-                    const targetPath = row.route_path_web || row.route_path;
+                    const targetPath = buildWebBetaRoutePath(row.route_path_web || row.route_path, row.feature_id);
                     return (
                       <motion.section
                         key={`${row.feature_id}-${row.binding_id}`}

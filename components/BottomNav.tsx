@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, Home, Image, Lock, User } from 'lucide-react';
+import { Calendar, Home, Image, Lock, Sparkles, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { vibrate } from '@/lib/android';
@@ -20,6 +20,7 @@ const ICON_COMPONENT_MAP: Record<string, typeof User> = {
   album: Lock,
   gallery: Image,
   booking: Calendar,
+  assistant: Sparkles,
   profile: User,
 };
 

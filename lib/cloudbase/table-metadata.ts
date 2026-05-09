@@ -55,7 +55,6 @@ const metadataList: TableMetadata[] = [
       'config_key',
       'config_name',
       'scene_code',
-      'legacy_hide_audit',
       'home_mode',
       'guest_profile_mode',
       'auth_mode',

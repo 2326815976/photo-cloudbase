@@ -117,6 +117,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const previewPageKey = String(searchParams?.get('page_key') || '').trim();
   const presentation = String(searchParams?.get('presentation') || '').trim();
   const isPreviewMode = presentation === 'preview' && Boolean(previewPageKey);
+  const isBetaMode = presentation === 'beta' && Boolean(previewPageKey);
   const searchKey = searchParams?.toString() || '';
 
   const managedPage = useMemo(
@@ -126,12 +127,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const shellRuntimeResolved = shellRuntime !== undefined;
   const bottomNavHidden =
     isPreviewMode ||
+    isBetaMode ||
     routeGuardLoading ||
     !shellRuntimeResolved ||
     !shellRuntime ||
     (managedPage ? isSecondaryPageKey(managedPage.pageKey) : false) ||
     managedPage?.publishState === 'beta';
-  const shellBottomSpacingVisible = shellRuntimeResolved ? !bottomNavHidden : !isPreviewMode;
+  const shellBottomSpacingVisible = shellRuntimeResolved ? !bottomNavHidden : !(isPreviewMode || isBetaMode);
   const shellLayoutVars = useMemo(
     () => ({
       ['--app-shell-nav-height' as string]: 'calc(68px + env(safe-area-inset-bottom))',
@@ -397,6 +399,59 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       };
     }
 
+    if (isBetaMode) {
+      setRouteGuardLoading(true);
+      void fetch(
+        `/api/page-center/access?page_key=${encodeURIComponent(previewPageKey)}&channel=web&presentation=beta`,
+        { cache: 'no-store' }
+      )
+        .then(async (response) => {
+          const payload = (await response.json()) as {
+            allowed?: boolean;
+            reason?: string;
+          };
+
+          if (cancelled) return;
+          if (payload.allowed) {
+            setRouteGuardLoading(false);
+            return;
+          }
+
+          const reason = String(payload.reason || '');
+          if (reason === 'unauthorized' || reason === 'forbidden') {
+            redirect('/profile/beta');
+            return;
+          }
+
+          const fallbackPath = resolveManagedPageFallbackPath(shellRuntime, pathname, 'beta');
+          if (fallbackPath) {
+            redirect(fallbackPath);
+            return;
+          }
+
+          setRouteGuardLoading(false);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            const fallbackPath = resolveManagedPageFallbackPath(shellRuntime, pathname, 'beta');
+            if (fallbackPath) {
+              redirect(fallbackPath);
+              return;
+            }
+            setRouteGuardLoading(false);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setRouteGuardLoading(false);
+          }
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (!managedPage) {
       setRouteGuardLoading(false);
       return () => {
@@ -474,7 +529,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       cancelled = true;
       setRouteGuardLoading(false);
     };
-  }, [isAdminRoute, isPreviewMode, managedPage, pathname, previewPageKey, router, searchKey, shellRuntime, shellRuntimeResolved]);
+  }, [isAdminRoute, isBetaMode, isPreviewMode, managedPage, pathname, previewPageKey, router, searchKey, shellRuntime, shellRuntimeResolved]);
 
   useEffect(() => {
     if (isAdminRoute) {

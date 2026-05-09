@@ -146,7 +146,7 @@ const booleanColumnsByTable: Record<string, string[]> = {
   album_photos: ['is_public', 'is_highlight'],
   booking_types: ['is_active'],
   allowed_cities: ['is_active'],
-  miniprogram_runtime_settings: ['legacy_hide_audit', 'is_active'],
+  miniprogram_runtime_settings: ['is_active'],
   feature_beta_routes: ['is_active'],
   feature_beta_versions: ['is_active'],
   app_page_registry: ['is_nav_candidate_web', 'is_tab_candidate_miniprogram', 'supports_beta', 'supports_preview', 'is_builtin', 'is_active'],

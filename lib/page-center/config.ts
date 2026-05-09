@@ -173,7 +173,7 @@ const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEY_SET = new Set<string>(
   PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS
 );
 const REMOVED_APP_PAGE_KEY_SET = new Set<string>(REMOVED_APP_PAGE_KEYS);
-const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>();
+const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>(['ai-assistant']);
 
 export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   login: 'profile',
@@ -305,6 +305,24 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     defaultGuestTabText: '约拍',
     isNavCandidateWeb: true,
     isTabCandidateMiniProgram: true,
+    supportsBeta: true,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'ai-assistant',
+    pageName: 'AI智能助手',
+    pageDescription: 'Web 端智能对话助手',
+    routePathWeb: '/assistant',
+    routePathMiniProgram: '',
+    previewRoutePathWeb: '/assistant?presentation=preview&page_key=ai-assistant',
+    previewRoutePathMiniProgram: '',
+    tabKey: null,
+    iconKey: 'assistant',
+    defaultTabText: 'AI助手',
+    defaultGuestTabText: 'AI助手',
+    isNavCandidateWeb: true,
+    isTabCandidateMiniProgram: false,
     supportsBeta: true,
     supportsPreview: true,
     isBuiltIn: true,
@@ -482,6 +500,7 @@ export const DEFAULT_WEB_NAV_RULES: Array<Pick<AppPagePublishRuleItem, 'pageKey'
   { pageKey: 'gallery', publishState: 'online', showInNav: true, navOrder: 2, navText: '照片墙', guestNavText: '照片墙', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'booking', publishState: 'online', showInNav: true, navOrder: 3, navText: '约拍', guestNavText: '约拍', headerTitle: '', headerSubtitle: '', isHomeEntry: false, notes: '' },
   { pageKey: 'profile', publishState: 'online', showInNav: true, navOrder: 4, navText: '我的', guestNavText: '我的', headerTitle: '我的小天地', headerSubtitle: '📒 管理你的拾光小秘密 📒', isHomeEntry: false, notes: '' },
+  { pageKey: 'ai-assistant', publishState: 'online', showInNav: true, navOrder: 5, navText: 'AI助手', guestNavText: 'AI助手', headerTitle: 'AI智能助手', headerSubtitle: '✨ 随时陪你聊灵感、行程与拍摄想法 ✨', isHomeEntry: false, notes: '' },
 ];
 
 export const DEFAULT_SECONDARY_PAGE_RULES: Array<

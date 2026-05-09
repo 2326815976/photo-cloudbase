@@ -28,7 +28,7 @@ import {
   WebPageAccessItem,
   WebShellRuntime,
 } from '@/lib/page-center/config';
-import { canPageShowInNav, MAX_MINIPROGRAM_NAV_ITEMS } from '@/lib/page-center/capabilities';
+import { canPageShowInNav, MAX_MINIPROGRAM_NAV_ITEMS, MAX_WEB_NAV_ITEMS } from '@/lib/page-center/capabilities';
 import {
   loadLegacyOverviewBetaCodes,
   mergeCompatibleAdminBetaCodes,
@@ -367,14 +367,24 @@ function compareNavView(
   return left.routePath.localeCompare(right.routePath);
 }
 
-function applyMiniProgramNavLimitToViews<T extends { pageKey: string; publishState: AppPagePublishRuleItem['publishState']; showInNav: boolean; navOrder: number; routePath: string; isHomeEntry: boolean }>(
-  items: T[]
+function applyChannelNavLimitToViews<
+  T extends {
+    pageKey: string;
+    publishState: AppPagePublishRuleItem['publishState'];
+    showInNav: boolean;
+    navOrder: number;
+    routePath: string;
+    isHomeEntry: boolean;
+  },
+>(
+  items: T[],
+  limit: number
 ): T[] {
   const allowedKeys = new Set(
     items
       .filter((item) => item.publishState === 'online' && item.showInNav)
       .sort((left, right) => compareNavView(left, right))
-      .slice(0, MAX_MINIPROGRAM_NAV_ITEMS)
+      .slice(0, limit)
       .map((item) => item.pageKey)
   );
 
@@ -391,20 +401,36 @@ function applyMiniProgramNavLimitToViews<T extends { pageKey: string; publishSta
   });
 }
 
-function applyMiniProgramNavLimitToOverviewItems<T extends { pageKey: string; channels: Record<AppChannel, { publishState: AppPagePublishRuleItem['publishState']; showInNav: boolean; navOrder: number; routePath: string; isHomeEntry: boolean }> }>(
-  items: T[]
+function applyChannelNavLimitToOverviewItems<
+  T extends {
+    pageKey: string;
+    channels: Record<
+      AppChannel,
+      {
+        publishState: AppPagePublishRuleItem['publishState'];
+        showInNav: boolean;
+        navOrder: number;
+        routePath: string;
+        isHomeEntry: boolean;
+      }
+    >;
+  },
+>(
+  items: T[],
+  channel: AppChannel,
+  limit: number
 ): T[] {
   const allowedKeys = new Set(
     items
-      .map((item) => ({ pageKey: item.pageKey, view: item.channels.miniprogram }))
+      .map((item) => ({ pageKey: item.pageKey, view: item.channels[channel] }))
       .filter((item) => item.view.publishState === 'online' && item.view.showInNav)
       .sort((left, right) => compareNavView(left.view, right.view))
-      .slice(0, MAX_MINIPROGRAM_NAV_ITEMS)
+      .slice(0, limit)
       .map((item) => item.pageKey)
   );
 
   return items.map((item) => {
-    const currentView = item.channels.miniprogram;
+    const currentView = item.channels[channel];
     if (currentView.publishState !== 'online' || !currentView.showInNav || allowedKeys.has(item.pageKey)) {
       return item;
     }
@@ -413,7 +439,7 @@ function applyMiniProgramNavLimitToOverviewItems<T extends { pageKey: string; ch
       ...item,
       channels: {
         ...item.channels,
-        miniprogram: {
+        [channel]: {
           ...currentView,
           showInNav: false,
           isHomeEntry: false,
@@ -492,7 +518,13 @@ export async function buildPageCenterOverview(): Promise<PageCenterOverviewItem[
     ),
   }));
 
-  return applyDerivedHomeEntry(applyMiniProgramNavLimitToOverviewItems(overviewItems));
+  return applyDerivedHomeEntry(
+    applyChannelNavLimitToOverviewItems(
+      applyChannelNavLimitToOverviewItems(overviewItems, 'web', MAX_WEB_NAV_ITEMS),
+      'miniprogram',
+      MAX_MINIPROGRAM_NAV_ITEMS
+    )
+  );
 }
 
 export async function buildMiniProgramRuntimeWithPageCenter(
@@ -501,7 +533,7 @@ export async function buildMiniProgramRuntimeWithPageCenter(
   const rows = await loadPageCenterRows();
   const registryItems = mergeRegistryItems(rows);
   const ruleMap = buildRuleMap(rows, 'miniprogram', baseRuntimeConfig);
-  const mergedViews = applyMiniProgramNavLimitToViews(registryItems.map((page) => {
+  const mergedViews = applyChannelNavLimitToViews(registryItems.map((page) => {
     const view = resolvePageRuleView(page, 'miniprogram', ruleMap.get(page.pageKey), baseRuntimeConfig, { useFallback: false });
     return {
       ...view,
@@ -509,7 +541,7 @@ export async function buildMiniProgramRuntimeWithPageCenter(
       tabKey: page.tabKey,
       iconKey: page.iconKey,
     };
-  }));
+  }), MAX_MINIPROGRAM_NAV_ITEMS);
 
   const tabBarItems = toMiniProgramTabBarItems(mergedViews);
   const homeEntryItem = mergedViews
@@ -593,6 +625,7 @@ export async function buildWebShellRuntime(): Promise<WebShellRuntime> {
 
   const navCandidates = orderedItems
     .filter(({ page, view }) => canPageShowInNav(page, 'web') && view.showInNav && view.publishState === 'online')
+    .slice(0, MAX_WEB_NAV_ITEMS)
     .map(({ page, view }) => ({
       pageKey: page.pageKey,
       label: view.navText || page.defaultTabText || page.pageName,

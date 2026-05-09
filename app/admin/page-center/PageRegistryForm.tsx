@@ -84,6 +84,7 @@ export const PAGE_CENTER_ICON_OPTIONS: RegistryOption[] = [
   { value: 'album', label: 'album / 提取' },
   { value: 'gallery', label: 'gallery / 照片墙' },
   { value: 'booking', label: 'booking / 约拍' },
+  { value: 'assistant', label: 'assistant / AI助手' },
   { value: 'profile', label: 'profile / 我的' },
 ];
 

@@ -17,6 +17,12 @@ interface MapPickerProps {
   onSelect: (location: string, lat: number, lng: number, meta?: MapPickerSelectMeta) => void;
   onClose: () => void;
   cityName?: string; // 可选的城市限制,用于限制搜索范围
+  initialLocation?: string;
+  initialLatitude?: number;
+  initialLongitude?: number;
+  centerLatitude?: number;
+  centerLongitude?: number;
+  initialProvince?: string;
 }
 
 interface SearchResult {
@@ -90,6 +96,23 @@ function extractLatLng(input: unknown): { lat: number; lng: number } | null {
 
 function formatCoordinateAddress(lat: number, lng: number): string {
   return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+function normalizeCoordinatePair(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
+  const normalizedLat = readCoordinateValue(lat);
+  const normalizedLng = readCoordinateValue(lng);
+  if (normalizedLat === null || normalizedLng === null) {
+    return null;
+  }
+
+  if (normalizedLat < -90 || normalizedLat > 90 || normalizedLng < -180 || normalizedLng > 180) {
+    return null;
+  }
+
+  return {
+    lat: normalizedLat,
+    lng: normalizedLng,
+  };
 }
 
 async function readJsonSafe(response: Response): Promise<any | null> {
@@ -329,13 +352,26 @@ async function searchByClientService(
   return [];
 }
 
-export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProps) {
+export default function MapPicker({
+  onSelect,
+  onClose,
+  cityName,
+  initialLocation,
+  initialLatitude,
+  initialLongitude,
+  centerLatitude,
+  centerLongitude,
+  initialProvince,
+}: MapPickerProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const reverseGeocodeHintShownRef = useRef(false);
   const searchHintShownRef = useRef(false);
+  const initialLocationText = String(initialLocation || '').trim();
+  const initialSelectedPosition = normalizeCoordinatePair(initialLatitude, initialLongitude);
+  const initialCenterPosition = normalizeCoordinatePair(centerLatitude, centerLongitude);
   const [map, setMap] = useState<any>(null);
   const [marker, setMarker] = useState<any>(null);
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(initialLocationText);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -343,7 +379,12 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
   const [isSearching, setIsSearching] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [selectedMeta, setSelectedMeta] = useState<MapPickerSelectMeta>({});
+  const [selectedMeta, setSelectedMeta] = useState<MapPickerSelectMeta>(() =>
+    normalizeSelectMeta({
+      cityName,
+      province: initialProvince,
+    })
+  );
 
   useEffect(() => {
     setIsAndroid(isAndroidApp());
@@ -387,6 +428,16 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
   }, []);
 
   const initializeMap = () => {
+    if (initialSelectedPosition) {
+      initMap(initialSelectedPosition.lat, initialSelectedPosition.lng);
+      return;
+    }
+
+    if (initialCenterPosition) {
+      initMap(initialCenterPosition.lat, initialCenterPosition.lng);
+      return;
+    }
+
     const timeout = setTimeout(() => {
       setToast('定位超时，使用默认位置');
       initMap(25.2387, 110.2124);
@@ -487,6 +538,9 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
 
       setMap(mapInstance);
       setMarker(markerInstance);
+      if (initialLocationText) {
+        setAddress(initialLocationText);
+      }
       getAddress(lat, lng);
       setLoading(false);
     } catch (error) {
@@ -519,6 +573,10 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
 
   const getAddress = async (lat: number, lng: number) => {
     const fallbackAddress = formatCoordinateAddress(lat, lng);
+    const fallbackMeta = normalizeSelectMeta({
+      cityName,
+      province: initialProvince,
+    });
 
     try {
       const response = await fetch('/api/tencent-map/reverse-geocode', {
@@ -544,9 +602,7 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
       }
 
       setAddress(fallbackAddress);
-      setSelectedMeta({
-        cityName: cityName || undefined,
-      });
+      setSelectedMeta(fallbackMeta);
       showTencentMapHintOnce(payload?.hint, 'reverse');
     } catch {
       const sdkFallback = await reverseGeocodeByClientService(lat, lng);
@@ -557,9 +613,7 @@ export default function MapPicker({ onSelect, onClose, cityName }: MapPickerProp
       }
 
       setAddress(fallbackAddress);
-      setSelectedMeta({
-        cityName: cityName || undefined,
-      });
+      setSelectedMeta(fallbackMeta);
     }
   };
 

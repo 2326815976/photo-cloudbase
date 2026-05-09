@@ -9,6 +9,7 @@ function isManagedShellRoute(pathname: string) {
     pathname.startsWith('/album') ||
     pathname.startsWith('/gallery') ||
     pathname.startsWith('/booking') ||
+    pathname.startsWith('/assistant') ||
     pathname.startsWith('/profile')
   );
 }
