@@ -60,7 +60,12 @@ const PreviewAwareScrollArea = forwardRef<HTMLDivElement, PreviewAwareScrollArea
   const bottomPaddingStyle = usePageShellBottomStyle(bottomPaddingMode);
   const paddingClassName = spacingVisible ? defaultPaddingClassName : previewPaddingClassName;
   const mergedClassName = [className, paddingClassName].filter(Boolean).join(' ');
-  const mergedStyle = {
+  const mergedStyle: CSSProperties = {
+    minHeight: 0,
+    overflowY: 'auto',
+    WebkitOverflowScrolling: 'touch',
+    touchAction: 'pan-y',
+    overscrollBehaviorY: 'contain',
     ...(bottomPaddingStyle || {}),
     ...(style || {}),
   };

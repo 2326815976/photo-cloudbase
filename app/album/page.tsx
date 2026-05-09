@@ -12,6 +12,7 @@ import { getClipboardText } from '@/lib/android';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { formatDateDisplayUTC8, toTimestampUTC8 } from '@/lib/utils/date-helpers';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 import { isWechatBrowser } from '@/lib/wechat';
 
 interface BoundAlbum {
@@ -112,6 +113,7 @@ export default function AlbumLoginPage() {
   const [unbindTargetAlbum, setUnbindTargetAlbum] = useState<BoundAlbum | null>(null);
   const [error, setError] = useState('');
   const [listNotice, setListNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  useAutoDismissString(error, setError);
 
   const hasBindings = isLoggedIn && boundAlbums.length > 0;
   const loadingDescription = PAGE_LOADING_COPY.description;

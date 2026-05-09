@@ -8,6 +8,7 @@ import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
 const SLIDER_WIDTH = 56;
 
@@ -36,6 +37,7 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  useAutoDismissString(error, setError);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);

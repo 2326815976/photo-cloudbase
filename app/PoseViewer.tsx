@@ -826,6 +826,9 @@ export default function PoseViewer({ initialTags, initialPose, initialPoses }: P
                     src={currentPose.image_url}
                     alt="拍照姿势"
                     priority={true}
+                    fillContainer={true}
+                    imageFit="contain"
+                    imagePosition="center center"
                     className="w-full h-full"
                   />
                 </div>

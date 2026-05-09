@@ -528,10 +528,14 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   });
 
   const shouldForceRefreshFromDirty = galleryCacheToken !== 'default';
-  const memoryGallery =
-    initialPhotos.length > 0 || shouldForceRefreshFromDirty
-      ? null
-      : readGalleryMemoryCache();
+  const memoryGallery = useMemo(
+    () => (
+      initialPhotos.length > 0 || shouldForceRefreshFromDirty
+        ? null
+        : readGalleryMemoryCache()
+    ),
+    [initialPhotos.length, shouldForceRefreshFromDirty]
+  );
   const hydratedInitialSelectedFolderId = normalizeGalleryFolderId(
     memoryGallery?.targetFolderId ?? ROOT_GALLERY_FOLDER_ID
   );
@@ -591,7 +595,8 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
     }
 
     const updateViewportWidth = () => {
-      setViewportWidth(window.innerWidth || 0);
+      const nextViewportWidth = window.innerWidth || 0;
+      setViewportWidth((prev) => (prev === nextViewportWidth ? prev : nextViewportWidth));
     };
 
     updateViewportWidth();
@@ -718,37 +723,6 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       }
     };
   }, [allPhotos.length]);
-
-  useEffect(() => {
-    if (!memoryGallery) return;
-
-    const nextRootFolderName = resolveGalleryRootFolderName(memoryGallery.rootFolderName);
-    const nextHideRootFolder = normalizeGalleryBoolean(memoryGallery.hideRootFolder, false);
-    const nextFolderSnapshotReady = normalizeGalleryBoolean(memoryGallery.folderSnapshotReady, false);
-    const nextFolders = buildGalleryFolderList(
-      memoryGallery.folders,
-      nextRootFolderName,
-      [],
-      { includeRoot: !nextHideRootFolder }
-    );
-    const hasFolderChanges =
-      nextFolderSnapshotReady !== folderSnapshotReady
-      || nextHideRootFolder !== hideRootFolder
-      || selectedFolderId !== normalizeGalleryFolderId(memoryGallery.targetFolderId)
-      || nextRootFolderName !== rootFolderName
-      || nextFolders.length !== folders.length
-      || nextFolders.some((folder, index) => {
-        const currentFolder = folders[index];
-        return !currentFolder || currentFolder.id !== folder.id || currentFolder.name !== folder.name;
-      });
-
-    if (!hasFolderChanges) return;
-
-    setFolderSnapshotReady(nextFolderSnapshotReady);
-    setHideRootFolder(nextHideRootFolder);
-    setRootFolderName(nextRootFolderName);
-    setFolders(nextFolders);
-  }, [folderSnapshotReady, folders, hideRootFolder, memoryGallery, rootFolderName, selectedFolderId]);
 
   const showPaginationSkeletons = useCallback((pageNo: number, folderId: string, pagePhotos?: Photo[]) => {
     const normalizedFolderId = String(folderId || ROOT_GALLERY_FOLDER_ID).trim() || ROOT_GALLERY_FOLDER_ID;
@@ -1701,7 +1675,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const loadingDescription = PAGE_LOADING_COPY.description;
 
   const showInitialPageLoading = !hasInitialContentReady || (isLoading && allPhotos.length === 0 && !isTagOverlayLoading);
-  const showContentOverlayLoading = isTagOverlayLoading;
+  const showContentOverlayLoading = isSwitchingTag || isSilentTagLoadPending;
 
   const galleryColumnCount = 2;
   const galleryColumnGapClassName = 'gap-2';
@@ -1824,6 +1798,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
     const timer = window.setTimeout(() => {
       setIsSwitchingTag(false);
+      setIsSilentTagLoadPending(false);
       setPendingTagPhotoIds([]);
     }, GALLERY_SWITCH_OVERLAY_TIMEOUT_MS);
 
@@ -1845,13 +1820,13 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       title={managedTitle}
       badge={managedSubtitle || undefined}
       className="h-full w-full"
-      contentClassName="min-h-0"
+      contentClassName="flex min-h-0 flex-col"
     >
       {/* 滚动区域 */}
       <PreviewAwareScrollArea
         ref={scrollContainerRef}
-        className={`relative flex-1 gallery-scroll-container ${showContentOverlayLoading ? 'overflow-hidden overscroll-none' : 'overflow-y-auto'}`}
-        style={{ overflowAnchor: 'none' }}
+        className="relative flex-1 min-h-0 overflow-y-auto gallery-scroll-container"
+        style={{ overflowAnchor: 'none', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
       >
         <div className={`sticky top-0 z-20 border-b border-[#5D4037]/5 bg-[#FFFBF0] ${showContentOverlayLoading ? 'pointer-events-none' : ''}`}>
           <div className="px-[3px] py-0">
@@ -2197,6 +2172,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
                       src={previewPhoto.preview_url}
                       alt="预览"
                       priority={true}
+                      aspectRatio={resolvePhotoAspectRatio(previewPhoto)}
                       className="w-full h-auto max-h-[70vh]"
                     />
                   </div>
@@ -2204,27 +2180,38 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
                 {/* 信息区域 */}
                 <div className="px-4 pb-4 border-t-2 border-dashed border-[#5D4037]/10 pt-3 bg-white/50">
-                  <div className="mb-3 flex items-center justify-center gap-3 text-[#5D4037]">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-[#5D4037]/6 px-3 py-2 text-[#5D4037]/82">
-                      <Eye className="h-4 w-4" />
+                  <div className="mb-3 flex flex-wrap items-center justify-center gap-3 text-[#5D4037]">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-[#5D4037]/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(255,248,228,0.84))] px-3.5 py-2 text-[#5D4037]/78 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+                      <Eye className="h-4 w-4 text-[#8D6E63]" />
                       <span className="text-sm font-medium">{previewPhoto.view_count} {'\u6b21\u6d4f\u89c8'}</span>
                     </div>
                     <motion.button
-                      whileTap={{ scale: 0.97 }}
+                      type="button"
+                      whileTap={{ scale: 0.98 }}
                       whileHover={{ y: -1 }}
                       onClick={(e) => handleLike(previewPhoto.id, e)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 shadow-[0_8px_20px_rgba(93,64,55,0.10)] transition-all ${
+                      className={`group inline-flex items-center gap-2 rounded-full border px-3.5 py-2 shadow-[0_0_0_1px_rgba(232,106,95,0.10),0_10px_22px_rgba(232,106,95,0.10)] transition-all duration-300 ${
                         previewPhoto.is_liked
-                          ? 'border-[#FFD76E] bg-[linear-gradient(135deg,#FFE39A,#FFC857)] text-[#5D4037]'
-                          : 'border-[#FFC857]/55 bg-[linear-gradient(135deg,#FFF8E4,#FFFDF7)] text-[#5D4037] hover:border-[#FFC857] hover:bg-[linear-gradient(135deg,#FFF1C5,#FFF8E4)]'
+                          ? 'border-[#E88873] bg-[linear-gradient(135deg,#FFF3F1,#FFE3DE)] text-[#A5554C] shadow-[0_0_0_1px_rgba(232,106,95,0.16),0_12px_24px_rgba(232,106,95,0.14)]'
+                          : 'border-[#EDB0A8] bg-[linear-gradient(135deg,#FFFCFB,#FFF4F1)] text-[#8A615C] hover:border-[#E88873] hover:bg-[linear-gradient(135deg,#FFF7F5,#FFEDEA)] hover:shadow-[0_0_0_1px_rgba(232,106,95,0.14),0_12px_24px_rgba(232,106,95,0.12)]'
                       }`}
-                      aria-label={previewPhoto.is_liked ? '\u5df2\u70b9\u8d5e' : '\u70b9\u4e2a\u8d5e'}
-                      title={previewPhoto.is_liked ? '\u5df2\u70b9\u8d5e' : '\u70b9\u4e2a\u8d5e'}
+                      aria-label={previewPhoto.is_liked ? '\u5df2\u559c\u6b22' : '\u559c\u6b22\u8fd9\u5f20'}
+                      title={previewPhoto.is_liked ? '\u5df2\u559c\u6b22' : '\u559c\u6b22\u8fd9\u5f20'}
                     >
-                      <Heart className={`h-4 w-4 ${previewPhoto.is_liked ? 'fill-[#5D4037] text-[#5D4037]' : 'text-[#C97A51]'}`} />
-                      <span className="text-sm font-semibold">{previewPhoto.is_liked ? '\u5df2\u70b9\u8d5e' : '\u70b9\u4e2a\u8d5e'}</span>
-                      <span className={`rounded-full px-2 py-[2px] text-[11px] font-bold leading-none ${
-                        previewPhoto.is_liked ? 'bg-white/40 text-[#5D4037]' : 'bg-[#FFC857]/18 text-[#8D6E63]'
+                      <motion.span
+                        animate={previewPhoto.is_liked ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+                        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                        className="inline-flex items-center justify-center"
+                      >
+                        <Heart className="h-4 w-4 fill-[#E86A5F] text-[#E86A5F] transition-all duration-300" />
+                      </motion.span>
+                      <span className="text-sm font-medium leading-none">
+                        {previewPhoto.is_liked ? '\u5df2\u559c\u6b22' : '\u559c\u6b22'}
+                      </span>
+                      <span className={`border-l pl-2 text-sm font-medium leading-none ${
+                        previewPhoto.is_liked
+                          ? 'border-[#E86A5F]/22 text-[#A5554C]'
+                          : 'border-[#E86A5F]/16 text-[#8A615C]'
                       }`}>
                         {previewPhoto.like_count}
                       </span>

@@ -7,6 +7,7 @@ import { CheckCircle, Eye, EyeOff, Lock } from 'lucide-react';
 import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
 const PASSWORD_ERROR_MAP: Record<string, string> = {
   'new password should be different from the old password': '新密码不能与当前密码相同',
@@ -32,6 +33,7 @@ export default function ChangePasswordPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  useAutoDismissString(error, setError);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);

@@ -10,6 +10,7 @@ import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from 
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
 function resolveManagedGuestEntry(
   pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
@@ -40,6 +41,7 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  useAutoDismissString(error, setError);
   const pageAccessItems = useMemo(
     () => (Array.isArray(shellRuntime?.pageAccessItems) ? shellRuntime.pageAccessItems : []),
     [shellRuntime]

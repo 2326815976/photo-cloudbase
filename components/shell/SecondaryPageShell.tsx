@@ -39,7 +39,7 @@ export default function SecondaryPageShell<TContent extends ElementType = 'div'>
   const ContentComponent = (contentAs || 'div') as ElementType;
 
   return (
-    <div className={joinShellClassNames('min-h-screen bg-[#FFFBF0] flex flex-col', className)}>
+    <div className={joinShellClassNames('flex h-full min-h-0 w-full flex-col bg-[#FFFBF0]', className)}>
       <SecondaryPageHeader
         title={title}
         subtitle={subtitle}
@@ -51,7 +51,7 @@ export default function SecondaryPageShell<TContent extends ElementType = 'div'>
       />
       <ContentComponent
         {...(contentProps || {})}
-        className={joinShellClassNames('flex-1 min-h-0', contentClassName)}
+        className={joinShellClassNames('flex min-h-0 flex-1 flex-col', contentClassName)}
       >
         {children}
       </ContentComponent>

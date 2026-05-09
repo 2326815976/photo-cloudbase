@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -9,6 +9,9 @@ interface SimpleImageProps {
   className?: string;
   priority?: boolean;
   loadingVariant?: 'rich' | 'quiet';
+  fillContainer?: boolean;
+  imageFit?: CSSProperties['objectFit'];
+  imagePosition?: CSSProperties['objectPosition'];
   onClick?: () => void;
   onLoad?: () => void;
   onError?: () => void;
@@ -22,6 +25,9 @@ export default function SimpleImage({
   className = '',
   priority = false,
   loadingVariant = 'rich',
+  fillContainer = false,
+  imageFit = 'cover',
+  imagePosition = 'center center',
   onClick,
   onLoad,
   onError,
@@ -139,31 +145,39 @@ export default function SimpleImage({
   }, [displaySrc, shouldShowRichLoading]);
 
   useEffect(() => {
-    if (!isLoading) return;
+    if (!isLoading || !shouldShowRichLoading) return;
 
     const startTime = Date.now();
     const timer = window.setInterval(() => {
-      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
+      const nextLoadingTime = Math.floor((Date.now() - startTime) / 1000);
+      setLoadingTime((prev) => (prev === nextLoadingTime ? prev : nextLoadingTime));
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isLoading]);
+  }, [isLoading, shouldShowRichLoading]);
 
   const normalizedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
     ? Number(aspectRatio)
     : 0;
   const hasFixedAspectRatio = normalizedAspectRatio > 0;
+  const shouldFillImageBounds = hasFixedAspectRatio || fillContainer;
+  const shouldCenterContainedImage = fillContainer && imageFit === 'contain';
   const placeholderBackground = 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)';
+
+  const containerStyle = hasFixedAspectRatio
+    ? {
+        aspectRatio: String(1 / normalizedAspectRatio),
+        ...(isLoading ? { background: placeholderBackground } : {}),
+      }
+    : isLoading
+      ? { background: placeholderBackground }
+      : undefined;
 
   return (
     <div
-      className={`relative overflow-hidden ${className}`}
+      className={`relative overflow-hidden ${shouldCenterContainedImage ? 'flex items-center justify-center' : ''} ${className}`}
       onClick={onClick}
-      style={
-        hasFixedAspectRatio
-          ? { aspectRatio: String(1 / normalizedAspectRatio), background: placeholderBackground }
-          : { background: placeholderBackground }
-      }
+      style={containerStyle}
     >
       {isLoading && !hasError && (
         <div className="absolute inset-0">
@@ -318,10 +332,14 @@ export default function SimpleImage({
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
           fetchPriority={priority ? 'high' : 'low'}
-          className={`${hasFixedAspectRatio ? 'absolute inset-0 h-full w-full' : 'h-auto w-full'} transition-opacity duration-300 ${
+          className={`${shouldCenterContainedImage
+            ? 'block h-auto max-h-full w-auto max-w-full'
+            : shouldFillImageBounds
+              ? 'absolute inset-0 h-full w-full'
+              : 'h-auto w-full'} transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
-          style={{ objectFit: 'cover' }}
+          style={{ objectFit: imageFit, objectPosition: imagePosition }}
           onLoad={(event) => {
             const loadTime = performance.now() - loadStartTimeRef.current;
             if (loadTime > 3000) {

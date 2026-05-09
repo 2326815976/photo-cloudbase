@@ -8,6 +8,7 @@ import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniP
 import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 import {
   clampChinaMobileInput,
   isValidChinaMobile,
@@ -26,6 +27,7 @@ export default function EditProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  useAutoDismissString(error, setError);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',

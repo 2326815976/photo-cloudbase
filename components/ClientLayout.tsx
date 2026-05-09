@@ -502,8 +502,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     <SWRProvider>
       <MotionConfig reducedMotion="user">
         <div className="app-shell h-full w-full min-w-0" style={shellLayoutVars}>
-          <div className="app-shell__viewport fixed inset-0 flex h-[100dvh] w-full min-w-0 items-center justify-center overflow-hidden bg-gray-100">
-            <main className="app-shell__main relative flex h-full w-full min-w-0 max-w-[430px] flex-col overflow-hidden bg-[#FFFBF0] shadow-[0_0_40px_rgba(93,64,55,0.15)]">
+          <div className="app-shell__viewport fixed inset-0 flex h-[100dvh] min-h-0 w-full min-w-0 items-center justify-center overflow-hidden bg-gray-100">
+            <main className="app-shell__main relative flex h-full min-h-0 w-full min-w-0 max-w-[430px] flex-col overflow-hidden bg-[#FFFBF0] shadow-[0_0_40px_rgba(93,64,55,0.15)]">
               <PageCenterRuntimeProvider value={pageCenterRuntimeValue}>
                 {shouldHoldShell ? (
                   <MiniProgramRecoveryScreen

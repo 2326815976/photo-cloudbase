@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle } from 'lucide-react';
 import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
 export default function DeleteAccountPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function DeleteAccountPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  useAutoDismissString(error, setError);
   const [postDeleteWarning, setPostDeleteWarning] = useState('');
 
   const handleBack = () => {
