@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, X } from 'lucide-react';
 import type {
   AppChannel,
   AppPageBetaCodeItem,
@@ -231,6 +231,48 @@ function generateRandomBetaCode(length = BETA_CODE_LENGTH) {
 function extractDateText(value: string) {
   const matched = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
   return matched ? matched[1] : '';
+}
+
+function formatBetaExpiresDate(value: string) {
+  const dateText = extractDateText(value);
+  if (!dateText) {
+    return '长期有效';
+  }
+
+  const [year = '', month = '', date = ''] = dateText.split('-');
+  return `${year} / ${month} / ${date}`;
+}
+
+async function writeTextToClipboard(text: string) {
+  const normalized = String(text || '').trim();
+  if (!normalized) {
+    return false;
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(normalized);
+    return true;
+  }
+
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = normalized;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function filterBetaCodesByChannel(codes: AppPageBetaCodeItem[], channel: AppChannel) {
@@ -1477,6 +1519,18 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     await destroyBetaCode(codeId);
   };
 
+  const copyBetaCode = async (code: DecoratedBetaCode) => {
+    try {
+      const copied = await writeTextToClipboard(code.betaCode);
+      if (!copied) {
+        throw new Error('当前浏览器暂不支持复制');
+      }
+      showToast(`已复制内测码：${code.betaCode}`);
+    } catch (error) {
+      showToast(sanitizePageCenterUiMessage(error instanceof Error ? error.message : '复制内测码失败'));
+    }
+  };
+
   const toggleCollectionGroup = (pageKey: string) => {
     setExpandedPageKey((current) => (current === pageKey ? '' : pageKey));
   };
@@ -2044,11 +2098,23 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
                                     ) : null}
                                   </div>
                                   <div className="mt-2 text-sm font-semibold tracking-[0.18em] text-[#5D4037]">{code.betaCode}</div>
+                                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#8D6E63]">
+                                    <span>有效期：{formatBetaExpiresDate(code.expiresAt)}</span>
+                                    <span>适用范围：{code.scopeLabel}</span>
+                                  </div>
                                   {code.readOnly && code.manageHint ? (
                                     <p className="mt-2 text-sm leading-6 text-[#8D6E63]">{code.manageHint}</p>
                                   ) : null}
                                 </div>
                                 <div className="page-center-modal__beta-item-actions flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyBetaCode(code)}
+                                    className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037]"
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                    复制
+                                  </button>
                                   <button type="button" onClick={() => editBetaCode(modalRow.pageKey, code)} className="whitespace-nowrap rounded-full border border-[#5D4037]/12 bg-white px-4 py-2 text-sm font-semibold text-[#5D4037]">{code.editActionText}</button>
                                   <button type="button" onClick={() => void confirmDestroyBetaCode(code)} disabled={savingKey === `beta:destroy:${code.id}`} className="whitespace-nowrap rounded-full border border-[#D46A6A]/20 bg-[#FDECEC] px-4 py-2 text-sm font-semibold text-[#A34C4C] disabled:opacity-60">{savingKey === `beta:destroy:${code.id}` ? '删除中...' : '删除'}</button>
                                 </div>

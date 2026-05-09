@@ -163,7 +163,8 @@ async function createStreamingResponse(model: string, apiKey: string, messages: 
   const reader = upstream.body.getReader();
 
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
+    start(controller) {
+      void (async () => {
       let buffer = '';
       let replyBuffer = '';
       let closed = false;
@@ -270,6 +271,7 @@ async function createStreamingResponse(model: string, apiKey: string, messages: 
       } finally {
         reader.releaseLock();
       }
+      })();
     },
   });
 

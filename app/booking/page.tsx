@@ -1,22 +1,18 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Phone, MessageSquare, Camera, Trash2 } from 'lucide-react';
+import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
-import MapPicker from '@/components/MapPicker';
+
+const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
-import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
-import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
-import Toast from '@/components/ui/Toast';
 import { createClient } from '@/lib/cloudbase/client';
 import { getDateAfterDaysUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
-import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
-import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
 interface BookingType {
   id: number;
@@ -71,10 +67,6 @@ function normalizeCityNameForMatch(name: string): string {
 
 function toRad(value: number): number {
   return (value * Math.PI) / 180;
-}
-
-function isValidCoordinatePair(lat: number, lng: number): boolean {
-  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
 function calculateDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -146,81 +138,8 @@ export default function BookingPage() {
   const [isCanceling, setIsCanceling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
-    'booking',
-    activeBooking ? '我的预约' : '约拍邀请',
-    '📝 写下你的约拍便利贴 📝'
-  );
-
-  useAutoDismissString(error, setError);
-
-  const mapPickerLaunchContext = useMemo(() => {
-    const hasSelectedCoordinate = isValidCoordinatePair(Number(formData.latitude), Number(formData.longitude));
-
-    let initialLocation = String(formData.location || '').trim();
-    let initialLatitude = hasSelectedCoordinate ? Number(formData.latitude) : 0;
-    let initialLongitude = hasSelectedCoordinate ? Number(formData.longitude) : 0;
-    let centerLatitude = 0;
-    let centerLongitude = 0;
-    let resolvedCityName = String(formData.cityName || '').trim();
-    let initialProvince = '';
-
-    const normalizedTargetCity = normalizeCityNameForMatch(resolvedCityName);
-    const matchedCity = allowedCities.find((city) => {
-      const cityLat = Number(city.latitude);
-      const cityLng = Number(city.longitude);
-      if (!isValidCoordinatePair(cityLat, cityLng)) {
-        return false;
-      }
-
-      const allowedName = String(city.city_name || '').trim();
-      const normalizedAllowed = normalizeCityNameForMatch(allowedName);
-      if (!normalizedTargetCity || !normalizedAllowed) {
-        return false;
-      }
-
-      return (
-        normalizedAllowed === normalizedTargetCity ||
-        normalizedAllowed.includes(normalizedTargetCity) ||
-        normalizedTargetCity.includes(normalizedAllowed)
-      );
-    });
-
-    const firstValidCity =
-      allowedCities.find((city) => isValidCoordinatePair(Number(city.latitude), Number(city.longitude))) || null;
-
-    const preferredCity = matchedCity || firstValidCity;
-    if (preferredCity) {
-      centerLatitude = Number(preferredCity.latitude);
-      centerLongitude = Number(preferredCity.longitude);
-      if (!hasSelectedCoordinate) {
-        initialLatitude = centerLatitude;
-        initialLongitude = centerLongitude;
-      }
-      if (!resolvedCityName && allowedCities.length === 1) {
-        resolvedCityName = String(preferredCity.city_name || '').trim();
-      }
-      initialProvince = String(preferredCity.province || '').trim();
-    }
-
-    if (!isValidCoordinatePair(centerLatitude, centerLongitude) && hasSelectedCoordinate) {
-      centerLatitude = initialLatitude;
-      centerLongitude = initialLongitude;
-    }
-
-    return {
-      initialLocation,
-      initialLatitude,
-      initialLongitude,
-      centerLatitude,
-      centerLongitude,
-      cityName: resolvedCityName,
-      initialProvince,
-    };
-  }, [allowedCities, formData.cityName, formData.latitude, formData.location, formData.longitude]);
 
   const checkLoginStatus = async () => {
     const dbClient = createClient();
@@ -625,40 +544,66 @@ export default function BookingPage() {
     }));
   };
 
-  const handleClearSelectedLocation = () => {
-    if (!String(formData.location || '').trim()) {
-      return;
-    }
-
-    setError('');
-    setFormData((prev) => ({
-      ...prev,
-      location: '',
-      latitude: 0,
-      longitude: 0,
-      cityName: '',
-    }));
-    setToast({ message: '地址已删除', type: 'success' });
-  };
-
   if (loading) {
     return (
-      <MiniProgramRecoveryScreen
-        title={PAGE_LOADING_COPY.title}
-        description={PAGE_LOADING_COPY.description}
-        className="h-screen"
-      />
+      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col items-center gap-6"
+        >
+          <div className="relative">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+            />
+            <motion.div
+              animate={{ rotate: -360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Camera className="w-8 h-8 text-[#FFC857]" />
+            </div>
+          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-center"
+          >
+            <p className="text-lg font-medium text-[#5D4037] mb-2">
+              加载中...
+            </p>
+            <p className="text-sm text-[#5D4037]/60">
+              正在准备约拍信息
+            </p>
+          </motion.div>
+        </motion.div>
+      </div>
     );
   }
 
   return (
-    <PrimaryPageShell
-      title={managedTitle}
-      badge={managedSubtitle || undefined}
-      className="h-full w-full"
-      contentClassName="min-h-0"
-    >
-      <PreviewAwareScrollArea className="flex-1 overflow-y-auto px-6 pt-4 [&::-webkit-scrollbar]:hidden">
+    <div className="flex flex-col h-full w-full">
+      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
+      >
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
+          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
+            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* 滚动区域 */}
+      <div className="flex-1 overflow-y-auto px-6 pt-4 pb-20 [&::-webkit-scrollbar]:hidden">
         {/* 场景 A: 有活跃订单 - 显示票据 */}
         {activeBooking && (
           <ActiveBookingTicket
@@ -750,28 +695,15 @@ export default function BookingPage() {
 
                     {/* 约拍地点 - 可点击卡片 */}
                     <div>
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <label className="flex items-center gap-2 text-sm font-medium text-[#5D4037]">
-                          <MapPin className="w-4 h-4" />
-                          <span>约拍地点</span>
-                          {allowedCities.length > 0 && (
-                            <span className="text-xs text-[#5D4037]/50">
-                              (限{allowedCities.map(c => c.city_name).join('、')})
-                            </span>
-                          )}
-                        </label>
-                        {formData.location ? (
-                          <button
-                            type="button"
-                            onClick={handleClearSelectedLocation}
-                            className="icon-button inline-flex h-8 w-8 flex-none items-center justify-center rounded-full border border-[#F3CACA] bg-white/90 text-[#D46A6A] shadow-sm transition-colors hover:bg-[#FFF1F1] active:bg-[#FFE7E7]"
-                            aria-label="清空已选地址"
-                            title="清空已选地址"
-                          >
-                            <Trash2 className="h-4 w-4 shrink-0" strokeWidth={2.2} />
-                          </button>
-                        ) : null}
-                      </div>
+                      <label className="flex items-center gap-2 text-sm font-medium mb-2 text-[#5D4037]">
+                        <MapPin className="w-4 h-4" />
+                        <span>约拍地点</span>
+                        {allowedCities.length > 0 && (
+                          <span className="text-xs text-[#5D4037]/50">
+                            (限{allowedCities.map(c => c.city_name).join('、')})
+                          </span>
+                        )}
+                      </label>
                       <button
                         type="button"
                         onClick={() => setShowMapPicker(true)}
@@ -849,20 +781,15 @@ export default function BookingPage() {
                     </div>
 
                     {/* 错误提示 */}
-                    <AnimatePresence initial={false}>
-                      {error && (
-                        <motion.div
-                          key={error}
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          transition={{ duration: 0.2, ease: 'easeOut' }}
-                          className="p-3 bg-red-50 border border-red-200 rounded-xl"
-                        >
-                          <p className="text-sm text-red-600 text-center">{error}</p>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {error && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-3 bg-red-50 border border-red-200 rounded-xl"
+                      >
+                        <p className="text-sm text-red-600 text-center">{error}</p>
+                      </motion.div>
+                    )}
 
                     {/* 提交按钮 - 果冻按钮 */}
                     <motion.button
@@ -895,7 +822,7 @@ export default function BookingPage() {
             )}
           </motion.div>
         )}
-
+      </div>
 
       {/* 地图选择器弹窗 */}
       <AnimatePresence>
@@ -903,26 +830,11 @@ export default function BookingPage() {
           <MapPicker
             onSelect={handleMapSelect}
             onClose={() => setShowMapPicker(false)}
-            cityName={mapPickerLaunchContext.cityName || undefined}
-            initialLocation={mapPickerLaunchContext.initialLocation}
-            initialLatitude={mapPickerLaunchContext.initialLatitude}
-            initialLongitude={mapPickerLaunchContext.initialLongitude}
-            centerLatitude={mapPickerLaunchContext.centerLatitude}
-            centerLongitude={mapPickerLaunchContext.centerLongitude}
-            initialProvince={mapPickerLaunchContext.initialProvince || undefined}
           />
         )}
       </AnimatePresence>
 
       {/* 登录提示弹窗 */}
-      {toast ? (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      ) : null}
-
       <AnimatePresence>
         {showLoginPrompt && (
           <motion.div
@@ -971,7 +883,8 @@ export default function BookingPage() {
           </motion.div>
         )}
       </AnimatePresence>
-      </PreviewAwareScrollArea>
-    </PrimaryPageShell>
+    </div>
   );
 }
+
+

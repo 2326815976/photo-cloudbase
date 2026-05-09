@@ -200,7 +200,7 @@ function hasSeenWelcomeToken(storageKey: string, storageToken: string) {
   }
 }
 
-function clampPhotoAspectRatio(width: number, height: number, fallback = 4 / 3) {
+function clampPhotoAspectRatio(width: number, height: number, fallback = 1) {
   const safeWidth = Number(width || 0);
   const safeHeight = Number(height || 0);
   const ratio = safeWidth > 0 && safeHeight > 0 ? safeHeight / safeWidth : fallback;
@@ -254,15 +254,15 @@ function resolveAlbumPhotoRatio(photo: Photo, ratioMap?: Record<string, number>)
   }
 
   if (Number(photo?.width || 0) > 0 && Number(photo?.height || 0) > 0) {
-    return clampPhotoAspectRatio(photo.width, photo.height, 4 / 3);
+    return clampPhotoAspectRatio(photo.width, photo.height, 1);
   }
 
   const photoRatio = Number(photo?.__ratio || 0);
   if (photoRatio > 0) {
-    return clampPhotoAspectRatio(1, photoRatio, 4 / 3);
+    return clampPhotoAspectRatio(1, photoRatio, 1);
   }
 
-  return 4 / 3;
+  return 1;
 }
 
 function resolveAlbumPhotoListRatios(list: Photo[], ratioMap?: Record<string, number>) {
@@ -1601,7 +1601,7 @@ export default function AlbumDetailPage() {
       return;
     }
 
-    const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 4 / 3);
+    const nextRatio = clampPhotoAspectRatio(dimensions.width, dimensions.height, 1);
     const currentPhoto = photosRef.current.find((photo) => photo.id === photoId);
     const hasStableStoredRatio = Boolean(
       currentPhoto
@@ -2377,23 +2377,18 @@ export default function AlbumDetailPage() {
                       </motion.div>
                     ) : (
                       <div key={`photo-${photo.id}`}>
-                        <div
-                          className="relative w-full overflow-hidden bg-[linear-gradient(135deg,#f8f2e6,#efe5d2)]"
-                          style={{ paddingTop: photo.__media_padding_top || `${resolveAlbumPhotoRatio(photo, photoAspectRatioMap) * 100}%` }}
-                        >
-                          <SimpleImage
-                            src={photo.card_url_resolved || photo.thumbnail_url_resolved || photo.thumbnail_url}
-                            alt="照片"
-                            aspectRatio={resolveAlbumPhotoRatio(photo, photoAspectRatioMap)}
-                            loadingVariant="quiet"
-                            className="album-card-image absolute inset-0 h-full w-full"
-                            onLoad={() => markPendingFolderPhotoSettled(photo.id)}
-                            onError={() => markPendingFolderPhotoSettled(photo.id)}
-                            onLoadDimensions={({ width, height }) => {
-                              handlePhotoRatioReady(photo.id, { width, height });
-                            }}
-                          />
-                        </div>
+                        <SimpleImage
+                          src={photo.card_url_resolved || photo.thumbnail_url_resolved || photo.thumbnail_url}
+                          alt="照片"
+                          aspectRatio={resolveAlbumPhotoRatio(photo, photoAspectRatioMap)}
+                          loadingVariant="quiet"
+                          className="album-card-image w-full bg-[linear-gradient(135deg,#f8f2e6,#efe5d2)]"
+                          onLoad={() => markPendingFolderPhotoSettled(photo.id)}
+                          onError={() => markPendingFolderPhotoSettled(photo.id)}
+                          onLoadDimensions={({ width, height }) => {
+                            handlePhotoRatioReady(photo.id, { width, height });
+                          }}
+                        />
                       </div>
                     )}
                   </AnimatePresence>
