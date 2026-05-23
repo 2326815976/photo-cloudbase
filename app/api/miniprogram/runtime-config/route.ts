@@ -8,7 +8,7 @@ import { buildRuntimeConfigPreset } from '@/lib/miniprogram/runtime-config';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-function applyLegacyGuestProfileCompat<T extends Record<string, unknown>>(runtimeConfig: T) {
+function applyLegacyGuestProfileCompat<T extends object>(runtimeConfig: T) {
   return {
     ...runtimeConfig,
     // 兼容仍按旧字段判断访客态“我的”页的已发布小程序版本。
