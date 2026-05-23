@@ -120,7 +120,8 @@ export async function POST(request: Request) {
       config_name: String(body.config_name || body.configName || '').trim(),
       scene_code: String(body.scene_code || body.sceneCode || 'standard').trim(),
       home_mode: String(body.home_mode || body.homeMode || 'pose').trim(),
-      guest_profile_mode: String(body.guest_profile_mode || body.guestProfileMode || 'login').trim(),
+      // 访客态“我的”已统一收口为登录页，保留字段仅兼容历史表结构。
+      guest_profile_mode: 'login',
       auth_mode: String(body.auth_mode || body.authMode || 'wechat_only').trim(),
       tab_bar_items_json: serializeJsonInput(
         '[]',

@@ -1227,6 +1227,11 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const downloadCountSelect = hasDownloadCountColumn
     ? 'p.download_count AS download_count'
     : '0 AS download_count';
+  const photoLikeCountSelect = `(
+    SELECT COUNT(*)
+    FROM photo_likes pl_count
+    WHERE pl_count.photo_id = p.id
+  ) AS like_count`;
   const folderHiddenSelect = hasFolderHiddenColumn ? 'is_hidden' : '0 AS is_hidden';
   const hideRootFolderSelect = hasHideRootFolderColumn
     ? 'hide_root_folder'
@@ -1303,7 +1308,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
             p.width,
             p.height,
             p.blurhash,
-            p.like_count,
+            ${photoLikeCountSelect},
             p.view_count,
             ${downloadCountSelect},
             p.story_text,
@@ -1344,7 +1349,7 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
           p.width,
           p.height,
           p.blurhash,
-          p.like_count,
+          ${photoLikeCountSelect},
           p.view_count,
           ${downloadCountSelect},
           p.story_text,
@@ -2357,6 +2362,34 @@ async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext)
     throw new Error('参数错误');
   }
 
+  const syncPhotoLikeCount = async () => {
+    const countResult = await executeSQL(
+      `
+        SELECT COUNT(*) AS total
+        FROM photo_likes
+        WHERE photo_id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+      }
+    );
+    const likeCount = toNumber(countResult.rows[0]?.total, 0);
+
+    await executeSQL(
+      `
+        UPDATE album_photos
+        SET like_count = {{like_count}}
+        WHERE id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+        like_count: likeCount,
+      }
+    );
+
+    return likeCount;
+  };
+
   const existing = await executeSQL(
     `
       SELECT id
@@ -2382,43 +2415,33 @@ async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext)
       }
     );
 
+    return {
+      liked: false,
+      like_count: await syncPhotoLikeCount(),
+    };
+  }
+
+  try {
     await executeSQL(
       `
-        UPDATE album_photos
-        SET like_count = GREATEST(0, like_count - 1)
-        WHERE id = {{photo_id}}
+        INSERT INTO photo_likes (user_id, photo_id, created_at)
+        VALUES ({{user_id}}, {{photo_id}}, ${NOW_UTC8_EXPR})
       `,
       {
+        user_id: userId,
         photo_id: photoId,
       }
     );
-
-    return { liked: false };
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) {
+      throw error;
+    }
   }
 
-  await executeSQL(
-    `
-      INSERT INTO photo_likes (user_id, photo_id, created_at)
-      VALUES ({{user_id}}, {{photo_id}}, ${NOW_UTC8_EXPR})
-    `,
-    {
-      user_id: userId,
-      photo_id: photoId,
-    }
-  );
-
-  await executeSQL(
-    `
-      UPDATE album_photos
-      SET like_count = like_count + 1
-      WHERE id = {{photo_id}}
-    `,
-    {
-      photo_id: photoId,
-    }
-  );
-
-  return { liked: true };
+  return {
+    liked: true,
+    like_count: await syncPhotoLikeCount(),
+  };
 }
 
 async function rpcIncrementPhotoView(args: Record<string, unknown>, context: AuthContext) {

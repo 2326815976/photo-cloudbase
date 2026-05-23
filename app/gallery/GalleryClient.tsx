@@ -623,6 +623,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
   const hasClientInitialFetchStartedRef = useRef(false);
   const loadRequestTokenRef = useRef(0);
   const allPhotosRef = useRef<Photo[]>(hydratedInitialPhotos);
+  const likingPhotoIdsRef = useRef<Set<string>>(new Set());
   const pageRef = useRef(hydratedInitialPage);
   const selectedFolderIdRef = useRef(selectedFolderId);
   const resolvedFirstPageFolderIdRef = useRef<string | null>(null);
@@ -1259,6 +1260,10 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
   const handleLike = async (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const normalizedPhotoId = String(photoId || '').trim();
+    if (!normalizedPhotoId || likingPhotoIdsRef.current.has(normalizedPhotoId)) {
+      return;
+    }
 
     // 触觉反馈
     vibrate(50);
@@ -1274,41 +1279,68 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
       return;
     }
 
-    const { data, error } = await dbClient.rpc('like_photo', {
-      p_photo_id: photoId
-    });
+    likingPhotoIdsRef.current.add(normalizedPhotoId);
 
-    if (!error && data) {
-      // 使用 SWR mutate 乐观更新缓存
-      // 更新 allPhotos 中的点赞状态
-      setAllPhotos(prev => prev.map(photo => {
-        if (photo.id === photoId) {
-          const nextLikeCount = data.liked
-            ? photo.like_count + 1
-            : Math.max(0, photo.like_count - 1);
+    try {
+      const { data, error } = await dbClient.rpc('like_photo', {
+        p_photo_id: normalizedPhotoId
+      });
+
+      if (!error && data) {
+        const nextLiked = Boolean((data as { liked?: unknown }).liked);
+        const returnedLikeCount = readPayloadNumberField(data, 'like_count');
+
+        // 使用后端返回的真实计数同步当前列表与预览态
+        setAllPhotos(prev => prev.map(photo => {
+          if (photo.id === normalizedPhotoId) {
+            const nextLikeCount = returnedLikeCount ?? (
+              nextLiked
+                ? photo.like_count + 1
+                : Math.max(0, photo.like_count - 1)
+            );
+            return {
+              ...photo,
+              is_liked: nextLiked,
+              like_count: nextLikeCount,
+            };
+          }
+          return photo;
+        }));
+
+        setPreviewPhoto(prev => {
+          if (!prev || prev.id !== normalizedPhotoId) {
+            return prev;
+          }
+          const nextLikeCount = returnedLikeCount ?? (
+            nextLiked
+              ? prev.like_count + 1
+              : Math.max(0, prev.like_count - 1)
+          );
           return {
-            ...photo,
-            is_liked: data.liked,
+            ...prev,
+            is_liked: nextLiked,
             like_count: nextLikeCount,
           };
-        }
-        return photo;
-      }));
+        });
 
-      // 同步更新预览照片的点赞状态
-      setPreviewPhoto(prev => {
-        if (!prev || prev.id !== photoId) {
-          return prev;
-        }
-        const nextLikeCount = data.liked
-          ? prev.like_count + 1
-          : Math.max(0, prev.like_count - 1);
-        return {
-          ...prev,
-          is_liked: data.liked,
-          like_count: nextLikeCount,
-        };
-      });
+        setFullscreenPhoto(prev => {
+          if (!prev || prev.id !== normalizedPhotoId) {
+            return prev;
+          }
+          const nextLikeCount = returnedLikeCount ?? (
+            nextLiked
+              ? prev.like_count + 1
+              : Math.max(0, prev.like_count - 1)
+          );
+          return {
+            ...prev,
+            is_liked: nextLiked,
+            like_count: nextLikeCount,
+          };
+        });
+      }
+    } finally {
+      likingPhotoIdsRef.current.delete(normalizedPhotoId);
     }
   };
 

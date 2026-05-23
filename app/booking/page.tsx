@@ -4,8 +4,11 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Phone, MessageSquare, Camera } from 'lucide-react';
 import ActiveBookingTicket from '@/components/ActiveBookingTicket';
+import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
+import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 
 const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false });
 import CustomSelect from '@/components/CustomSelect';
@@ -118,6 +121,11 @@ function inferNearestAllowedCityByCoordinates(
 
 export default function BookingPage() {
   const router = useRouter();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'booking',
+    '约拍邀请',
+    '📝 写下你的约拍便利贴 📝'
+  );
   const [bookingTypes, setBookingTypes] = useState<BookingType[]>([]);
   const [allowedCities, setAllowedCities] = useState<AllowedCity[]>([]);
   const [formData, setFormData] = useState({
@@ -546,64 +554,61 @@ export default function BookingPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="flex flex-col items-center gap-6"
-        >
-          <div className="relative">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Camera className="w-8 h-8 text-[#FFC857]" />
-            </div>
-          </div>
+      <PrimaryPageShell
+        title={managedTitle}
+        badge={managedSubtitle || undefined}
+        className="h-full w-full"
+        contentClassName="min-h-0"
+      >
+        <div className="flex h-full items-center justify-center bg-[#FFFBF0]">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
+            transition={{ duration: 0.3 }}
+            className="flex flex-col items-center gap-6"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
-            </p>
-            <p className="text-sm text-[#5D4037]/60">
-              正在准备约拍信息
-            </p>
+            <div className="relative">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+              />
+              <motion.div
+                animate={{ rotate: -360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Camera className="w-8 h-8 text-[#FFC857]" />
+              </div>
+            </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="text-center"
+            >
+              <p className="text-lg font-medium text-[#5D4037] mb-2">
+                加载中...
+              </p>
+              <p className="text-sm text-[#5D4037]/60">
+                正在准备约拍信息
+              </p>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      </div>
+        </div>
+      </PrimaryPageShell>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* 手账风页头 - 使用弹性布局适配不同屏幕 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-[#5D4037] leading-none truncate" style={{ fontFamily: "'ZQKNNY', cursive" }}>{activeBooking ? '我的预约' : '约拍邀请'}</h1>
-          <div className="inline-block px-2.5 py-0.5 bg-[#FFC857]/30 rounded-full transform -rotate-1 flex-shrink-0">
-            <p className="text-[10px] font-bold text-[#8D6E63] tracking-wide whitespace-nowrap">📝 写下你的约拍便利贴 📝</p>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* 滚动区域 */}
-      <div className="flex-1 overflow-y-auto px-6 pt-4 pb-20 [&::-webkit-scrollbar]:hidden">
+    <PrimaryPageShell
+      title={activeBooking ? '我的预约' : managedTitle}
+      badge={managedSubtitle || undefined}
+      className="h-full w-full"
+      contentClassName="min-h-0"
+    >
+      <PreviewAwareScrollArea className="min-h-0 flex-1 px-6 pt-4" bottomPaddingMode="scroll">
         {/* 场景 A: 有活跃订单 - 显示票据 */}
         {activeBooking && (
           <ActiveBookingTicket
@@ -822,8 +827,6 @@ export default function BookingPage() {
             )}
           </motion.div>
         )}
-      </div>
-
       {/* 地图选择器弹窗 */}
       <AnimatePresence>
         {showMapPicker && (
@@ -883,8 +886,7 @@ export default function BookingPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      </PreviewAwareScrollArea>
+    </PrimaryPageShell>
   );
 }
-
-

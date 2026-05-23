@@ -315,6 +315,20 @@ function normalizeAlbumPhoto(photo: Photo): Photo {
   };
 }
 
+function resolveAlbumPhotoFullscreenUrl(photo?: Photo | null): string {
+  return String(
+    photo?.fullscreen_url_resolved
+    || photo?.original_url_resolved
+    || photo?.preview_url_resolved
+    || photo?.original_url
+    || photo?.preview_url
+    || photo?.card_url_resolved
+    || photo?.thumbnail_url_resolved
+    || photo?.thumbnail_url
+    || ''
+  ).trim();
+}
+
 function estimateAlbumCardHeight(photo: Photo, isStoryOpen: boolean, ratioMap?: Record<string, number>) {
   const hasStoryText = Boolean(String(photo.story_text || '').trim());
   const mediaHeight = isStoryOpen && hasStoryText
@@ -380,7 +394,6 @@ export default function AlbumDetailPage() {
   const [showDonationModal, setShowDonationModal] = useState(false); // 赞赏弹窗显示状态
   const [showWechatGuide, setShowWechatGuide] = useState(false); // 微信下载引导弹窗
   const [isWechat, setIsWechat] = useState(false); // 是否在微信浏览器中
-  const [previewPhotoPool, setPreviewPhotoPool] = useState<Photo[] | null>(null);
   const pinningPhotoIdsRef = useRef<Set<string>>(new Set());
   const photosRef = useRef<Photo[]>([]);
   const photoScrollRef = useRef<HTMLDivElement | null>(null);
@@ -398,7 +411,6 @@ export default function AlbumDetailPage() {
   const folderOverlayPendingRef = useRef(false);
   const albumLoadTokenRef = useRef(0);
   const photoLoadTokenRef = useRef(0);
-  const previewPhotoLoadTokenRef = useRef(0);
   const folderGuideTimerRef = useRef<number | null>(null);
   const folderGuideShownOnceRef = useRef(false);
   const folderWaveTimerRef = useRef<number | null>(null);
@@ -676,22 +688,6 @@ export default function AlbumDetailPage() {
         return next;
       });
 
-      setPreviewPhotoPool((prev) => {
-        if (!prev) {
-          return prev;
-        }
-
-        let changed = false;
-        const next = prev.map((photo) => {
-          const patched = applyPatch(photo);
-          if (patched !== photo) {
-            changed = true;
-          }
-          return patched;
-        });
-
-        return changed ? next : prev;
-      });
     },
     []
   );
@@ -763,37 +759,6 @@ export default function AlbumDetailPage() {
   };
 
   // 检测微信浏览器环境
-  const preloadAlbumPreviewPhotos = useCallback(async () => {
-    if (!normalizedAccessKey) return;
-    if (previewPhotoPool && previewPhotoPool.length > 0) return;
-
-    const dbClient = createClient();
-    if (!dbClient) return;
-
-    const loadToken = previewPhotoLoadTokenRef.current + 1;
-    previewPhotoLoadTokenRef.current = loadToken;
-
-    try {
-      const { data, error } = await dbClient.rpc('get_album_content', {
-        input_key: normalizedAccessKey,
-        include_photos: true,
-      });
-
-      if (error) return;
-      if (loadToken !== previewPhotoLoadTokenRef.current) return;
-
-      const payload = (data && typeof data === 'object') ? (data as Partial<AlbumData>) : null;
-      const nextPhotos = Array.isArray(payload?.photos)
-        ? resolveAlbumPhotoListRatios((payload.photos as Photo[]).map(normalizeAlbumPhoto), photoAspectRatioMap)
-        : [];
-      if (nextPhotos.length > 0) {
-        setPreviewPhotoPool(nextPhotos);
-      }
-    } catch {
-      // ignore preview prefetch errors
-    }
-  }, [normalizedAccessKey, photoAspectRatioMap, previewPhotoPool]);
-
   useEffect(() => {
     setIsWechat(isWechatBrowser());
   }, []);
@@ -842,7 +807,6 @@ export default function AlbumDetailPage() {
     return () => {
       albumLoadTokenRef.current += 1;
       photoLoadTokenRef.current += 1;
-      previewPhotoLoadTokenRef.current += 1;
     };
   }, [normalizedAccessKey]);
 
@@ -855,23 +819,6 @@ export default function AlbumDetailPage() {
       return () => clearTimeout(timer);
     }
   }, [loading, albumData]);
-
-  useEffect(() => {
-    if (!albumData) return;
-    if (previewPhotoPool && previewPhotoPool.length > 0) return;
-    if (photos.length === 0) return;
-
-    if (totalPhotos <= photos.length) {
-      setPreviewPhotoPool(photos);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void preloadAlbumPreviewPhotos();
-    }, 160);
-
-    return () => window.clearTimeout(timer);
-  }, [albumData, photos, preloadAlbumPreviewPhotos, previewPhotoPool, totalPhotos]);
 
   useEffect(() => {
     if (loading || !normalizedAccessKey || typeof window === 'undefined') {
@@ -1312,7 +1259,6 @@ export default function AlbumDetailPage() {
     setPageNo(0);
     setTotalPhotos(0);
     setPhotos([]);
-    setPreviewPhotoPool(null);
     setSelectedPhotos(new Set());
     setPhotoAspectRatioMap({});
     setStoryOpenMap({});
@@ -1323,7 +1269,6 @@ export default function AlbumDetailPage() {
     setSelectedFolder('all');
     selectedFolderRef.current = 'all';
     photoLoadTokenRef.current += 1;
-    previewPhotoLoadTokenRef.current += 1;
     dismissFolderGuide();
     folderGuideShownOnceRef.current = false;
 
@@ -1431,7 +1376,6 @@ export default function AlbumDetailPage() {
     folderOverlayPendingRef.current = true;
     setFullscreenPhoto(null);
     setSelectedPhotos(new Set());
-    setPreviewPhotoPool(null);
     setHasMore(true);
     setPageNo(0);
     setTotalPhotos(0);
@@ -1463,9 +1407,15 @@ export default function AlbumDetailPage() {
     [filteredPhotos, photoAspectRatioMap]
   );
 
+  const shouldShowFolderSwitchSnapshot = switchingFolderLoading
+    && pendingFolderPhotoIds.length === 0
+    && Boolean(folderSwitchSnapshot);
+
   const visibleRenderPhotos = useMemo(
-    () => ((switchingFolderLoading || pendingFolderPhotoIds.length > 0) && folderSwitchSnapshot ? folderSwitchSnapshot : resolvedFilteredPhotos),
-    [folderSwitchSnapshot, pendingFolderPhotoIds.length, resolvedFilteredPhotos, switchingFolderLoading]
+    () => (shouldShowFolderSwitchSnapshot && folderSwitchSnapshot
+      ? folderSwitchSnapshot
+      : resolvedFilteredPhotos),
+    [folderSwitchSnapshot, resolvedFilteredPhotos, shouldShowFolderSwitchSnapshot]
   );
 
   const isFolderSwitchOverlayLoading = switchingFolderLoading || pendingFolderPhotoIds.length > 0;
@@ -1479,24 +1429,33 @@ export default function AlbumDetailPage() {
     && hasLoadedAllVisiblePhotos;
 
   const previewPhotos = useMemo(() => {
-    const sourcePhotos = previewPhotoPool && previewPhotoPool.length > 0
-      ? previewPhotoPool
-      : photos;
-    const currentPhotoMap = new Map(photos.map((photo) => [String(photo.id), photo]));
-    const mergedPhotos = sourcePhotos.map((photo) => {
-      const currentPhoto = currentPhotoMap.get(String(photo.id));
-      return currentPhoto ? { ...photo, ...currentPhoto } : photo;
-    });
+    const currentFolderPhotos = resolvedFilteredPhotos.length > 0
+      ? resolvedFilteredPhotos
+      : visibleRenderPhotos;
 
-    if (selectedFolder === 'all') return mergedPhotos;
-    return mergedPhotos.filter(photo => String(photo.folder_id || '') === selectedFolder);
-  }, [photos, previewPhotoPool, selectedFolder]);
+    if (fullscreenPhoto && !currentFolderPhotos.some((photo) => photo.id === fullscreenPhoto)) {
+      const visibleTargetPhoto = visibleRenderPhotos.find((photo) => photo.id === fullscreenPhoto);
+      if (visibleTargetPhoto) {
+        return [
+          visibleTargetPhoto,
+          ...currentFolderPhotos.filter((photo) => photo.id !== fullscreenPhoto),
+        ];
+      }
+    }
+
+    return currentFolderPhotos;
+  }, [fullscreenPhoto, resolvedFilteredPhotos, visibleRenderPhotos]);
+
+  const previewablePhotos = useMemo(
+    () => previewPhotos.filter((photo) => resolveAlbumPhotoFullscreenUrl(photo)),
+    [previewPhotos]
+  );
 
   const previewCurrentIndex = useMemo(() => {
     if (!fullscreenPhoto) return 0;
-    const targetIndex = previewPhotos.findIndex((photo) => photo.id === fullscreenPhoto);
+    const targetIndex = previewablePhotos.findIndex((photo) => photo.id === fullscreenPhoto);
     return targetIndex >= 0 ? targetIndex : 0;
-  }, [fullscreenPhoto, previewPhotos]);
+  }, [fullscreenPhoto, previewablePhotos]);
   const welcomeLetterMode = useMemo(
     () => normalizeWelcomeLetterMode(albumData?.album?.welcome_letter_mode, albumData?.album?.enable_welcome_letter !== false),
     [albumData]
@@ -1818,7 +1777,6 @@ export default function AlbumDetailPage() {
     }
 
     setPhotos((prev) => resolveAlbumPhotoListRatios(prev, photoAspectRatioMap));
-    setPreviewPhotoPool((prev) => (prev ? resolveAlbumPhotoListRatios(prev, photoAspectRatioMap) : prev));
   }, [photoAspectRatioMap]);
 
   useEffect(() => {
@@ -1871,10 +1829,6 @@ export default function AlbumDetailPage() {
           photosRef.current = next;
           return next;
         });
-        setPreviewPhotoPool(prev => prev
-          ? prev.map(p => (p.id === photoId ? { ...p, is_public: newIsPublic } : p))
-          : prev
-        );
         markGalleryDirty();
 
       if (newIsPublic) {
@@ -2110,10 +2064,6 @@ export default function AlbumDetailPage() {
         photosRef.current = next;
         return next;
       });
-      setPreviewPhotoPool(prev => prev
-        ? prev.filter(photo => !deletedPhotoIds.has(photo.id))
-        : prev
-      );
       if (confirmPhotoId && deletedPhotoIds.has(confirmPhotoId)) {
         setConfirmPhotoId(null);
       }
@@ -2521,7 +2471,7 @@ export default function AlbumDetailPage() {
               animate={{ opacity: 1 }}
               exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0 }}
               transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' }}
-              className="absolute inset-0 z-20"
+              className="pointer-events-none absolute inset-0 z-20"
             >
               <MiniProgramRecoveryScreen
                 title={PAGE_LOADING_COPY.title}
@@ -2701,20 +2651,20 @@ export default function AlbumDetailPage() {
 
       {/* ImagePreview 组件 */}
       <ImagePreview
-        images={previewPhotos.map(p => p.original_url)}
-        downloadUrls={previewPhotos.map(p => p.original_url)}
+        images={previewablePhotos.map(resolveAlbumPhotoFullscreenUrl)}
+        downloadUrls={previewablePhotos.map(resolveAlbumPhotoFullscreenUrl)}
         currentIndex={previewCurrentIndex}
         isOpen={!!fullscreenPhoto}
         onClose={() => setFullscreenPhoto(null)}
         onIndexChange={(index) => {
-          const target = previewPhotos[index];
+          const target = previewablePhotos[index];
           setFullscreenPhoto(target?.id || null);
           if (target?.id) {
             void incrementPhotoViewCount(target.id, target.view_count);
           }
         }}
         onDownload={(index) => {
-          const target = previewPhotos[index];
+          const target = previewablePhotos[index];
           if (!target?.id) return;
           void incrementPhotoDownloadCount(target.id, 1, target.download_count);
         }}
@@ -2736,7 +2686,7 @@ export default function AlbumDetailPage() {
       <WechatDownloadGuide
         isOpen={showWechatGuide}
         onClose={() => setShowWechatGuide(false)}
-        imageUrl={fullscreenPhoto ? photos.find((p) => p.id === fullscreenPhoto)?.original_url : undefined}
+        imageUrl={fullscreenPhoto ? resolveAlbumPhotoFullscreenUrl(photos.find((p) => p.id === fullscreenPhoto) ?? previewablePhotos[previewCurrentIndex]) : undefined}
         isBatchDownload={selectedPhotos.size > 0 || !fullscreenPhoto}
         onTryDownload={executeBatchDownload}
       />
