@@ -61,7 +61,6 @@ const navSections: AdminNavSection[] = [
     label: '发布与配置',
     items: [
       { href: '/admin/web-pages', label: 'Web 页面管理', desc: 'Web 内测 / 上线 / 下线 / 查看', icon: '🧭' },
-      { href: '/admin/miniprogram-pages', label: '小程序页面管理', desc: '小程序 内测 / 上线 / 下线 / 查看', icon: '📱' },
       { href: '/admin/releases', label: '发布版本', desc: '安装包发布', icon: '📦' },
     ],
   },

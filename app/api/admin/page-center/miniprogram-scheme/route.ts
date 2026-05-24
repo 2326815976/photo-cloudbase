@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { ensureAdminSession } from '@/app/api/admin/_utils/ensure-admin-session';
+import {
+  ensureAdminSession,
+  ensurePageManagementScope,
+  readPageManagementClientChannel,
+} from '@/app/api/admin/_utils/ensure-admin-session';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,6 +108,15 @@ export async function POST(request: Request) {
     const adminCheck = await ensureAdminSession();
     if (!adminCheck.ok) {
       return adminCheck.response;
+    }
+
+    const clientChannel = readPageManagementClientChannel(request);
+    if (!clientChannel) {
+      return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
+    }
+    const scopeCheck = ensurePageManagementScope(request, clientChannel);
+    if (!scopeCheck.ok) {
+      return scopeCheck.response;
     }
 
     const body = (await request.json()) as Record<string, unknown>;

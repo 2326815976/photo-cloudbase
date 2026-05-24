@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
-import { ensureAdminSession } from '@/app/api/admin/_utils/ensure-admin-session';
+import {
+  ensureAdminSession,
+  ensurePageManagementScope,
+  readPageManagementClientChannel,
+} from '@/app/api/admin/_utils/ensure-admin-session';
 import { resolvePageCenterAdminError } from '@/lib/page-center/errors';
 import {
   countAvailableBetaCodes,
   loadPagePublishRule,
   loadRegistryItemByPageKey,
-  normalizeAppChannel,
   upsertPageRegistryItem,
   upsertPagePublishRule,
   validateChannelNavLimit,
@@ -55,8 +58,17 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as Record<string, unknown>;
+    const clientChannel = readPageManagementClientChannel(request);
+    if (!clientChannel) {
+      return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
+    }
+    const scopeCheck = ensurePageManagementScope(request, clientChannel);
+    if (!scopeCheck.ok) {
+      return scopeCheck.response;
+    }
+
     const pageKey = normalizeText(body.pageKey);
-    const channel = normalizeAppChannel(body.channel, 'web');
+    const channel = clientChannel;
     const publishState = normalizePublishState(body.publishState, 'offline');
     const navOrder = normalizeNumber(body.navOrder, 99);
     const navText = normalizeText(body.navText);

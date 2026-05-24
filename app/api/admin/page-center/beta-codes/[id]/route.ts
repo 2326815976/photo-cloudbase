@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { ensureAdminSession } from '@/app/api/admin/_utils/ensure-admin-session';
+import {
+  ensureAdminSession,
+  ensurePageManagementScope,
+  readPageManagementClientChannel,
+} from '@/app/api/admin/_utils/ensure-admin-session';
 import { createAdminClient } from '@/lib/cloudbase/server';
 import { deletePageBetaCode, loadPageBetaCodeById } from '@/lib/page-center/admin';
 import { resolvePageCenterAdminError } from '@/lib/page-center/errors';
@@ -20,6 +24,15 @@ export async function DELETE(
       return adminCheck.response;
     }
 
+    const clientChannel = readPageManagementClientChannel(request);
+    if (!clientChannel) {
+      return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
+    }
+    const scopeCheck = ensurePageManagementScope(request, clientChannel);
+    if (!scopeCheck.ok) {
+      return scopeCheck.response;
+    }
+
     const params = await context.params;
     const codeId = String(params.id || '').trim();
     if (!codeId) {
@@ -31,6 +44,9 @@ export async function DELETE(
       const existingLegacyCode = await loadLegacyOverviewBetaCodeById(codeId);
       if (!existingLegacyCode) {
         return NextResponse.json({ error: '目标内测码不存在' }, { status: 404 });
+      }
+      if (existingLegacyCode.channel !== clientChannel) {
+        return NextResponse.json({ error: '不允许跨端删除另一端的内测码' }, { status: 403 });
       }
 
       const adminDbClient = createAdminClient();
@@ -59,6 +75,9 @@ export async function DELETE(
     const existingCode = await loadPageBetaCodeById(codeId);
     if (!existingCode) {
       return NextResponse.json({ error: '目标内测码不存在' }, { status: 404 });
+    }
+    if (existingCode.channel !== clientChannel) {
+      return NextResponse.json({ error: '不允许跨端删除另一端的内测码' }, { status: 403 });
     }
 
     await deletePageBetaCode(codeId);

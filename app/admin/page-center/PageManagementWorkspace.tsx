@@ -73,6 +73,8 @@ interface PageManagementWorkspaceProps {
   channel: AppChannel;
 }
 
+const PAGE_MANAGEMENT_CLIENT_HEADER = 'x-page-management-client';
+
 type StateFilter = 'all' | PagePublishState;
 type ActionModalState = { pageKey: string; mode: 'edit' | 'offline' } | null;
 
@@ -301,8 +303,8 @@ function getDateDiffFromToday(dateText: string) {
 function resolveBetaScopeMeta(codeChannel: AppPageBetaCodeItem['channel'], channel: AppChannel) {
   if (codeChannel === 'shared') {
     return {
-      scopeLabel: '双端通用',
-      scopeHint: 'Web 与小程序登录用户都可绑定这条内测码进入当前页面。',
+      scopeLabel: '旧体系兼容',
+      scopeHint: '这是旧数据，仅保留查看；新建与保存不会再生成共享内测码。',
     };
   }
 
@@ -316,7 +318,7 @@ function resolveBetaScopeMeta(codeChannel: AppPageBetaCodeItem['channel'], chann
 }
 
 function applyReadOnlyBetaCodeMeta(code: AppPageBetaCodeItem, payload: DecoratedBetaCode): DecoratedBetaCode {
-  if (!code.readOnly) {
+  if (!code.readOnly && code.channel !== 'shared') {
     return payload;
   }
 
@@ -822,7 +824,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
   const loadOverview = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/admin/page-center/overview', { cache: 'no-store' });
+      const response = await fetch('/api/admin/page-center/overview', {
+        cache: 'no-store',
+        headers: { [PAGE_MANAGEMENT_CLIENT_HEADER]: channel },
+      });
       const payload = (await response.json()) as {
         data?: PageCenterOverviewItem[];
         error?: string;
@@ -1106,7 +1111,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     const nextForm = normalizeRuleForm(item, channel, form);
     const response = await fetch('/api/admin/page-center/pages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        [PAGE_MANAGEMENT_CLIENT_HEADER]: channel,
+      },
       body: JSON.stringify({
         pageKey: item.pageKey,
         channel,
@@ -1302,7 +1310,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
 
       const response = await fetch('/api/admin/page-center/miniprogram-scheme', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          [PAGE_MANAGEMENT_CLIENT_HEADER]: channel,
+        },
         body: JSON.stringify({ routePath: previewRoute }),
       });
       const payload = (await response.json()) as { openlink?: string; error?: string };
@@ -1377,7 +1388,10 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     try {
       const response = await fetch('/api/admin/page-center/registry', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          [PAGE_MANAGEMENT_CLIENT_HEADER]: channel,
+        },
         body: JSON.stringify({ ...payload, scopeChannel: channel }),
       });
       const result = (await response.json()) as { error?: string };
@@ -1427,7 +1441,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
       betaName: code.betaName,
       betaCode: code.betaCode,
       expiresAt: extractDateText(code.expiresAt),
-      channel: code.channel,
+      channel,
     });
     showToast(
       code.lifecycleKey === 'destroyed'
@@ -1464,14 +1478,17 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     try {
       const response = await fetch('/api/admin/page-center/beta-codes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          [PAGE_MANAGEMENT_CLIENT_HEADER]: channel,
+        },
         body: JSON.stringify({
           pageKey,
           codeId: draft.codeId,
           betaName: draft.betaName,
           betaCode: draft.betaCode,
           expiresAt: draft.expiresAt,
-          channel: draft.channel,
+          channel,
         }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
@@ -1494,6 +1511,7 @@ export default function PageManagementWorkspace({ channel }: PageManagementWorks
     try {
       const response = await fetch(`/api/admin/page-center/beta-codes/${encodeURIComponent(codeId)}`, {
         method: 'DELETE',
+        headers: { [PAGE_MANAGEMENT_CLIENT_HEADER]: channel },
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {

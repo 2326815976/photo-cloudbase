@@ -1,9 +1,14 @@
-﻿import { NextResponse } from 'next/server';
-import { ensureAdminSession } from '@/app/api/admin/_utils/ensure-admin-session';
+import { NextResponse } from 'next/server';
+import {
+  ensureAdminSession,
+  ensurePageManagementScope,
+  normalizeScopedBetaChannel,
+  readPageManagementClientChannel,
+} from '@/app/api/admin/_utils/ensure-admin-session';
 import { resolvePageCenterAdminError } from '@/lib/page-center/errors';
 import {
-  loadPageBetaCodes,
   loadPageBetaCodeById,
+  loadPageBetaCodes,
   loadRegistryItemByPageKey,
   normalizeBetaChannel,
   savePageBetaCode,
@@ -12,8 +17,7 @@ import { normalizeText } from '@/lib/page-center/config';
 
 export const dynamic = 'force-dynamic';
 
-function getBetaChannelLabel(channel: 'web' | 'miniprogram' | 'shared') {
-  if (channel === 'shared') return '双端通用';
+function getBetaChannelLabel(channel: 'web' | 'miniprogram') {
   return channel === 'web' ? '仅 Web' : '仅小程序';
 }
 
@@ -24,13 +28,25 @@ export async function POST(request: Request) {
       return adminCheck.response;
     }
 
+    const clientChannel = readPageManagementClientChannel(request);
+    if (!clientChannel) {
+      return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
+    }
+    const scopeCheck = ensurePageManagementScope(request, clientChannel);
+    if (!scopeCheck.ok) {
+      return scopeCheck.response;
+    }
+
     const body = (await request.json()) as Record<string, unknown>;
     const pageKey = normalizeText(body.pageKey);
     const codeId = normalizeText(body.codeId);
     const betaName = normalizeText(body.betaName);
     const betaCode = normalizeText(body.betaCode);
     const expiresAt = normalizeText(body.expiresAt);
-    const channel = normalizeBetaChannel(body.channel, 'shared');
+    const channel = normalizeScopedBetaChannel(
+      normalizeBetaChannel(body.channel, clientChannel),
+      clientChannel
+    );
 
     if (!pageKey) {
       return NextResponse.json({ error: '缺少页面标识' }, { status: 400 });
@@ -52,6 +68,9 @@ export async function POST(request: Request) {
       }
       if (existingCode.pageKey !== registryItem.pageKey) {
         return NextResponse.json({ error: '该内测码不属于当前页面' }, { status: 400 });
+      }
+      if (existingCode.channel !== channel) {
+        return NextResponse.json({ error: '不允许跨端编辑另一端的内测码' }, { status: 403 });
       }
     }
 

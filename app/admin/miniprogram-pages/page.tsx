@@ -1,5 +1,5 @@
-import PageManagementWorkspace from '@/app/admin/page-center/PageManagementWorkspace';
+import { redirect } from 'next/navigation';
 
 export default function AdminMiniProgramPagesPage() {
-  return <PageManagementWorkspace channel="miniprogram" />;
+  redirect('/admin/web-pages');
 }
