@@ -8,6 +8,7 @@ import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniP
 import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 import { createClient } from '@/lib/cloudbase/client';
+import { appendAuthRefreshQuery } from '@/lib/auth/client-session';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
@@ -142,11 +143,11 @@ function LoginForm() {
       }
 
       if (typeof window !== 'undefined') {
-        window.location.replace(redirectTarget);
+        window.location.replace(appendAuthRefreshQuery(redirectTarget));
         return;
       }
 
-      router.replace(redirectTarget);
+      router.replace(appendAuthRefreshQuery(redirectTarget));
       router.refresh();
     } catch (err) {
       setError('登录失败，请稍后重试');

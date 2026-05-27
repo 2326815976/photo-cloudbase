@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Calendar, Info, LayoutDashboard, Lock, LogOut, Sparkles, User } from 'lucide-react';
@@ -8,10 +8,13 @@ import LogoutConfirmModal from '@/components/LogoutConfirmModal';
 import MiniProgramRecoveryScreen, { PAGE_LOADING_COPY } from '@/components/MiniProgramRecoveryScreen';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
-import { createClient } from '@/lib/cloudbase/client';
+import { subscribeAuthResume } from '@/lib/auth/client-session';
+import { createClient, invalidateClientSessionCache } from '@/lib/cloudbase/client';
 import { logoutWithCleanup } from '@/lib/auth/logout-client';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+
+const PROFILE_AUTH_CHECK_THROTTLE_MS = 600;
 
 function isTransientConnectionError(message: string): boolean {
   const normalized = String(message ?? '').toLowerCase();
@@ -42,6 +45,8 @@ export default function ProfilePage() {
   const [authCheckError, setAuthCheckError] = useState('');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const authCheckAtRef = useRef(0);
+  const authCheckPendingRef = useRef<Promise<void> | null>(null);
 
   const managedPageMap = useMemo(() => {
     const pageAccessItems = Array.isArray(shellRuntime?.pageAccessItems)
@@ -192,49 +197,103 @@ export default function ProfilePage() {
 
   // 检查登录状态
   useEffect(() => {
-    const checkAuth = async () => {
-      const dbClient = createClient();
-      if (!dbClient) {
-        setIsLoading(false);
-        return;
+    let cancelled = false;
+    const dbClient = createClient();
+
+    const checkAuth = async (force = false, showLoading = false) => {
+      const now = Date.now();
+      if (!force && now - authCheckAtRef.current < PROFILE_AUTH_CHECK_THROTTLE_MS) {
+        return authCheckPendingRef.current || Promise.resolve();
       }
 
-      const {
-        data: { session },
-        error: sessionError,
-      } = await dbClient.auth.getSession();
-
-      if (sessionError) {
-        setAuthCheckError(
-          isTransientConnectionError(sessionError.message || '')
-            ? '会话服务连接超时，请稍后重试'
-            : `会话校验失败：${sessionError.message || '未知错误'}`
-        );
-        setIsLoading(false);
-        return;
+      if (authCheckPendingRef.current) {
+        return authCheckPendingRef.current;
       }
 
-      if (session?.user) {
+      authCheckAtRef.current = now;
+      if (showLoading) {
+        setIsLoading(true);
+      }
+
+      authCheckPendingRef.current = (async () => {
+        if (!dbClient) {
+          if (!cancelled) {
+            setIsLoggedIn(false);
+            setIsAdmin(false);
+            setUserEmail('');
+            setUserName('');
+            setUserPhone('');
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        const {
+          data: { session },
+          error: sessionError,
+        } = await dbClient.auth.getSession();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (sessionError) {
+          setAuthCheckError(
+            isTransientConnectionError(sessionError.message || '')
+              ? '会话服务连接超时，请稍后重试'
+              : `会话校验失败：${sessionError.message || '未知错误'}`
+          );
+          setIsLoading(false);
+          return;
+        }
+
+        if (!session?.user) {
+          setIsLoggedIn(false);
+          setIsAdmin(false);
+          setUserEmail('');
+          setUserName('');
+          setUserPhone('');
+          setAuthCheckError('');
+          setIsLoading(false);
+          return;
+        }
+
         setIsLoggedIn(true);
         setAuthCheckError('');
         setUserEmail(session.user.email || '');
         setUserPhone(session.user.phone || '');
 
-        // 从数据库profiles表获取用户名
         const { data: profile } = await dbClient
           .from('profiles')
           .select('name, role')
           .eq('id', session.user.id)
           .single();
 
+        if (cancelled) {
+          return;
+        }
+
         setUserName(profile?.name || session.user.phone || '用户');
         setIsAdmin(String(profile?.role || '').toLowerCase() === 'admin');
-      }
+        setIsLoading(false);
+      })().finally(() => {
+        authCheckPendingRef.current = null;
+      });
 
-      setIsLoading(false);
+      return authCheckPendingRef.current;
     };
 
-    checkAuth();
+    void checkAuth(true, true);
+    const unsubscribeResume = subscribeAuthResume(() => {
+      invalidateClientSessionCache();
+      void checkAuth(true, false);
+    });
+
+    return () => {
+      cancelled = true;
+      authCheckPendingRef.current = null;
+      unsubscribeResume();
+    };
   }, []);
 
   if (isLoading) {

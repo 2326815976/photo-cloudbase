@@ -190,10 +190,12 @@ async function fetchSessionResponse(force = false): Promise<SessionResponse> {
 
   pendingSessionRequest = requestJson('/api/auth/session', {
     method: 'GET',
+    cache: 'no-store',
     backendRecovery: { skipReadyGate: true },
   })
     .then((result) => {
-      if (result.ok && !result.body?.error) {
+      const hasAuthenticatedUser = Boolean(result.body?.user || result.body?.session?.user);
+      if (result.ok && !result.body?.error && hasAuthenticatedUser) {
         cachedSessionResponse = result;
         cachedSessionAt = Date.now();
       } else {
@@ -629,4 +631,8 @@ export function createClient(): CompatClient {
 
   compatClientInstance = buildBrowserCompatClient();
   return compatClientInstance;
+}
+
+export function invalidateClientSessionCache(): void {
+  clearSessionCache();
 }

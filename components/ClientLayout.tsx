@@ -6,7 +6,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import BackendRecoveryIndicator from './BackendRecoveryIndicator';
 import BottomNav from './BottomNav';
 import MiniProgramRecoveryScreen, { MINI_PROGRAM_RECONNECT_COPY } from './MiniProgramRecoveryScreen';
-import { createClient } from '@/lib/cloudbase/client';
+import { clearAuthRefreshQueryFromCurrentUrl, subscribeAuthResume } from '@/lib/auth/client-session';
+import { createClient, invalidateClientSessionCache } from '@/lib/cloudbase/client';
 import { ensureBackendRecoveryFetchInstalled, getBackendRecoveryState } from '@/lib/backend-recovery';
 import { useBackendRecoveryState } from '@/lib/hooks/useBackendRecoveryState';
 import SWRProvider from './providers/SWRProvider';
@@ -228,12 +229,25 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     };
 
     void syncAuthState(true);
+    const unsubscribeResume = subscribeAuthResume(() => {
+      invalidateClientSessionCache();
+      void syncAuthState(true);
+    });
 
     return () => {
       cancelled = true;
       authSyncPendingRef.current = null;
+      unsubscribeResume();
     };
   }, [isAdminRoute]);
+
+  useEffect(() => {
+    if (isAdminRoute) {
+      return;
+    }
+
+    clearAuthRefreshQueryFromCurrentUrl();
+  }, [isAdminRoute, pathname, searchKey]);
 
   useEffect(() => {
     if (isAdminRoute || !isAuthenticated) {

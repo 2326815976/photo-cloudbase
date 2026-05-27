@@ -18,7 +18,10 @@ import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import Toast from '@/components/ui/Toast';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { isMobileDevice } from '@/lib/platform';
 import { cn } from '@/lib/utils';
+import { isAndroidWebView } from '@/lib/utils/android-optimization';
+import { isWechatBrowser } from '@/lib/wechat';
 import {
   processCaptureSource,
   type CaptureProcessResult,
@@ -126,6 +129,21 @@ function waitForProcessingOverlayPaint() {
       });
     });
   });
+}
+
+function shouldUseConservativeCaptureWarmup() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const deviceMemoryValue = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const deviceMemory = typeof deviceMemoryValue === 'number' ? deviceMemoryValue : null;
+  return (
+    isWechatBrowser() ||
+    isAndroidWebView() ||
+    isMobileDevice() ||
+    (deviceMemory !== null && deviceMemory <= 4)
+  );
 }
 
 function buildCardId() {
@@ -580,6 +598,9 @@ export default function CaptureLabPage() {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const captureObjectUrlsRef = useRef<Set<string>>(new Set());
+  const warmupTimeoutRef = useRef<number | null>(null);
+  const warmupIdleRef = useRef<number | null>(null);
+  const warmupStartedRef = useRef(false);
 
   const [cards, setCards] = useState<CaptureWallCard[]>([]);
   const [activeCard, setActiveCard] = useState<CaptureWallCard | null>(null);
@@ -609,7 +630,25 @@ export default function CaptureLabPage() {
   const previewCard = pendingCard || activeCard;
   const isPendingPreview = Boolean(pendingCard);
 
+  const cancelScheduledWarmup = () => {
+    if (warmupTimeoutRef.current !== null) {
+      window.clearTimeout(warmupTimeoutRef.current);
+      warmupTimeoutRef.current = null;
+    }
+
+    if (
+      warmupIdleRef.current !== null &&
+      'cancelIdleCallback' in window
+    ) {
+      (
+        window as Window & { cancelIdleCallback?: (handle: number) => void }
+      ).cancelIdleCallback?.(warmupIdleRef.current);
+      warmupIdleRef.current = null;
+    }
+  };
+
   const openPickerTarget = (target: 'camera' | 'album') => {
+    cancelScheduledWarmup();
     const input = target === 'camera' ? cameraInputRef.current : uploadInputRef.current;
     input?.click();
     setPickerOpen(false);
@@ -632,28 +671,35 @@ export default function CaptureLabPage() {
   };
 
   useEffect(() => {
+    if (shouldUseConservativeCaptureWarmup()) {
+      return undefined;
+    }
+
+    const scheduleWarmup = () => {
+      if (warmupStartedRef.current || document.visibilityState !== 'visible') {
+        return;
+      }
+
+      warmupStartedRef.current = true;
+      void warmupCaptureProcessing();
+    };
+
     const requestIdle =
       (window as Window & {
         requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
       }).requestIdleCallback;
 
-    const warmup = () => {
-      void warmupCaptureProcessing();
-    };
-
     if (requestIdle) {
-      const idleId = requestIdle(warmup, { timeout: 1200 });
+      warmupIdleRef.current = requestIdle(scheduleWarmup, { timeout: 2400 });
       return () => {
-        if ('cancelIdleCallback' in window) {
-          (
-            window as Window & { cancelIdleCallback?: (handle: number) => void }
-          ).cancelIdleCallback?.(idleId);
-        }
+        cancelScheduledWarmup();
       };
     }
 
-    const timer = window.setTimeout(warmup, 240);
-    return () => window.clearTimeout(timer);
+    warmupTimeoutRef.current = window.setTimeout(scheduleWarmup, 1800);
+    return () => {
+      cancelScheduledWarmup();
+    };
   }, []);
 
   useEffect(() => {
