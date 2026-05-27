@@ -14,9 +14,6 @@ import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 import { isWechatBrowser } from '@/lib/wechat';
 
-const SESSION_SYNC_MAX_ATTEMPTS = 8;
-const SESSION_SYNC_RETRY_DELAY_MS = 260;
-
 function resolveManagedGuestEntry(
   pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
   pageKey: string,
@@ -31,28 +28,6 @@ function resolveManagedGuestEntry(
     href,
     label: String(current.navText || current.headerTitle || fallbackLabel).trim() || fallbackLabel,
   };
-}
-
-async function waitForAuthenticatedSession() {
-  for (let attempt = 0; attempt < SESSION_SYNC_MAX_ATTEMPTS; attempt += 1) {
-    const sessionResponse = await fetch('/api/auth/session', {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    });
-    const sessionBody = await sessionResponse.json().catch(() => null);
-    const hasSessionUser = Boolean(sessionResponse.ok && (sessionBody?.user || sessionBody?.session?.user));
-
-    if (hasSessionUser) {
-      return true;
-    }
-
-    if (attempt < SESSION_SYNC_MAX_ATTEMPTS - 1) {
-      await new Promise((resolve) => setTimeout(resolve, SESSION_SYNC_RETRY_DELAY_MS * (attempt + 1)));
-    }
-  }
-
-  return false;
 }
 
 function resolveLoginErrorMessage(rawMessage: string, fallbackMessage = '登录失败，请重试') {
@@ -172,13 +147,8 @@ function LoginForm() {
           setIsLoading(false);
           return;
         }
+
         localStorage.removeItem('login_redirect');
-        const hasSessionUser = await waitForAuthenticatedSession();
-        if (!hasSessionUser) {
-          setError('登录状态写入失败，请重试');
-          setIsLoading(false);
-          return;
-        }
 
         if (typeof window !== 'undefined') {
           window.location.replace(appendAuthRefreshQuery(redirectTarget));
@@ -202,23 +172,6 @@ function LoginForm() {
         return;
       }
       localStorage.removeItem('login_redirect');
-
-      const hasSessionUser = await waitForAuthenticatedSession();
-      if (!hasSessionUser) {
-        const serverLoginResult = await signInWithServerPassword(normalizedPhone, formData.password);
-        if (!serverLoginResult.ok) {
-          setError(serverLoginResult.message);
-          setIsLoading(false);
-          return;
-        }
-
-        const retriedSessionUser = await waitForAuthenticatedSession();
-        if (!retriedSessionUser) {
-          setError('登录状态写入失败，请重试');
-          setIsLoading(false);
-          return;
-        }
-      }
 
       if (typeof window !== 'undefined') {
         window.location.replace(appendAuthRefreshQuery(redirectTarget));

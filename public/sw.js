@@ -192,6 +192,12 @@ sw.addEventListener('fetch', /** @param {FetchEvent} event */ (event) => {
     return;
   }
 
+  // 认证接口严禁缓存，避免登录态读写被旧响应干扰
+  if (url.pathname.startsWith('/api/auth/')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
   // 策略4：API请求 - 网络优先，缓存作为后备
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
