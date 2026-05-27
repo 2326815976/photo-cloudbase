@@ -3,7 +3,6 @@ export interface CaptureProcessingOptions {
   outlineWidth: number;
   cropPadding: number;
   maxEdge?: number;
-  disableInteractiveSegmenter?: boolean;
 }
 
 export interface CaptureProcessResult {
@@ -1617,9 +1616,10 @@ async function selectBestMask(
   imageData: ImageData,
   options: CaptureProcessingOptions
 ) {
-  const interactiveComponent = options.disableInteractiveSegmenter
-    ? null
-    : await selectInteractiveSegmentedComponent(sourceCanvas, imageData);
+  const interactiveComponent = await selectInteractiveSegmentedComponent(
+    sourceCanvas,
+    imageData
+  );
 
   if (interactiveComponent) {
     return interactiveComponent;

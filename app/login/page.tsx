@@ -16,7 +16,6 @@ import { isWechatBrowser } from '@/lib/wechat';
 
 const SESSION_SYNC_MAX_ATTEMPTS = 8;
 const SESSION_SYNC_RETRY_DELAY_MS = 260;
-const SERVER_LOGIN_SUBMIT_PATH = '/auth/login-submit';
 
 function resolveManagedGuestEntry(
   pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
@@ -56,33 +55,53 @@ async function waitForAuthenticatedSession() {
   return false;
 }
 
-function submitServerLoginForm(phone: string, password: string, redirectTarget: string) {
-  if (typeof document === 'undefined') {
-    return false;
+function resolveLoginErrorMessage(rawMessage: string, fallbackMessage = '登录失败，请重试') {
+  const normalizedMessage = String(rawMessage || '').trim().toLowerCase();
+  if (normalizedMessage.includes('invalid login credentials')) {
+    return '手机号或密码错误';
+  }
+  if (normalizedMessage.includes('账号已被禁用')) {
+    return '账号已被禁用，请联系管理员';
+  }
+  if (
+    normalizedMessage.includes('timeout') ||
+    normalizedMessage.includes('timed out') ||
+    normalizedMessage.includes('connect') ||
+    normalizedMessage.includes('network') ||
+    rawMessage.includes('连接')
+  ) {
+    return '服务连接超时，请稍后重试';
+  }
+  return rawMessage ? `登录失败：${rawMessage}` : fallbackMessage;
+}
+
+async function signInWithServerPassword(phone: string, password: string) {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify({
+      phone,
+      password,
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  const rawMessage = String(payload?.error?.message || '').trim();
+
+  if (!response.ok || !payload?.data?.user) {
+    return {
+      ok: false as const,
+      message: resolveLoginErrorMessage(rawMessage),
+    };
   }
 
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = SERVER_LOGIN_SUBMIT_PATH;
-  form.style.display = 'none';
-
-  const entries = [
-    ['phone', phone],
-    ['password', password],
-    ['redirectTo', redirectTarget],
-  ];
-
-  for (const [name, value] of entries) {
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = name;
-    input.value = value;
-    form.appendChild(input);
-  }
-
-  document.body.appendChild(form);
-  form.submit();
-  return true;
+  return {
+    ok: true as const,
+    message: '',
+  };
 }
 
 function LoginForm() {
@@ -147,8 +166,27 @@ function LoginForm() {
       const redirectTarget = isValidRedirectPath(storedRedirect) ? storedRedirect : '/profile';
 
       if (isWechatBrowser()) {
+        const serverLoginResult = await signInWithServerPassword(normalizedPhone, formData.password);
+        if (!serverLoginResult.ok) {
+          setError(serverLoginResult.message);
+          setIsLoading(false);
+          return;
+        }
         localStorage.removeItem('login_redirect');
-        submitServerLoginForm(normalizedPhone, formData.password, redirectTarget);
+        const hasSessionUser = await waitForAuthenticatedSession();
+        if (!hasSessionUser) {
+          setError('登录状态写入失败，请重试');
+          setIsLoading(false);
+          return;
+        }
+
+        if (typeof window !== 'undefined') {
+          window.location.replace(appendAuthRefreshQuery(redirectTarget));
+          return;
+        }
+
+        router.replace(appendAuthRefreshQuery(redirectTarget));
+        router.refresh();
         return;
       }
 
@@ -159,24 +197,7 @@ function LoginForm() {
       });
 
       if (loginError || !data?.user) {
-        const rawMessage = String(loginError?.message ?? '').trim();
-        const normalizedMessage = rawMessage.toLowerCase();
-
-        if (normalizedMessage.includes('invalid login credentials')) {
-          setError('手机号或密码错误');
-        } else if (
-          normalizedMessage.includes('timeout') ||
-          normalizedMessage.includes('timed out') ||
-          normalizedMessage.includes('connect') ||
-          normalizedMessage.includes('network') ||
-          rawMessage.includes('连接')
-        ) {
-          setError('服务连接超时，请稍后重试');
-        } else if (rawMessage) {
-          setError(`登录失败：${rawMessage}`);
-        } else {
-          setError('登录失败，请重试');
-        }
+        setError(resolveLoginErrorMessage(String(loginError?.message ?? '').trim()));
         setIsLoading(false);
         return;
       }
@@ -184,13 +205,19 @@ function LoginForm() {
 
       const hasSessionUser = await waitForAuthenticatedSession();
       if (!hasSessionUser) {
-        console.warn('登录后会话确认失败，改用服务端表单登录兜底。');
-        if (submitServerLoginForm(normalizedPhone, formData.password, redirectTarget)) {
+        const serverLoginResult = await signInWithServerPassword(normalizedPhone, formData.password);
+        if (!serverLoginResult.ok) {
+          setError(serverLoginResult.message);
+          setIsLoading(false);
           return;
         }
-        setError('登录状态写入失败，请重试');
-        setIsLoading(false);
-        return;
+
+        const retriedSessionUser = await waitForAuthenticatedSession();
+        if (!retriedSessionUser) {
+          setError('登录状态写入失败，请重试');
+          setIsLoading(false);
+          return;
+        }
       }
 
       if (typeof window !== 'undefined') {
@@ -282,7 +309,7 @@ function LoginForm() {
           whileTap={{ scale: 0.98 }}
           className="w-full h-16 rounded-full bg-[#FFC857] border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] text-[#5D4037] font-bold text-lg disabled:opacity-50 transition-all"
         >
-          {isLoading ? '解锁中...' : '🔑 解锁空间'}
+          {isLoading ? '登录中...' : '🔑 解锁空间'}
         </motion.button>
 
         {/* 底部链接 */}

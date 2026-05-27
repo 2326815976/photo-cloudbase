@@ -13,21 +13,23 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import Toast from '@/components/ui/Toast';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
-import { isMobileDevice } from '@/lib/platform';
 import { cn } from '@/lib/utils';
-import { isAndroidWebView } from '@/lib/utils/android-optimization';
-import { isWechatBrowser } from '@/lib/wechat';
 import {
   processCaptureSource,
   type CaptureProcessResult,
   type CaptureProcessingOptions,
   warmupCaptureProcessing,
 } from './image-processing';
+import {
+  pickCaptureSource,
+  type CapturePickerTarget,
+  type CaptureSourceSelection,
+} from './source-picker';
 
 type ToastState = {
   type: 'success' | 'error' | 'info';
@@ -62,12 +64,6 @@ const PROCESSING_OPTIONS: CaptureProcessingOptions = {
   tolerance: 28,
   outlineWidth: 12,
   cropPadding: 6,
-};
-
-const CONSTRAINED_PROCESSING_OPTIONS: CaptureProcessingOptions = {
-  ...PROCESSING_OPTIONS,
-  maxEdge: 720,
-  disableInteractiveSegmenter: true,
 };
 
 const LEGACY_EMPTY_LOCATION_LABEL = '未记录地点';
@@ -135,25 +131,6 @@ function waitForProcessingOverlayPaint() {
       });
     });
   });
-}
-
-function shouldUseConservativeCaptureWarmup() {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  const deviceMemoryValue = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  const deviceMemory = typeof deviceMemoryValue === 'number' ? deviceMemoryValue : null;
-  return (
-    isWechatBrowser() ||
-    isAndroidWebView() ||
-    isMobileDevice() ||
-    (deviceMemory !== null && deviceMemory <= 4)
-  );
-}
-
-function shouldUseConservativeCaptureProcessing() {
-  return shouldUseConservativeCaptureWarmup();
 }
 
 function buildCardId() {
@@ -251,14 +228,14 @@ function downloadFileUrl(fileUrl: string, fileName: string) {
 }
 
 function buildCaptureWallCard(
-  file: File,
+  sourceName: string,
   result: CaptureProcessResult,
   nextIndexSeed: number
 ): CaptureWallCard {
   return {
     id: buildCardId(),
-    title: fileNameToTitle(file.name),
-    sourceName: file.name,
+    title: fileNameToTitle(sourceName),
+    sourceName,
     cutoutObjectUrl: result.cutoutObjectUrl,
     subjectWidth: result.subjectWidth,
     subjectHeight: result.subjectHeight,
@@ -605,12 +582,11 @@ function CaptureWallGridItem({
 
 export default function CaptureLabPage() {
   const { title } = useManagedPageMeta('capture-lab', '拾物采集');
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const captureObjectUrlsRef = useRef<Set<string>>(new Set());
   const warmupTimeoutRef = useRef<number | null>(null);
   const warmupIdleRef = useRef<number | null>(null);
   const warmupStartedRef = useRef(false);
+  const isProcessingRef = useRef(false);
 
   const [cards, setCards] = useState<CaptureWallCard[]>([]);
   const [activeCard, setActiveCard] = useState<CaptureWallCard | null>(null);
@@ -639,7 +615,6 @@ export default function CaptureLabPage() {
       : DEMO_WALL_CARDS.slice(orderedCards.length);
   const previewCard = pendingCard || activeCard;
   const isPendingPreview = Boolean(pendingCard);
-  const useConservativeProcessing = shouldUseConservativeCaptureProcessing();
 
   const cancelScheduledWarmup = () => {
     if (warmupTimeoutRef.current !== null) {
@@ -658,11 +633,61 @@ export default function CaptureLabPage() {
     }
   };
 
-  const openPickerTarget = (target: 'camera' | 'album') => {
+  const handlePickedSource = async (selection: CaptureSourceSelection) => {
+    setErrorMessage('');
+    setIsProcessing(true);
+    isProcessingRef.current = true;
+    await waitForNextFrame();
+    await waitForProcessingOverlayPaint();
+
+    try {
+      const result = await processCaptureSource(selection.sourceUrl, PROCESSING_OPTIONS);
+      trackCutoutObjectUrl(result.cutoutObjectUrl);
+      const nextCard = buildCaptureWallCard(selection.sourceName, result, cards.length);
+      revokeCutoutObjectUrl(pendingCard?.cutoutObjectUrl);
+      closeCardPreview();
+      resetDeleteMode();
+      setFilterOpen(false);
+      setPendingCard(nextCard);
+    } catch (error) {
+      const nextMessage =
+        error instanceof Error ? error.message : '采集失败，请换一张照片再试';
+      setErrorMessage(nextMessage);
+      setToast({
+        type: 'error',
+        message: nextMessage,
+      });
+    } finally {
+      selection.cleanup?.();
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+    }
+  };
+
+  const openPickerTarget = async (target: CapturePickerTarget) => {
     cancelScheduledWarmup();
-    const input = target === 'camera' ? cameraInputRef.current : uploadInputRef.current;
-    input?.click();
     setPickerOpen(false);
+
+    if (isProcessingRef.current) {
+      return;
+    }
+
+    try {
+      const selection = await pickCaptureSource(target);
+      if (!selection || isProcessingRef.current) {
+        selection?.cleanup?.();
+        return;
+      }
+
+      await handlePickedSource(selection);
+    } catch (error) {
+      const nextMessage =
+        error instanceof Error ? error.message : '暂时无法打开取图，请稍后重试';
+      setToast({
+        type: 'error',
+        message: nextMessage,
+      });
+    }
   };
 
   const trackCutoutObjectUrl = (nextUrl: string) => {
@@ -682,10 +707,6 @@ export default function CaptureLabPage() {
   };
 
   useEffect(() => {
-    if (shouldUseConservativeCaptureWarmup()) {
-      return undefined;
-    }
-
     const scheduleWarmup = () => {
       if (warmupStartedRef.current || document.visibilityState !== 'visible') {
         return;
@@ -701,13 +722,13 @@ export default function CaptureLabPage() {
       }).requestIdleCallback;
 
     if (requestIdle) {
-      warmupIdleRef.current = requestIdle(scheduleWarmup, { timeout: 2400 });
+      warmupIdleRef.current = requestIdle(scheduleWarmup, { timeout: 1200 });
       return () => {
         cancelScheduledWarmup();
       };
     }
 
-    warmupTimeoutRef.current = window.setTimeout(scheduleWarmup, 1800);
+    warmupTimeoutRef.current = window.setTimeout(scheduleWarmup, 240);
     return () => {
       cancelScheduledWarmup();
     };
@@ -721,53 +742,6 @@ export default function CaptureLabPage() {
       captureObjectUrlsRef.current.clear();
     };
   }, []);
-
-  const handleProcessFile = async (file: File) => {
-    const previewUrl = URL.createObjectURL(file);
-    const processingOptions =
-      useConservativeProcessing || file.size > 6 * 1024 * 1024
-        ? CONSTRAINED_PROCESSING_OPTIONS
-        : PROCESSING_OPTIONS;
-
-    setErrorMessage('');
-    setIsProcessing(true);
-    await waitForNextFrame();
-    await waitForProcessingOverlayPaint();
-
-    try {
-      const result = await processCaptureSource(previewUrl, processingOptions);
-      trackCutoutObjectUrl(result.cutoutObjectUrl);
-      const nextCard = buildCaptureWallCard(file, result, cards.length);
-      revokeCutoutObjectUrl(pendingCard?.cutoutObjectUrl);
-      closeCardPreview();
-      resetDeleteMode();
-      setFilterOpen(false);
-      setPendingCard(nextCard);
-    } catch (error) {
-      const nextMessage =
-        error instanceof Error ? error.message : '采集失败，请换一张照片再试';
-      setErrorMessage(nextMessage);
-      setToast({
-        type: 'error',
-        message: nextMessage,
-      });
-    } finally {
-      URL.revokeObjectURL(previewUrl);
-      setIsProcessing(false);
-    }
-  };
-
-  const onReadLocalFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const nextFile = event.target.files?.[0] ?? null;
-    event.target.value = '';
-    setPickerOpen(false);
-
-    if (!nextFile || isProcessing) {
-      return;
-    }
-
-    await handleProcessFile(nextFile);
-  };
 
   const onDownloadCardCutout = (card: CaptureWallCard) => {
     downloadFileUrl(
@@ -1038,23 +1012,6 @@ export default function CaptureLabPage() {
           </div>
         </div>
       </PreviewAwareScrollArea>
-
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={onReadLocalFile}
-      />
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onReadLocalFile}
-      />
-
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
