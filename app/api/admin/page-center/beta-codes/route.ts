@@ -12,8 +12,9 @@ import {
   loadRegistryItemByPageKey,
   normalizeBetaChannel,
   savePageBetaCode,
+  upsertPageRegistryItem,
 } from '@/lib/page-center/admin';
-import { normalizeText } from '@/lib/page-center/config';
+import { normalizeText, PAGE_KEY_MAP } from '@/lib/page-center/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,7 +53,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '缺少页面标识' }, { status: 400 });
     }
 
-    const registryItem = await loadRegistryItemByPageKey(pageKey);
+    let registryItem = await loadRegistryItemByPageKey(pageKey);
+    if ((!registryItem || registryItem.id <= 0) && PAGE_KEY_MAP.has(pageKey)) {
+      const builtIn = PAGE_KEY_MAP.get(pageKey);
+      if (builtIn) {
+        await upsertPageRegistryItem({
+          ...builtIn,
+          isActive: true,
+          scopeChannel: clientChannel,
+        });
+        registryItem = await loadRegistryItemByPageKey(pageKey);
+      }
+    }
     if (!registryItem || registryItem.id <= 0) {
       return NextResponse.json({ error: '目标页面不存在' }, { status: 404 });
     }

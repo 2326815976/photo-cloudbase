@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import "./responsive.css";
 import ClientLayout from "@/components/ClientLayout";
@@ -36,7 +37,7 @@ export default function RootLayout({
   };
 
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-scroll-behavior="smooth">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
         <link rel="manifest" href="/manifest.json" />
@@ -55,9 +56,10 @@ export default function RootLayout({
         <link rel="preload" href={zqknnyWoff2Url} as="font" type="font/woff2" crossOrigin="anonymous" />
 
         {/* 腾讯地图 JS API */}
-        <script
+        <Script
+          id="tencent-map-gljs"
           src={`https://map.qq.com/api/gljs?v=1.exp&libraries=service&key=${encodeURIComponent(env.TMAP_JS_KEY())}`}
-          async
+          strategy="afterInteractive"
         />
 
         {/* 自托管字体配置 */}

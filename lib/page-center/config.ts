@@ -173,7 +173,7 @@ const PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEY_SET = new Set<string>(
   PROFILE_AUTHENTICATED_SECONDARY_PAGE_KEYS
 );
 const REMOVED_APP_PAGE_KEY_SET = new Set<string>(REMOVED_APP_PAGE_KEYS);
-const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>(['ai-assistant']);
+const MINIPROGRAM_DISABLED_PAGE_KEYS = new Set<string>(['ai-assistant', 'capture-lab']);
 
 export const SECONDARY_PAGE_PARENT_KEY_MAP = {
   login: 'profile',
@@ -321,6 +321,24 @@ export const BUILT_IN_APP_PAGES: BuiltInAppPageDefinition[] = [
     iconKey: 'assistant',
     defaultTabText: 'AI助手',
     defaultGuestTabText: 'AI助手',
+    isNavCandidateWeb: true,
+    isTabCandidateMiniProgram: false,
+    supportsBeta: true,
+    supportsPreview: true,
+    isBuiltIn: true,
+  },
+  {
+    pageKey: 'capture-lab',
+    pageName: '采集卡片',
+    pageDescription: '拍照抠图描边后的便签卡片效果测试页',
+    routePathWeb: '/capture-lab',
+    routePathMiniProgram: '',
+    previewRoutePathWeb: '/capture-lab?presentation=preview&page_key=capture-lab',
+    previewRoutePathMiniProgram: '',
+    tabKey: null,
+    iconKey: 'album',
+    defaultTabText: '采集卡片',
+    defaultGuestTabText: '采集卡片',
     isNavCandidateWeb: true,
     isTabCandidateMiniProgram: false,
     supportsBeta: true,

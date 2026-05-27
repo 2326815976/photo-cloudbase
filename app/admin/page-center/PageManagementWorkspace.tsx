@@ -111,6 +111,7 @@ const MINIPROGRAM_HIDDEN_PAGE_KEYS = new Set([
   'login',
   'register',
   'profile-change-password',
+  'capture-lab',
 ]);
 
 function shouldHidePageForChannel(pageKey: string, channel: AppChannel) {
