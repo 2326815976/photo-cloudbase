@@ -63,49 +63,57 @@ export default function DeleteAccountPage() {
 
   if (showSuccess) {
     return (
-      <div className="min-h-screen bg-[#FFFBF0] flex flex-col items-center justify-center px-4 sm:px-8 py-20">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md w-full text-center"
-        >
+      <SecondaryPageShell
+        title={managedTitle}
+        onBack={handleBack}
+        align="left"
+        className="overflow-hidden"
+        contentClassName="overflow-y-auto px-4 sm:px-6 md:px-8 pt-5 sm:pt-6 pb-24 sm:pb-32"
+      >
+        <div className="flex flex-1 items-center justify-center py-20">
           <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.15, type: 'spring' }}
-            className="w-20 h-20 sm:w-24 sm:h-24 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-6"
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-md w-full text-center"
           >
-            <CheckCircle className="w-10 h-10 sm:w-12 sm:h-12 text-[#FFC857]" />
-          </motion.div>
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.15, type: 'spring' }}
+              className="w-20 h-20 sm:w-24 sm:h-24 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-6"
+            >
+              <CheckCircle className="w-10 h-10 sm:w-12 sm:h-12 text-[#FFC857]" />
+            </motion.div>
 
-          <h1
-            className="text-xl sm:text-2xl font-bold text-[#5D4037] mb-3"
-            style={{ fontFamily: "'ZQKNNY', cursive" }}
-          >
-            账户已删除
-          </h1>
+            <h1
+              className="text-xl sm:text-2xl font-bold text-[#5D4037] mb-3"
+              style={{ fontFamily: "'ZQKNNY', cursive" }}
+            >
+              账户已删除
+            </h1>
 
-          <p className="text-sm text-[#5D4037]/70 mb-6">
-            你的账户与相关资料已清理完成，正在返回首页。
-          </p>
-
-          {postDeleteWarning ? (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              {postDeleteWarning}
+            <p className="text-sm text-[#5D4037]/70 mb-6">
+              你的账户与相关资料已清理完成，正在返回首页。
             </p>
-          ) : null}
-        </motion.div>
-      </div>
+
+            {postDeleteWarning ? (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                {postDeleteWarning}
+              </p>
+            ) : null}
+          </motion.div>
+        </div>
+      </SecondaryPageShell>
     );
   }
 
   return (
     <SecondaryPageShell
       title={managedTitle}
-      subtitle="这是一个需要谨慎确认的操作"
       onBack={handleBack}
+      align="left"
       className="overflow-hidden"
-      contentClassName="overflow-y-auto px-4 sm:px-6 md:px-8 pb-24 sm:pb-32"
+      contentClassName="overflow-y-auto px-4 sm:px-6 md:px-8 pt-5 sm:pt-6 pb-24 sm:pb-32"
     >
         <motion.div
           initial={{ opacity: 0, y: 18 }}
@@ -154,15 +162,15 @@ export default function DeleteAccountPage() {
           </AnimatePresence>
 
           {!showConfirm ? (
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowConfirm(true)}
-              className="w-[calc(100%+16px)] -mx-2 h-14 sm:h-16 rounded-full bg-red-500 border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] text-white font-bold text-base sm:text-lg transition-all"
-            >
-              我已了解风险，继续删除
-            </motion.button>
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowConfirm(true)}
+                className="mx-auto block w-full max-w-[368px] h-14 sm:h-16 rounded-full bg-red-500 border-2 border-[#5D4037] shadow-[4px_4px_0px_#5D4037] text-white font-bold text-base sm:text-lg transition-all"
+              >
+                我已了解风险，继续删除
+              </motion.button>
           ) : (
             <div className="space-y-3">
               <motion.div

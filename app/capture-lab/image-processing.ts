@@ -6,7 +6,7 @@ export interface CaptureProcessingOptions {
 }
 
 export interface CaptureProcessResult {
-  cutoutDataUrl: string;
+  cutoutObjectUrl: string;
   subjectWidth: number;
   subjectHeight: number;
   coverageRatio: number;
@@ -100,7 +100,7 @@ const INTERACTIVE_SCRIBBLE_PATTERNS = [
 
 let interactiveSegmenterPromise: Promise<MediaPipeInteractiveSegmenter | null> | null =
   null;
-let interactiveSegmenterWarmupPromise: Promise<void> | null = null;
+let interactiveSegmenterPreloadPromise: Promise<void> | null = null;
 
 const MEDIAPIPE_NOISE_PATTERNS = [
   'INFO: Created TensorFlow Lite XNNPACK delegate for CPU.',
@@ -126,12 +126,19 @@ function isMediaPipeNoiseMessage(value: unknown) {
   return MEDIAPIPE_NOISE_PATTERNS.some((pattern) => value.includes(pattern));
 }
 
+function isPromiseLike<T>(value: unknown): value is Promise<T> {
+  return Boolean(value) && typeof (value as Promise<T>).then === 'function';
+}
+
 function withSuppressedMediaPipeConsoleNoise<T>(callback: () => T) {
   if (typeof window === 'undefined') {
     return callback();
   }
 
   const originalError = console.error;
+  const restore = () => {
+    console.error = originalError;
+  };
   console.error = (...args: unknown[]) => {
     const [firstArg] = args;
     if (args.length === 1 && isMediaPipeNoiseMessage(firstArg)) {
@@ -141,9 +148,15 @@ function withSuppressedMediaPipeConsoleNoise<T>(callback: () => T) {
   };
 
   try {
-    return callback();
-  } finally {
-    console.error = originalError;
+    const result = callback();
+    if (isPromiseLike<T>(result)) {
+      return result.finally(restore) as T;
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 }
 
@@ -253,38 +266,13 @@ async function getInteractiveSegmenter() {
 }
 
 async function warmupInteractiveSegmenter() {
-  const segmenter = await getInteractiveSegmenter();
-  if (!segmenter) {
-    return;
+  if (!interactiveSegmenterPreloadPromise) {
+    interactiveSegmenterPreloadPromise = getInteractiveSegmenter()
+      .then(() => undefined)
+      .catch(() => undefined);
   }
 
-  if (!interactiveSegmenterWarmupPromise) {
-    interactiveSegmenterWarmupPromise = (async () => {
-      const canvas = createCanvas(32, 32);
-      const context = canvas.getContext('2d');
-      if (!context) {
-        return;
-      }
-
-      context.fillStyle = '#fff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-
-      let result: MediaPipeInteractiveSegmenterResult | null = null;
-      try {
-        result = withSuppressedMediaPipeConsoleNoise(() =>
-          segmenter.segment(canvas, {
-            keypoint: { x: 0.5, y: 0.5 },
-          })
-        );
-      } catch {
-        return;
-      } finally {
-        result?.close();
-      }
-    })();
-  }
-
-  await interactiveSegmenterWarmupPromise;
+  await interactiveSegmenterPreloadPromise;
 }
 
 export async function warmupCaptureProcessing() {
@@ -1641,7 +1629,19 @@ async function selectBestMask(
   return selectBestHeuristicMask(imageData, backgroundModel, options);
 }
 
-function renderOutlinedCutout(
+function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png') {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error('浏览器当前无法导出采集卡片，请换一张图片后重试'));
+    }, type);
+  });
+}
+
+async function renderOutlinedCutout(
   imageData: ImageData,
   component: ComponentCandidate,
   options: CaptureProcessingOptions
@@ -1709,9 +1709,10 @@ function renderOutlinedCutout(
     throw new Error('浏览器当前无法生成采集卡片，请更换设备后重试');
   }
   context.putImageData(new ImageData(output, cropWidth, cropHeight), 0, 0);
+  const blob = await canvasToBlob(canvas);
 
   return {
-    cutoutDataUrl: canvas.toDataURL('image/png'),
+    cutoutObjectUrl: URL.createObjectURL(blob),
     subjectWidth: component.bounds.width,
     subjectHeight: component.bounds.height,
     coverageRatio: component.areaRatio,
@@ -1747,7 +1748,7 @@ export async function processCaptureSource(
   }
 
   await waitForBrowserPaint();
-  const cutout = renderOutlinedCutout(imageData, component, options);
+  const cutout = await renderOutlinedCutout(imageData, component, options);
   const backgroundModel = estimateBackgroundModel(imageData);
   return {
     ...cutout,

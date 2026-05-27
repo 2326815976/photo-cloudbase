@@ -156,7 +156,12 @@ export default function ProfileAboutPage() {
   };
 
   return (
-    <SecondaryPageShell title={managedTitle} fallbackHref="/profile" contentClassName="flex-1 min-h-0 px-4 py-6 sm:px-6 sm:py-8">
+    <SecondaryPageShell
+      title={managedTitle}
+      align="left"
+      fallbackHref="/profile"
+      contentClassName="flex-1 min-h-0 px-4 py-6 sm:px-6 sm:py-8"
+    >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-10">
         {toast && (
           <div

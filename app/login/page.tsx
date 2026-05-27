@@ -12,8 +12,8 @@ import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
-const SESSION_SYNC_MAX_ATTEMPTS = 4;
-const SESSION_SYNC_RETRY_DELAY_MS = 220;
+const SESSION_SYNC_MAX_ATTEMPTS = 8;
+const SESSION_SYNC_RETRY_DELAY_MS = 260;
 
 function resolveManagedGuestEntry(
   pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
@@ -131,18 +131,16 @@ function LoginForm() {
         return;
       }
 
-      const hasSessionUser = await waitForAuthenticatedSession();
-      if (!hasSessionUser) {
-        setError('登录成功，但会话同步稍慢，请再试一次');
-        setIsLoading(false);
-        return;
-      }
-
       const storedRedirect =
         typeof window !== 'undefined' ? String(localStorage.getItem('login_redirect') || '').trim() : '';
       const redirectTarget = isValidRedirectPath(storedRedirect) ? storedRedirect : '/profile';
-
       localStorage.removeItem('login_redirect');
+
+      const hasSessionUser = await waitForAuthenticatedSession();
+      if (!hasSessionUser) {
+        console.warn('登录后会话确认超时，继续执行整页跳转完成会话同步。');
+      }
+
       if (typeof window !== 'undefined') {
         window.location.replace(redirectTarget);
         return;

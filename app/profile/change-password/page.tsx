@@ -110,40 +110,47 @@ export default function ChangePasswordPage() {
 
   if (showSuccess) {
     return (
-      <div className="min-h-screen bg-[#FFFBF0] flex flex-col items-center justify-center px-8 py-20">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md w-full text-center"
-        >
+      <SecondaryPageShell
+        title={managedTitle}
+        onBack={handleBack}
+        align="left"
+        contentClassName="px-8 pt-5 pb-20"
+      >
+        <div className="flex flex-1 items-center justify-center py-20">
           <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.15, type: 'spring' }}
-            className="w-24 h-24 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-6"
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-md w-full text-center"
           >
-            <CheckCircle className="w-12 h-12 text-[#FFC857]" />
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.15, type: 'spring' }}
+              className="w-24 h-24 bg-[#FFC857]/20 rounded-full flex items-center justify-center mx-auto mb-6"
+            >
+              <CheckCircle className="w-12 h-12 text-[#FFC857]" />
+            </motion.div>
+
+            <h1
+              className="text-2xl font-bold text-[#5D4037] mb-3"
+              style={{ fontFamily: "'ZQKNNY', cursive" }}
+            >
+              密码修改成功
+            </h1>
+
+            <p className="text-sm text-[#5D4037]/70">正在跳转到登录页，请重新登录...</p>
           </motion.div>
-
-          <h1
-            className="text-2xl font-bold text-[#5D4037] mb-3"
-            style={{ fontFamily: "'ZQKNNY', cursive" }}
-          >
-            密码修改成功
-          </h1>
-
-          <p className="text-sm text-[#5D4037]/70">正在跳转到登录页，请重新登录...</p>
-        </motion.div>
-      </div>
+        </div>
+      </SecondaryPageShell>
     );
   }
 
   return (
     <SecondaryPageShell
       title={managedTitle}
-      subtitle="请输入当前密码和新密码"
       onBack={handleBack}
-      contentClassName="px-8 pb-20"
+      align="left"
+      contentClassName="px-8 pt-5 pb-20"
     >
       <motion.form
         initial={{ opacity: 0, y: 20 }}

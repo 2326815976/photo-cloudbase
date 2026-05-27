@@ -37,7 +37,9 @@ type CaptureWallCard = {
   id: string;
   title: string;
   sourceName: string;
-  cutoutDataUrl: string;
+  cutoutObjectUrl: string;
+  subjectWidth: number;
+  subjectHeight: number;
   createdAt: string;
   locationLabel: string;
   storyText: string;
@@ -211,9 +213,9 @@ function parseDateInput(value: string, fallback: string) {
   return date.toISOString();
 }
 
-function downloadDataUrl(dataUrl: string, fileName: string) {
+function downloadFileUrl(fileUrl: string, fileName: string) {
   const anchor = document.createElement('a');
-  anchor.href = dataUrl;
+  anchor.href = fileUrl;
   anchor.download = fileName;
   document.body.appendChild(anchor);
   anchor.click();
@@ -229,7 +231,9 @@ function buildCaptureWallCard(
     id: buildCardId(),
     title: fileNameToTitle(file.name),
     sourceName: file.name,
-    cutoutDataUrl: result.cutoutDataUrl,
+    cutoutObjectUrl: result.cutoutObjectUrl,
+    subjectWidth: result.subjectWidth,
+    subjectHeight: result.subjectHeight,
     createdAt: new Date().toISOString(),
     locationLabel: DEFAULT_LOCATION_LABEL,
     storyText: '',
@@ -300,7 +304,9 @@ function CaptureStoryToggleButton({
 function CaptureWallCardPaper({
   title,
   styleIndex,
-  cutoutDataUrl,
+  cutoutObjectUrl,
+  subjectWidth,
+  subjectHeight,
   description,
   locationLabel,
   dateLabel,
@@ -314,7 +320,9 @@ function CaptureWallCardPaper({
 }: {
   title: string;
   styleIndex: number;
-  cutoutDataUrl?: string;
+  cutoutObjectUrl?: string;
+  subjectWidth?: number;
+  subjectHeight?: number;
   description?: string;
   locationLabel: string;
   dateLabel: string;
@@ -336,6 +344,17 @@ function CaptureWallCardPaper({
   const hasStoryContent = detailStoryText.length > 0;
   const shouldShowStoryToggle = isDetail && hasStoryContent;
   const shouldShowStoryPanel = isDetail && hasStoryContent && storyOpen;
+  const subjectAspectRatio =
+    typeof subjectWidth === 'number' &&
+    typeof subjectHeight === 'number' &&
+    subjectWidth > 0 &&
+    subjectHeight > 0
+      ? subjectWidth / subjectHeight
+      : null;
+  const isWallTallSubject = !isDetail && subjectAspectRatio !== null && subjectAspectRatio < 0.86;
+  const isWallExtraTallSubject =
+    !isDetail && subjectAspectRatio !== null && subjectAspectRatio < 0.62;
+  const isWallWideSubject = !isDetail && subjectAspectRatio !== null && subjectAspectRatio > 1.3;
 
   return (
     <div
@@ -394,7 +413,9 @@ function CaptureWallCardPaper({
               'rounded-[24px]',
               isDetail
                 ? 'mt-4 px-2 pb-2 pt-4'
-                : 'mt-3 flex h-[152px] items-center justify-center px-2 py-3',
+                : cutoutObjectUrl
+                  ? 'mt-2.5 flex min-h-0 flex-1 items-center justify-center px-1 pb-1 pt-2'
+                  : 'mt-3 flex h-[152px] items-center justify-center px-2 py-3',
               styleMeta.mediaClassName
             )}
           >
@@ -412,12 +433,12 @@ function CaptureWallCardPaper({
                   {detailStoryText || '还没有填写关于此刻。'}
                 </p>
               </div>
-            ) : cutoutDataUrl ? (
+            ) : cutoutObjectUrl ? (
               <div
                 className={cn(
                   isDetail
                     ? 'relative flex h-full min-h-[260px] w-full items-center justify-center'
-                    : 'flex h-full w-full items-center justify-center'
+                    : 'flex h-full min-h-0 w-full items-center justify-center overflow-visible px-1 pb-1'
                 )}
               >
                 {shouldShowStoryToggle ? (
@@ -428,11 +449,19 @@ function CaptureWallCardPaper({
                   />
                 ) : null}
                 <img
-                  src={cutoutDataUrl}
+                  src={cutoutObjectUrl}
                   alt={title}
                   className={cn(
                     'mx-auto h-auto w-auto object-contain drop-shadow-[0_18px_24px_rgba(93,64,55,0.18)]',
-                    isDetail ? 'max-h-[260px]' : 'max-h-[118px] max-w-[118px]'
+                    isDetail
+                      ? 'max-h-[260px]'
+                      : isWallExtraTallSubject
+                        ? 'max-h-full max-w-[118px]'
+                        : isWallTallSubject
+                          ? 'max-h-full max-w-[126px]'
+                          : isWallWideSubject
+                            ? 'max-h-[132px] max-w-full'
+                            : 'max-h-[138px] max-w-[138px]'
                   )}
                 />
               </div>
@@ -550,6 +579,7 @@ export default function CaptureLabPage() {
   const { title } = useManagedPageMeta('capture-lab', '拾物采集');
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const captureObjectUrlsRef = useRef<Set<string>>(new Set());
 
   const [cards, setCards] = useState<CaptureWallCard[]>([]);
   const [activeCard, setActiveCard] = useState<CaptureWallCard | null>(null);
@@ -585,6 +615,22 @@ export default function CaptureLabPage() {
     setPickerOpen(false);
   };
 
+  const trackCutoutObjectUrl = (nextUrl: string) => {
+    if (!nextUrl) {
+      return;
+    }
+    captureObjectUrlsRef.current.add(nextUrl);
+  };
+
+  const revokeCutoutObjectUrl = (nextUrl?: string | null) => {
+    if (!nextUrl) {
+      return;
+    }
+    if (captureObjectUrlsRef.current.delete(nextUrl)) {
+      URL.revokeObjectURL(nextUrl);
+    }
+  };
+
   useEffect(() => {
     const requestIdle =
       (window as Window & {
@@ -610,6 +656,15 @@ export default function CaptureLabPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      for (const nextUrl of captureObjectUrlsRef.current) {
+        URL.revokeObjectURL(nextUrl);
+      }
+      captureObjectUrlsRef.current.clear();
+    };
+  }, []);
+
   const handleProcessFile = async (file: File) => {
     const previewUrl = URL.createObjectURL(file);
 
@@ -620,7 +675,9 @@ export default function CaptureLabPage() {
 
     try {
       const result = await processCaptureSource(previewUrl, PROCESSING_OPTIONS);
+      trackCutoutObjectUrl(result.cutoutObjectUrl);
       const nextCard = buildCaptureWallCard(file, result, cards.length);
+      revokeCutoutObjectUrl(pendingCard?.cutoutObjectUrl);
       closeCardPreview();
       resetDeleteMode();
       setFilterOpen(false);
@@ -642,6 +699,7 @@ export default function CaptureLabPage() {
   const onReadLocalFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0] ?? null;
     event.target.value = '';
+    setPickerOpen(false);
 
     if (!nextFile || isProcessing) {
       return;
@@ -651,8 +709,8 @@ export default function CaptureLabPage() {
   };
 
   const onDownloadCardCutout = (card: CaptureWallCard) => {
-    downloadDataUrl(
-      card.cutoutDataUrl,
+    downloadFileUrl(
+      card.cutoutObjectUrl,
       `${fileNameToTitle(card.sourceName || card.title || 'capture-card')}.png`
     );
     setToast({
@@ -682,6 +740,7 @@ export default function CaptureLabPage() {
   };
 
   const discardPendingCard = () => {
+    revokeCutoutObjectUrl(pendingCard?.cutoutObjectUrl);
     setPendingCard(null);
     setIsPreviewStoryOpen(false);
     setToast({
@@ -751,6 +810,11 @@ export default function CaptureLabPage() {
 
   const confirmDeleteSelection = () => {
     const deletingCount = selectedDeleteIds.length;
+    cards.forEach((card) => {
+      if (selectedDeleteIdSet.has(card.id)) {
+        revokeCutoutObjectUrl(card.cutoutObjectUrl);
+      }
+    });
     setCards((current) => current.filter((card) => !selectedDeleteIdSet.has(card.id)));
     resetDeleteMode();
     setToast({
@@ -887,7 +951,9 @@ export default function CaptureLabPage() {
                 <CaptureWallCardPaper
                   title={card.title}
                   styleIndex={card.styleIndex}
-                  cutoutDataUrl={card.cutoutDataUrl}
+                  cutoutObjectUrl={card.cutoutObjectUrl}
+                  subjectWidth={card.subjectWidth}
+                  subjectHeight={card.subjectHeight}
                   locationLabel={card.locationLabel}
                   dateLabel={formatCardDate(card.createdAt)}
                   storyText={card.storyText}
@@ -1128,7 +1194,9 @@ export default function CaptureLabPage() {
               <CaptureWallCardPaper
                 title={previewCard.title}
                 styleIndex={previewCard.styleIndex}
-                cutoutDataUrl={previewCard.cutoutDataUrl}
+                cutoutObjectUrl={previewCard.cutoutObjectUrl}
+                subjectWidth={previewCard.subjectWidth}
+                subjectHeight={previewCard.subjectHeight}
                 locationLabel={previewCard.locationLabel}
                 dateLabel={formatCardDate(previewCard.createdAt)}
                 storyText={isPendingPreview ? '' : previewCard.storyText}
