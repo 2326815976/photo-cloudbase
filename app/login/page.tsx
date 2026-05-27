@@ -12,6 +12,9 @@ import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
+const SESSION_SYNC_MAX_ATTEMPTS = 4;
+const SESSION_SYNC_RETRY_DELAY_MS = 220;
+
 function resolveManagedGuestEntry(
   pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
   pageKey: string,
@@ -26,6 +29,28 @@ function resolveManagedGuestEntry(
     href,
     label: String(current.navText || current.headerTitle || fallbackLabel).trim() || fallbackLabel,
   };
+}
+
+async function waitForAuthenticatedSession() {
+  for (let attempt = 0; attempt < SESSION_SYNC_MAX_ATTEMPTS; attempt += 1) {
+    const sessionResponse = await fetch('/api/auth/session', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    const sessionBody = await sessionResponse.json().catch(() => null);
+    const hasSessionUser = Boolean(sessionResponse.ok && (sessionBody?.user || sessionBody?.session?.user));
+
+    if (hasSessionUser) {
+      return true;
+    }
+
+    if (attempt < SESSION_SYNC_MAX_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, SESSION_SYNC_RETRY_DELAY_MS * (attempt + 1)));
+    }
+  }
+
+  return false;
 }
 
 function LoginForm() {
@@ -102,6 +127,13 @@ function LoginForm() {
         } else {
           setError('登录失败，请重试');
         }
+        setIsLoading(false);
+        return;
+      }
+
+      const hasSessionUser = await waitForAuthenticatedSession();
+      if (!hasSessionUser) {
+        setError('登录成功，但会话同步稍慢，请再试一次');
         setIsLoading(false);
         return;
       }

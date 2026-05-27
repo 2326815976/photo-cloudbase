@@ -264,7 +264,7 @@ export default function ProfileBetaPage() {
               </p>
               <button
                 type="button"
-                onClick={() => router.push('/login')}
+                onClick={() => router.push('/login?from=/profile/beta')}
                 className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-[linear-gradient(180deg,#FFD86C_0%,#FFC857_100%)] px-6 text-[13px] font-bold text-[#5D4037] shadow-[0_8px_16px_rgba(255,200,87,0.3)] transition hover:translate-y-[-1px] sm:h-11 sm:px-7 sm:text-sm"
               >
                 前往登录

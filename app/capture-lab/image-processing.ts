@@ -72,7 +72,7 @@ type MediaPipeRegionOfInterest =
 
 const DEFAULT_MAX_EDGE = 960;
 const MIN_ALPHA = 14;
-const OUTLINE_COLOR = { red: 93, green: 64, blue: 55, alpha: 255 };
+const OUTLINE_COLOR = { red: 255, green: 255, blue: 255, alpha: 255 };
 const MEDIAPIPE_WASM_BASE_URL = '/vendor/mediapipe/wasm';
 const MEDIAPIPE_MAGIC_TOUCH_MODEL_URL =
   '/vendor/mediapipe/models/magic_touch.tflite';
@@ -100,6 +100,7 @@ const INTERACTIVE_SCRIBBLE_PATTERNS = [
 
 let interactiveSegmenterPromise: Promise<MediaPipeInteractiveSegmenter | null> | null =
   null;
+let interactiveSegmenterWarmupPromise: Promise<void> | null = null;
 
 const MEDIAPIPE_NOISE_PATTERNS = [
   'INFO: Created TensorFlow Lite XNNPACK delegate for CPU.',
@@ -204,6 +205,19 @@ function loadImage(sourceUrl: string) {
   });
 }
 
+function waitForBrowserPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve();
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => resolve(), 0);
+    });
+  });
+}
+
 async function createInteractiveSegmenter() {
   if (typeof window === 'undefined') {
     return null;
@@ -236,6 +250,49 @@ async function getInteractiveSegmenter() {
     interactiveSegmenterPromise = createInteractiveSegmenter();
   }
   return interactiveSegmenterPromise;
+}
+
+async function warmupInteractiveSegmenter() {
+  const segmenter = await getInteractiveSegmenter();
+  if (!segmenter) {
+    return;
+  }
+
+  if (!interactiveSegmenterWarmupPromise) {
+    interactiveSegmenterWarmupPromise = (async () => {
+      const canvas = createCanvas(32, 32);
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return;
+      }
+
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      let result: MediaPipeInteractiveSegmenterResult | null = null;
+      try {
+        result = withSuppressedMediaPipeConsoleNoise(() =>
+          segmenter.segment(canvas, {
+            keypoint: { x: 0.5, y: 0.5 },
+          })
+        );
+      } catch {
+        return;
+      } finally {
+        result?.close();
+      }
+    })();
+  }
+
+  await interactiveSegmenterWarmupPromise;
+}
+
+export async function warmupCaptureProcessing() {
+  try {
+    await warmupInteractiveSegmenter();
+  } catch {
+    // ignore warmup failures and let the real processing fallback normally
+  }
 }
 
 function resizeConfidenceMask(
@@ -1666,6 +1723,7 @@ export async function processCaptureSource(
   options: CaptureProcessingOptions
 ): Promise<CaptureProcessResult> {
   const image = await loadImage(sourceUrl);
+  await waitForBrowserPaint();
   const scaled = scaleDimensions(
     image.naturalWidth || image.width,
     image.naturalHeight || image.height,
@@ -1679,13 +1737,16 @@ export async function processCaptureSource(
 
   context.clearRect(0, 0, scaled.width, scaled.height);
   context.drawImage(image, 0, 0, scaled.width, scaled.height);
+  await waitForBrowserPaint();
   const imageData = context.getImageData(0, 0, scaled.width, scaled.height);
+  await waitForBrowserPaint();
   const component = await selectBestMask(canvas, imageData, options);
 
   if (!component) {
     throw new Error('暂时没有识别出清晰主体，建议换成单物件、背景更干净的照片');
   }
 
+  await waitForBrowserPaint();
   const cutout = renderOutlinedCutout(imageData, component, options);
   const backgroundModel = estimateBackgroundModel(imageData);
   return {

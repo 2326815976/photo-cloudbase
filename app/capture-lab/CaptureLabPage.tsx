@@ -6,7 +6,6 @@ import {
   Download,
   Filter,
   ImagePlus,
-  LoaderCircle,
   MapPin,
   RotateCw,
   StickyNote,
@@ -14,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import Toast from '@/components/ui/Toast';
@@ -24,6 +23,7 @@ import {
   processCaptureSource,
   type CaptureProcessResult,
   type CaptureProcessingOptions,
+  warmupCaptureProcessing,
 } from './image-processing';
 
 type ToastState = {
@@ -55,7 +55,7 @@ type DemoWallCard = {
 
 const PROCESSING_OPTIONS: CaptureProcessingOptions = {
   tolerance: 28,
-  outlineWidth: 6,
+  outlineWidth: 12,
   cropPadding: 6,
 };
 
@@ -113,6 +113,16 @@ const DEMO_WALL_CARDS: DemoWallCard[] = [
 function waitForNextFrame() {
   return new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function waitForProcessingOverlayPaint() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => resolve(), 0);
+      });
+    });
   });
 }
 
@@ -548,7 +558,6 @@ export default function CaptureLabPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortMode, setSortMode] = useState<CaptureWallSortMode>('latest');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingSourceName, setProcessingSourceName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [toast, setToast] = useState<ToastState>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -571,23 +580,43 @@ export default function CaptureLabPage() {
   const isPendingPreview = Boolean(pendingCard);
 
   const openPickerTarget = (target: 'camera' | 'album') => {
+    const input = target === 'camera' ? cameraInputRef.current : uploadInputRef.current;
+    input?.click();
     setPickerOpen(false);
-    window.requestAnimationFrame(() => {
-      if (target === 'camera') {
-        cameraInputRef.current?.click();
-        return;
-      }
-      uploadInputRef.current?.click();
-    });
   };
+
+  useEffect(() => {
+    const requestIdle =
+      (window as Window & {
+        requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      }).requestIdleCallback;
+
+    const warmup = () => {
+      void warmupCaptureProcessing();
+    };
+
+    if (requestIdle) {
+      const idleId = requestIdle(warmup, { timeout: 1200 });
+      return () => {
+        if ('cancelIdleCallback' in window) {
+          (
+            window as Window & { cancelIdleCallback?: (handle: number) => void }
+          ).cancelIdleCallback?.(idleId);
+        }
+      };
+    }
+
+    const timer = window.setTimeout(warmup, 240);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const handleProcessFile = async (file: File) => {
     const previewUrl = URL.createObjectURL(file);
 
     setErrorMessage('');
-    setProcessingSourceName(file.name);
     setIsProcessing(true);
     await waitForNextFrame();
+    await waitForProcessingOverlayPaint();
 
     try {
       const result = await processCaptureSource(previewUrl, PROCESSING_OPTIONS);
@@ -607,7 +636,6 @@ export default function CaptureLabPage() {
     } finally {
       URL.revokeObjectURL(previewUrl);
       setIsProcessing(false);
-      setProcessingSourceName('');
     }
   };
 
@@ -1255,15 +1283,11 @@ export default function CaptureLabPage() {
       {isProcessing ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#FFFBF0]/84 px-6 backdrop-blur-[6px]">
           <div className="w-full max-w-[320px] rounded-[28px] border border-[#5D4037]/10 bg-[#FFFDF8] px-6 py-7 text-center shadow-[0_24px_48px_rgba(93,64,55,0.18)]">
-            <div className="inline-flex h-[72px] w-[72px] items-center justify-center rounded-full bg-[#FFC857]/16 p-4 text-[#5D4037]">
-              <LoaderCircle className="h-10 w-10 animate-spin" />
+            <div className="inline-flex h-[72px] w-[72px] items-center justify-center rounded-full bg-[#FFC857]/16 p-4">
+              <div className="h-10 w-10 animate-spin rounded-full border-[4px] border-[#5D4037]/18 border-t-[#5D4037]" />
             </div>
             <p className="mt-4 text-lg font-black text-[#17120F]">正在生成采集卡片</p>
-            <p className="mt-2 text-sm leading-6 text-[#8D6E63]">
-              {processingSourceName
-                ? `正在处理 ${processingSourceName}`
-                : '正在裁主体、描边，并贴进采集墙'}
-            </p>
+            <p className="mt-2 text-sm leading-6 text-[#8D6E63]">正在裁主体、描边，并贴进采集墙</p>
           </div>
         </div>
       ) : null}
