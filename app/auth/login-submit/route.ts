@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { appendAuthRefreshQuery } from '@/lib/auth/client-session';
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth/cookie';
 import { signInWithPassword } from '@/lib/auth/service';
 import {
@@ -9,6 +8,7 @@ import {
 import { isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
 
 export const dynamic = 'force-dynamic';
+const WECHAT_LOGIN_BRIDGE_DELAY_MS = 900;
 
 function getClientIp(request: Request): string | undefined {
   const forwarded = request.headers.get('x-forwarded-for');
@@ -35,6 +35,12 @@ function buildAbsoluteUrl(request: Request, path: string) {
   return new URL(path, request.url);
 }
 
+function buildCompleteLoginUrl(request: Request, redirectTarget: string) {
+  const completeUrl = buildAbsoluteUrl(request, '/auth/complete-login');
+  completeUrl.searchParams.set('redirectTo', redirectTarget);
+  return completeUrl;
+}
+
 function buildLoginRedirectUrl(request: Request, message: string, redirectTarget: string) {
   const loginUrl = buildAbsoluteUrl(request, '/login');
   loginUrl.searchParams.set('error', message);
@@ -42,6 +48,88 @@ function buildLoginRedirectUrl(request: Request, message: string, redirectTarget
     loginUrl.searchParams.set('from', redirectTarget);
   }
   return loginUrl;
+}
+
+function buildBridgeHtml(nextUrl: URL) {
+  const escapedUrl = nextUrl.toString().replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const scriptUrl = JSON.stringify(nextUrl.toString());
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>正在完成登录</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #fffbf0;
+        color: #5d4037;
+        font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+      .card {
+        width: min(100%, 360px);
+        background: #fffdf8;
+        border: 1px solid rgba(93, 64, 55, 0.1);
+        border-radius: 28px;
+        padding: 28px 24px;
+        text-align: center;
+        box-shadow: 0 24px 48px rgba(93, 64, 55, 0.14);
+      }
+      .spinner {
+        width: 42px;
+        height: 42px;
+        margin: 0 auto 18px;
+        border-radius: 999px;
+        border: 4px solid rgba(93, 64, 55, 0.14);
+        border-top-color: #5d4037;
+        animation: spin 1s linear infinite;
+      }
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 800;
+      }
+      p {
+        margin: 10px 0 0;
+        font-size: 14px;
+        line-height: 1.7;
+        color: rgba(93, 64, 55, 0.74);
+      }
+      a {
+        color: #c48b5a;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="spinner" aria-hidden="true"></div>
+      <h1>正在完成登录</h1>
+      <p>正在同步微信浏览器的登录状态，请稍候。</p>
+      <p><a href="${escapedUrl}">如果没有自动继续，请点这里</a></p>
+    </main>
+    <script>
+      window.setTimeout(function () {
+        window.location.replace(${scriptUrl});
+      }, ${WECHAT_LOGIN_BRIDGE_DELAY_MS});
+    </script>
+  </body>
+</html>`;
 }
 
 export async function POST(request: Request) {
@@ -69,10 +157,14 @@ export async function POST(request: Request) {
       return NextResponse.redirect(buildLoginRedirectUrl(request, message, redirectTarget), 303);
     }
 
-    const response = NextResponse.redirect(
-      buildAbsoluteUrl(request, appendAuthRefreshQuery(redirectTarget)),
-      303
-    );
+    const completeUrl = buildCompleteLoginUrl(request, redirectTarget);
+    const response = new NextResponse(buildBridgeHtml(completeUrl), {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate',
+      },
+    });
     response.cookies.set(SESSION_COOKIE_NAME, result.sessionToken, getSessionCookieOptions());
     return response;
   } catch (error) {
