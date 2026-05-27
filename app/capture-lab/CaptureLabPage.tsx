@@ -64,6 +64,12 @@ const PROCESSING_OPTIONS: CaptureProcessingOptions = {
   cropPadding: 6,
 };
 
+const CONSTRAINED_PROCESSING_OPTIONS: CaptureProcessingOptions = {
+  ...PROCESSING_OPTIONS,
+  maxEdge: 720,
+  disableInteractiveSegmenter: true,
+};
+
 const LEGACY_EMPTY_LOCATION_LABEL = '未记录地点';
 const DEFAULT_LOCATION_LABEL = '';
 
@@ -144,6 +150,10 @@ function shouldUseConservativeCaptureWarmup() {
     isMobileDevice() ||
     (deviceMemory !== null && deviceMemory <= 4)
   );
+}
+
+function shouldUseConservativeCaptureProcessing() {
+  return shouldUseConservativeCaptureWarmup();
 }
 
 function buildCardId() {
@@ -629,6 +639,7 @@ export default function CaptureLabPage() {
       : DEMO_WALL_CARDS.slice(orderedCards.length);
   const previewCard = pendingCard || activeCard;
   const isPendingPreview = Boolean(pendingCard);
+  const useConservativeProcessing = shouldUseConservativeCaptureProcessing();
 
   const cancelScheduledWarmup = () => {
     if (warmupTimeoutRef.current !== null) {
@@ -713,6 +724,10 @@ export default function CaptureLabPage() {
 
   const handleProcessFile = async (file: File) => {
     const previewUrl = URL.createObjectURL(file);
+    const processingOptions =
+      useConservativeProcessing || file.size > 6 * 1024 * 1024
+        ? CONSTRAINED_PROCESSING_OPTIONS
+        : PROCESSING_OPTIONS;
 
     setErrorMessage('');
     setIsProcessing(true);
@@ -720,7 +735,7 @@ export default function CaptureLabPage() {
     await waitForProcessingOverlayPaint();
 
     try {
-      const result = await processCaptureSource(previewUrl, PROCESSING_OPTIONS);
+      const result = await processCaptureSource(previewUrl, processingOptions);
       trackCutoutObjectUrl(result.cutoutObjectUrl);
       const nextCard = buildCaptureWallCard(file, result, cards.length);
       revokeCutoutObjectUrl(pendingCard?.cutoutObjectUrl);

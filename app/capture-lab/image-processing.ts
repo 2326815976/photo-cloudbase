@@ -3,6 +3,7 @@ export interface CaptureProcessingOptions {
   outlineWidth: number;
   cropPadding: number;
   maxEdge?: number;
+  disableInteractiveSegmenter?: boolean;
 }
 
 export interface CaptureProcessResult {
@@ -1616,10 +1617,9 @@ async function selectBestMask(
   imageData: ImageData,
   options: CaptureProcessingOptions
 ) {
-  const interactiveComponent = await selectInteractiveSegmentedComponent(
-    sourceCanvas,
-    imageData
-  );
+  const interactiveComponent = options.disableInteractiveSegmenter
+    ? null
+    : await selectInteractiveSegmentedComponent(sourceCanvas, imageData);
 
   if (interactiveComponent) {
     return interactiveComponent;
@@ -1736,25 +1736,31 @@ export async function processCaptureSource(
     throw new Error('浏览器当前无法读取图片像素，请更换设备后重试');
   }
 
-  context.clearRect(0, 0, scaled.width, scaled.height);
-  context.drawImage(image, 0, 0, scaled.width, scaled.height);
-  await waitForBrowserPaint();
-  const imageData = context.getImageData(0, 0, scaled.width, scaled.height);
-  await waitForBrowserPaint();
-  const component = await selectBestMask(canvas, imageData, options);
+  try {
+    context.clearRect(0, 0, scaled.width, scaled.height);
+    context.drawImage(image, 0, 0, scaled.width, scaled.height);
+    await waitForBrowserPaint();
+    const imageData = context.getImageData(0, 0, scaled.width, scaled.height);
+    await waitForBrowserPaint();
+    const component = await selectBestMask(canvas, imageData, options);
 
-  if (!component) {
-    throw new Error('暂时没有识别出清晰主体，建议换成单物件、背景更干净的照片');
+    if (!component) {
+      throw new Error('暂时没有识别出清晰主体，建议换成单物件、背景更干净的照片');
+    }
+
+    await waitForBrowserPaint();
+    const cutout = await renderOutlinedCutout(imageData, component, options);
+    const backgroundModel = estimateBackgroundModel(imageData);
+    return {
+      ...cutout,
+      threshold: component.threshold,
+      backgroundHex: `#${toHexChannel(backgroundModel.red)}${toHexChannel(
+        backgroundModel.green
+      )}${toHexChannel(backgroundModel.blue)}`,
+    };
+  } finally {
+    canvas.width = 1;
+    canvas.height = 1;
+    image.src = '';
   }
-
-  await waitForBrowserPaint();
-  const cutout = await renderOutlinedCutout(imageData, component, options);
-  const backgroundModel = estimateBackgroundModel(imageData);
-  return {
-    ...cutout,
-    threshold: component.threshold,
-    backgroundHex: `#${toHexChannel(backgroundModel.red)}${toHexChannel(
-      backgroundModel.green
-    )}${toHexChannel(backgroundModel.blue)}`,
-  };
 }

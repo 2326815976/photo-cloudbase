@@ -12,9 +12,11 @@ import { appendAuthRefreshQuery } from '@/lib/auth/client-session';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
 import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
+import { isWechatBrowser } from '@/lib/wechat';
 
 const SESSION_SYNC_MAX_ATTEMPTS = 8;
 const SESSION_SYNC_RETRY_DELAY_MS = 260;
+const SERVER_LOGIN_SUBMIT_PATH = '/auth/login-submit';
 
 function resolveManagedGuestEntry(
   pageAccessItems: Array<{ pageKey: string; publishState: string; navText: string; headerTitle: string }>,
@@ -54,6 +56,35 @@ async function waitForAuthenticatedSession() {
   return false;
 }
 
+function submitServerLoginForm(phone: string, password: string, redirectTarget: string) {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = SERVER_LOGIN_SUBMIT_PATH;
+  form.style.display = 'none';
+
+  const entries = [
+    ['phone', phone],
+    ['password', password],
+    ['redirectTo', redirectTarget],
+  ];
+
+  for (const [name, value] of entries) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+
+  document.body.appendChild(form);
+  form.submit();
+  return true;
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -89,6 +120,14 @@ function LoginForm() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    const nextError = String(searchParams.get('error') || '').trim();
+    if (!nextError) {
+      return;
+    }
+    setError(nextError);
+  }, [searchParams]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -100,6 +139,16 @@ function LoginForm() {
       if (!isValidChinaMobile(normalizedPhone)) {
         setError('请输入有效的手机号');
         setIsLoading(false);
+        return;
+      }
+
+      const storedRedirect =
+        typeof window !== 'undefined' ? String(localStorage.getItem('login_redirect') || '').trim() : '';
+      const redirectTarget = isValidRedirectPath(storedRedirect) ? storedRedirect : '/profile';
+
+      if (isWechatBrowser()) {
+        localStorage.removeItem('login_redirect');
+        submitServerLoginForm(normalizedPhone, formData.password, redirectTarget);
         return;
       }
 
@@ -131,15 +180,17 @@ function LoginForm() {
         setIsLoading(false);
         return;
       }
-
-      const storedRedirect =
-        typeof window !== 'undefined' ? String(localStorage.getItem('login_redirect') || '').trim() : '';
-      const redirectTarget = isValidRedirectPath(storedRedirect) ? storedRedirect : '/profile';
       localStorage.removeItem('login_redirect');
 
       const hasSessionUser = await waitForAuthenticatedSession();
       if (!hasSessionUser) {
-        console.warn('登录后会话确认超时，继续执行整页跳转完成会话同步。');
+        console.warn('登录后会话确认失败，改用服务端表单登录兜底。');
+        if (submitServerLoginForm(normalizedPhone, formData.password, redirectTarget)) {
+          return;
+        }
+        setError('登录状态写入失败，请重试');
+        setIsLoading(false);
+        return;
       }
 
       if (typeof window !== 'undefined') {
