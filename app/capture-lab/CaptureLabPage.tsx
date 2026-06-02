@@ -18,6 +18,7 @@ import PreviewAwareScrollArea from '@/components/PreviewAwareScrollArea';
 import PrimaryPageShell from '@/components/shell/PrimaryPageShell';
 import Toast from '@/components/ui/Toast';
 import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { isAndroidApp } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import {
   processCaptureSource,
@@ -65,6 +66,7 @@ const PROCESSING_OPTIONS: CaptureProcessingOptions = {
   outlineWidth: 12,
   cropPadding: 6,
 };
+const ANDROID_PROCESSING_MAX_EDGE = 896;
 
 const LEGACY_EMPTY_LOCATION_LABEL = '未记录地点';
 const DEFAULT_LOCATION_LABEL = '';
@@ -117,12 +119,6 @@ const DEMO_WALL_CARDS: DemoWallCard[] = [
   },
 ];
 
-function waitForNextFrame() {
-  return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => resolve());
-  });
-}
-
 function waitForProcessingOverlayPaint() {
   return new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => {
@@ -131,6 +127,46 @@ function waitForProcessingOverlayPaint() {
       });
     });
   });
+}
+
+type NavigatorWithWarmupHints = Navigator & {
+  connection?: {
+    saveData?: boolean;
+  };
+  deviceMemory?: number;
+};
+
+function shouldUseAggressiveCaptureWarmup() {
+  const navigatorWithHints = navigator as NavigatorWithWarmupHints;
+  if (navigatorWithHints.connection?.saveData) {
+    return false;
+  }
+  if (
+    typeof navigatorWithHints.deviceMemory === 'number' &&
+    navigatorWithHints.deviceMemory > 0 &&
+    navigatorWithHints.deviceMemory <= 2
+  ) {
+    return false;
+  }
+  if (
+    typeof navigator.hardwareConcurrency === 'number' &&
+    navigator.hardwareConcurrency > 0 &&
+    navigator.hardwareConcurrency <= 4
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function getCaptureProcessingOptions(): CaptureProcessingOptions {
+  if (!isAndroidApp()) {
+    return PROCESSING_OPTIONS;
+  }
+
+  return {
+    ...PROCESSING_OPTIONS,
+    maxEdge: ANDROID_PROCESSING_MAX_EDGE,
+  };
 }
 
 function buildCardId() {
@@ -637,11 +673,13 @@ export default function CaptureLabPage() {
     setErrorMessage('');
     setIsProcessing(true);
     isProcessingRef.current = true;
-    await waitForNextFrame();
     await waitForProcessingOverlayPaint();
 
     try {
-      const result = await processCaptureSource(selection.sourceUrl, PROCESSING_OPTIONS);
+      const result = await processCaptureSource(
+        selection.sourceUrl,
+        getCaptureProcessingOptions()
+      );
       trackCutoutObjectUrl(result.cutoutObjectUrl);
       const nextCard = buildCaptureWallCard(selection.sourceName, result, cards.length);
       revokeCutoutObjectUrl(pendingCard?.cutoutObjectUrl);
@@ -707,13 +745,22 @@ export default function CaptureLabPage() {
   };
 
   useEffect(() => {
-    const scheduleWarmup = () => {
+    const startWarmup = () => {
       if (warmupStartedRef.current || document.visibilityState !== 'visible') {
         return;
       }
 
       warmupStartedRef.current = true;
-      void warmupCaptureProcessing();
+      cancelScheduledWarmup();
+      void warmupCaptureProcessing({
+        aggressive: shouldUseAggressiveCaptureWarmup(),
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startWarmup();
+      }
     };
 
     const requestIdle =
@@ -722,14 +769,23 @@ export default function CaptureLabPage() {
       }).requestIdleCallback;
 
     if (requestIdle) {
-      warmupIdleRef.current = requestIdle(scheduleWarmup, { timeout: 1200 });
-      return () => {
-        cancelScheduledWarmup();
-      };
+      warmupIdleRef.current = requestIdle(startWarmup, { timeout: 480 });
     }
 
-    warmupTimeoutRef.current = window.setTimeout(scheduleWarmup, 240);
+    warmupTimeoutRef.current = window.setTimeout(startWarmup, 160);
+    window.addEventListener('pointerdown', startWarmup, {
+      once: true,
+      passive: true,
+    });
+    window.addEventListener('keydown', startWarmup, { once: true });
+    window.addEventListener('focus', startWarmup, { once: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      window.removeEventListener('pointerdown', startWarmup);
+      window.removeEventListener('keydown', startWarmup);
+      window.removeEventListener('focus', startWarmup);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       cancelScheduledWarmup();
     };
   }, []);

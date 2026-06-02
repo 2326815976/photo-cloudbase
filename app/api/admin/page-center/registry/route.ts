@@ -16,15 +16,6 @@ export async function POST(request: Request) {
       return adminCheck.response;
     }
 
-    const clientChannel = readPageManagementClientChannel(request);
-    if (!clientChannel) {
-      return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
-    }
-    const scopeCheck = ensurePageManagementScope(request, clientChannel);
-    if (!scopeCheck.ok) {
-      return scopeCheck.response;
-    }
-
     const body = (await request.json()) as {
       pageKey: unknown;
       pageName: unknown;
@@ -32,6 +23,21 @@ export async function POST(request: Request) {
       routePathMiniProgram: unknown;
       [key: string]: unknown;
     };
+    const clientChannel = readPageManagementClientChannel(
+      request,
+      body.scopeChannel || body.channel
+    );
+    if (!clientChannel) {
+      return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
+    }
+    const scopeCheck = ensurePageManagementScope(
+      request,
+      clientChannel,
+      body.scopeChannel || body.channel
+    );
+    if (!scopeCheck.ok) {
+      return scopeCheck.response;
+    }
     const pageKey = await upsertPageRegistryItem({ ...body, scopeChannel: clientChannel });
     return NextResponse.json({ success: true, pageKey });
   } catch (error) {

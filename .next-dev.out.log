@@ -1,0 +1,97 @@
+
+> photo@0.1.0 dev D:\Software\Code\Work\demo\photo
+> next dev "--hostname" "127.0.0.1" "--port" "3000"
+
+   ▲ Next.js 15.4.10
+   - Local:        http://127.0.0.1:3000
+   - Network:      http://127.0.0.1:3000
+   - Environments: .env.local
+   - Experiments (use with caution):
+     · serverActions
+
+ ✓ Starting...
+ ✓ Ready in 3.8s
+ ○ Compiling /login ...
+ ✓ Compiled /login in 5.8s (1516 modules)
+ GET /login?from=%2Fcapture-lab 200 in 7370ms
+ ✓ Compiled in 1723ms (687 modules)
+ ✓ Compiled in 388ms (687 modules)
+ ○ Compiling /api/page-center/runtime ...
+ ✓ Compiled /api/page-center/runtime in 3.7s (1938 modules)
+ GET /api/health/ready 200 in 4570ms
+ ✓ Compiled /api/auth/session in 445ms (1940 modules)
+ GET /api/auth/session 200 in 727ms
+ GET /api/page-center/runtime 200 in 5640ms
+ ○ Compiling /api/auth/login ...
+ ✓ Compiled /api/auth/login in 602ms (1942 modules)
+ POST /api/auth/login 200 in 1120ms
+ ○ Compiling /capture-lab ...
+ ✓ Compiled /capture-lab in 1128ms (2004 modules)
+ GET /capture-lab?__auth_refresh=1780157444462 200 in 1560ms
+ GET /api/health/ready 200 in 501ms
+ GET /api/auth/session 200 in 40ms
+ GET /api/page-center/runtime 200 in 1213ms
+ ○ Compiling /api/page-center/access ...
+ ✓ Compiled /api/page-center/access in 749ms (2018 modules)
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 2166ms
+ GET /capture-lab 200 in 328ms
+ ○ Compiling /api/db/rpc ...
+ ✓ Compiled /api/db/rpc in 632ms (2020 modules)
+ GET /api/health/ready 200 in 365ms
+ GET /api/auth/session 200 in 40ms
+ GET /api/page-center/runtime 200 in 1082ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 801ms
+ POST /api/db/rpc 200 in 434ms
+ GET /capture-lab 200 in 180ms
+ GET /api/health/ready 200 in 163ms
+ GET /api/auth/session 200 in 23ms
+ GET /api/page-center/runtime 200 in 601ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 808ms
+ GET /capture-lab 200 in 85ms
+ GET /api/health/ready 200 in 167ms
+ GET /api/auth/session 200 in 28ms
+ GET /api/page-center/runtime 200 in 469ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 764ms
+ POST /api/db/rpc 200 in 212ms
+ GET /capture-lab 200 in 71ms
+ GET /api/health/ready 200 in 144ms
+ GET /api/auth/session 200 in 26ms
+ GET /api/page-center/runtime 200 in 467ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 854ms
+ POST /api/db/rpc 200 in 216ms
+ GET /capture-lab 200 in 71ms
+ GET /api/health/ready 200 in 132ms
+ GET /api/auth/session 200 in 25ms
+ GET /api/page-center/runtime 200 in 556ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 796ms
+ POST /api/db/rpc 200 in 216ms
+ GET /capture-lab 200 in 78ms
+ GET /api/health/ready 200 in 157ms
+ GET /api/auth/session 200 in 24ms
+ GET /api/page-center/runtime 200 in 552ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 921ms
+ POST /api/db/rpc 200 in 335ms
+ GET /capture-lab 200 in 72ms
+ GET /api/health/ready 200 in 134ms
+ GET /api/auth/session 200 in 26ms
+ GET /api/page-center/runtime 200 in 488ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 809ms
+ POST /api/db/rpc 200 in 395ms
+ GET /capture-lab 200 in 67ms
+ GET /api/health/ready 200 in 122ms
+ GET /api/auth/session 200 in 25ms
+ GET /api/page-center/runtime 200 in 478ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 821ms
+ POST /api/db/rpc 200 in 363ms
+ GET /capture-lab 200 in 65ms
+ GET /api/health/ready 200 in 272ms
+ GET /api/auth/session 200 in 28ms
+ GET /api/page-center/runtime 200 in 531ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 824ms
+ POST /api/db/rpc 200 in 231ms
+ GET /capture-lab 200 in 66ms
+ GET /api/health/ready 200 in 156ms
+ GET /api/auth/session 200 in 23ms
+ GET /api/page-center/runtime 200 in 524ms
+ GET /api/page-center/access?page_key=capture-lab&channel=web 200 in 766ms
+ POST /api/db/rpc 200 in 484ms

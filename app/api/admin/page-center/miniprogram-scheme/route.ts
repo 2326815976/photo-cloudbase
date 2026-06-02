@@ -110,16 +110,23 @@ export async function POST(request: Request) {
       return adminCheck.response;
     }
 
-    const clientChannel = readPageManagementClientChannel(request);
+    const body = (await request.json()) as Record<string, unknown>;
+    const clientChannel = readPageManagementClientChannel(
+      request,
+      body.channel || body.scopeChannel
+    );
     if (!clientChannel) {
       return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
     }
-    const scopeCheck = ensurePageManagementScope(request, clientChannel);
+    const scopeCheck = ensurePageManagementScope(
+      request,
+      clientChannel,
+      body.channel || body.scopeChannel
+    );
     if (!scopeCheck.ok) {
       return scopeCheck.response;
     }
 
-    const body = (await request.json()) as Record<string, unknown>;
     const routePath = normalizeRoutePath(body.routePath);
     const envVersion = normalizeEnvVersion(
       body.envVersion || process.env.WX_MINI_SCHEME_ENV_VERSION || 'trial'

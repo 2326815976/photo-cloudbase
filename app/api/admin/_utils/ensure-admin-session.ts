@@ -83,20 +83,56 @@ function normalizePageManagementClientType(input: string): 'web' | 'miniprogram'
   return '';
 }
 
-function readPageManagementClientType(request: Request): 'web' | 'miniprogram' | '' {
-  return normalizePageManagementClientType(request.headers.get('x-page-management-client') || '');
+function readPageManagementClientType(
+  request: Request,
+  fallbackInput?: unknown
+): 'web' | 'miniprogram' | '' {
+  const headerClientType = normalizePageManagementClientType(
+    request.headers.get('x-page-management-client') || ''
+  );
+  if (headerClientType) {
+    return headerClientType;
+  }
+
+  const requestUrl = new URL(request.url);
+  const queryClientType = normalizePageManagementClientType(
+    requestUrl.searchParams.get('channel') ||
+      requestUrl.searchParams.get('scopeChannel') ||
+      requestUrl.searchParams.get('clientChannel') ||
+      ''
+  );
+  if (queryClientType) {
+    return queryClientType;
+  }
+
+  const fallbackClientType = normalizePageManagementClientType(String(fallbackInput ?? ''));
+  if (fallbackClientType) {
+    return fallbackClientType;
+  }
+
+  // 兼容旧版微信小程序管理端：旧请求未携带页面管理专用标识，
+  // 但会通过云托管请求头标记来源。
+  if (String(request.headers.get('x-wx-service') || '').trim()) {
+    return 'miniprogram';
+  }
+
+  return '';
 }
 
-export function readPageManagementClientChannel(request: Request): AppChannel | null {
-  const clientType = readPageManagementClientType(request);
+export function readPageManagementClientChannel(
+  request: Request,
+  fallbackInput?: unknown
+): AppChannel | null {
+  const clientType = readPageManagementClientType(request, fallbackInput);
   return clientType ? clientType : null;
 }
 
 export function ensurePageManagementScope(
   request: Request,
-  expectedChannel: AppChannel
+  expectedChannel: AppChannel,
+  fallbackInput?: unknown
 ): PageManagementScope {
-  const clientType = readPageManagementClientType(request);
+  const clientType = readPageManagementClientType(request, fallbackInput);
   if (!clientType) {
     return {
       ok: false,

@@ -58,11 +58,18 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as Record<string, unknown>;
-    const clientChannel = readPageManagementClientChannel(request);
+    const clientChannel = readPageManagementClientChannel(
+      request,
+      body.channel || body.scopeChannel
+    );
     if (!clientChannel) {
       return NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 });
     }
-    const scopeCheck = ensurePageManagementScope(request, clientChannel);
+    const scopeCheck = ensurePageManagementScope(
+      request,
+      clientChannel,
+      body.channel || body.scopeChannel
+    );
     if (!scopeCheck.ok) {
       return scopeCheck.response;
     }

@@ -1,0 +1,30 @@
+export default function Head() {
+  return (
+    <>
+      <link
+        rel="modulepreload"
+        href="/vendor/imgly-background-removal/index.mjs"
+      />
+      <link
+        rel="preload"
+        href="/vendor/imgly-background-removal/resources.json"
+        as="fetch"
+        crossOrigin="anonymous"
+      />
+      <link
+        rel="preload"
+        href="/vendor/mediapipe/models/magic_touch.tflite"
+        as="fetch"
+        crossOrigin="anonymous"
+      />
+      <link
+        rel="modulepreload"
+        href="/vendor/onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs"
+      />
+      <link
+        rel="modulepreload"
+        href="/vendor/onnxruntime-web/ort-wasm-simd-threaded.mjs"
+      />
+    </>
+  );
+}
