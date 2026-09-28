@@ -1,4 +1,5 @@
-﻿import { createClient } from '@/lib/cloudbase/server';
+import { createClient } from '@/lib/cloudbase/server';
+import type { AppChannel, BetaCodeChannel } from '@/lib/page-center/config';
 import { NextResponse } from 'next/server';
 
 export type AdminSessionResult =
@@ -62,4 +63,107 @@ export async function ensureAdminSession(): Promise<AdminSessionResult> {
     ok: true,
     userId: String(user.id ?? '').trim(),
   };
+}
+
+export type PageManagementScope =
+  | {
+      ok: true;
+      channel: AppChannel;
+    }
+  | {
+      ok: false;
+      response: NextResponse;
+    };
+
+function normalizePageManagementClientType(input: string): 'web' | 'miniprogram' | '' {
+  const value = String(input || '').trim().toLowerCase();
+  if (value === 'web' || value === 'miniprogram') {
+    return value;
+  }
+  return '';
+}
+
+function readPageManagementClientType(
+  request: Request,
+  fallbackInput?: unknown
+): 'web' | 'miniprogram' | '' {
+  const headerClientType = normalizePageManagementClientType(
+    request.headers.get('x-page-management-client') || ''
+  );
+  if (headerClientType) {
+    return headerClientType;
+  }
+
+  const requestUrl = new URL(request.url);
+  const queryClientType = normalizePageManagementClientType(
+    requestUrl.searchParams.get('channel') ||
+      requestUrl.searchParams.get('scopeChannel') ||
+      requestUrl.searchParams.get('clientChannel') ||
+      ''
+  );
+  if (queryClientType) {
+    return queryClientType;
+  }
+
+  const fallbackClientType = normalizePageManagementClientType(String(fallbackInput ?? ''));
+  if (fallbackClientType) {
+    return fallbackClientType;
+  }
+
+  // 兼容旧版微信小程序管理端：旧请求未携带页面管理专用标识，
+  // 但会通过云托管请求头标记来源。
+  if (String(request.headers.get('x-wx-service') || '').trim()) {
+    return 'miniprogram';
+  }
+
+  return '';
+}
+
+export function readPageManagementClientChannel(
+  request: Request,
+  fallbackInput?: unknown
+): AppChannel | null {
+  const clientType = readPageManagementClientType(request, fallbackInput);
+  return clientType ? clientType : null;
+}
+
+export function ensurePageManagementScope(
+  request: Request,
+  expectedChannel: AppChannel,
+  fallbackInput?: unknown
+): PageManagementScope {
+  const clientType = readPageManagementClientType(request, fallbackInput);
+  if (!clientType) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: '缺少页面管理端标识' }, { status: 400 }),
+    };
+  }
+
+  if (clientType !== expectedChannel) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error:
+            expectedChannel === 'web'
+              ? '当前接口仅允许 Web 页面管理访问'
+              : '当前接口仅允许小程序页面管理访问',
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    channel: expectedChannel,
+  };
+}
+
+export function normalizeScopedBetaChannel(
+  channel: BetaCodeChannel,
+  scopeChannel: AppChannel
+): AppChannel {
+  return channel === 'miniprogram' ? 'miniprogram' : scopeChannel;
 }

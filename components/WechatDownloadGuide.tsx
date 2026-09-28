@@ -36,13 +36,13 @@ export default function WechatDownloadGuide({ isOpen, onClose, imageUrl, isBatch
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[201] max-w-md mx-auto"
           >
-            <div className="bg-[#FFFBF0] rounded-2xl shadow-2xl border-2 border-[#5D4037]/10 overflow-hidden">
+            <div className="relative bg-[#FFFBF0] rounded-2xl shadow-2xl border-2 border-[#5D4037]/10 overflow-hidden">
               {/* 关闭按钮 */}
               <button
                 onClick={onClose}
-                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors z-10"
+                className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
               >
-                <X className="w-5 h-5 text-[#5D4037]" />
+                <X className="action-icon-svg" />
               </button>
 
               {/* 内容区域 */}

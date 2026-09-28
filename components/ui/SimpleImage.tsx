@@ -1,16 +1,6 @@
-/**
- * 简化版图片组件 - 原生img标签
- *
- * 特性：
- * - 浏览器原生懒加载
- * - 治愈系加载动画
- * - 加载时间显示
- * - 零Vercel额度消耗
- */
-
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SimpleImageProps {
@@ -18,8 +8,13 @@ interface SimpleImageProps {
   alt: string;
   className?: string;
   priority?: boolean;
+  loadingVariant?: 'rich' | 'quiet';
+  fillContainer?: boolean;
+  imageFit?: CSSProperties['objectFit'];
+  imagePosition?: CSSProperties['objectPosition'];
   onClick?: () => void;
   onLoad?: () => void;
+  onError?: () => void;
   onLoadDimensions?: (dimensions: { width: number; height: number }) => void;
   aspectRatio?: number;
 }
@@ -29,23 +24,42 @@ export default function SimpleImage({
   alt,
   className = '',
   priority = false,
+  loadingVariant = 'rich',
+  fillContainer = false,
+  imageFit = 'cover',
+  imagePosition = 'center center',
   onClick,
   onLoad,
+  onError,
   onLoadDimensions,
   aspectRatio,
 }: SimpleImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const loadStartTimeRef = useRef<number>(0);
   const loadingAnimationDelayTimerRef = useRef<number | null>(null);
+  const onLoadRef = useRef(onLoad);
+  const onErrorRef = useRef(onError);
+  const onLoadDimensionsRef = useRef(onLoadDimensions);
+
   const [displaySrc, setDisplaySrc] = useState(src);
   const [hasRetriedOriginal, setHasRetriedOriginal] = useState(false);
-
-  // 统一初始状态避免 hydration 错误
   const [isLoading, setIsLoading] = useState(true);
-
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [loadingTime, setLoadingTime] = useState(0);
+  const shouldShowRichLoading = loadingVariant !== 'quiet';
+
+  useEffect(() => {
+    onLoadRef.current = onLoad;
+  }, [onLoad]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onLoadDimensionsRef.current = onLoadDimensions;
+  }, [onLoadDimensions]);
 
   const clearLoadingAnimationDelayTimer = () => {
     if (loadingAnimationDelayTimerRef.current !== null) {
@@ -84,49 +98,11 @@ export default function SimpleImage({
     return `${originalSrc}${separator}imageMogr2/format/webp/rquality/80/rwidth/750`;
   };
 
-  // 检查图片是否已缓存 - 使用 useLayoutEffect 避免已缓存图片闪烁加载动画
   useLayoutEffect(() => {
     const optimizedSrc = getOptimizedSrc(src);
-    setDisplaySrc(optimizedSrc);
     setHasRetriedOriginal(false);
-    setHasError(false);
-    setIsLoading(true);
-    setShowLoadingAnimation(false);
-    setLoadingTime(0);
-    scheduleLoadingAnimation();
-
-    const img = imgRef.current;
-    if (img && img.complete && img.naturalHeight !== 0) {
-      clearLoadingAnimationDelayTimer();
-      setIsLoading(false);
-      setShowLoadingAnimation(false);
-      notifyDimensionsReady(img);
-      onLoad?.();
-    }
-
-    // 记录加载开始时间
-    loadStartTimeRef.current = performance.now();
-
-    return () => {
-      clearLoadingAnimationDelayTimer();
-    };
-  }, [src, onLoad]);
-
-  useEffect(() => {
-    if (!isLoading) return;
-
-    const startTime = Date.now();
-    const timer = setInterval(() => {
-      setLoadingTime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isLoading]);
-
-  const normalizedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
-    ? Number(aspectRatio)
-    : 0;
-  const hasFixedAspectRatio = normalizedAspectRatio > 0;
+    setDisplaySrc((currentSrc) => (currentSrc === optimizedSrc ? currentSrc : optimizedSrc));
+  }, [src]);
 
   const notifyDimensionsReady = (imgElement?: HTMLImageElement | null) => {
     const target = imgElement ?? imgRef.current;
@@ -137,73 +113,140 @@ export default function SimpleImage({
     const width = Number(target.naturalWidth || 0);
     const height = Number(target.naturalHeight || 0);
     if (width > 0 && height > 0) {
-      onLoadDimensions?.({ width, height });
+      onLoadDimensionsRef.current?.({ width, height });
     }
   };
 
+  useLayoutEffect(() => {
+    setHasError(false);
+    setIsLoading(true);
+    setShowLoadingAnimation(false);
+    setLoadingTime(0);
+    if (shouldShowRichLoading) {
+      scheduleLoadingAnimation();
+    } else {
+      clearLoadingAnimationDelayTimer();
+    }
+    loadStartTimeRef.current = performance.now();
+
+    const img = imgRef.current;
+    const domSrc = img?.getAttribute('src') ?? '';
+    if (img && domSrc === displaySrc && img.complete && img.naturalHeight !== 0) {
+      clearLoadingAnimationDelayTimer();
+      setIsLoading(false);
+      setShowLoadingAnimation(false);
+      notifyDimensionsReady(img);
+      onLoadRef.current?.();
+    }
+
+    return () => {
+      clearLoadingAnimationDelayTimer();
+    };
+  }, [displaySrc, shouldShowRichLoading]);
+
+  useEffect(() => {
+    if (!isLoading || !shouldShowRichLoading) return;
+
+    const startTime = Date.now();
+    const timer = window.setInterval(() => {
+      const nextLoadingTime = Math.floor((Date.now() - startTime) / 1000);
+      setLoadingTime((prev) => (prev === nextLoadingTime ? prev : nextLoadingTime));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isLoading, shouldShowRichLoading]);
+
+  const normalizedAspectRatio = Number.isFinite(Number(aspectRatio)) && Number(aspectRatio) > 0
+    ? Number(aspectRatio)
+    : 0;
+  const hasFixedAspectRatio = normalizedAspectRatio > 0;
+  const shouldFillImageBounds = hasFixedAspectRatio || fillContainer;
+  const shouldCenterContainedImage = fillContainer && imageFit === 'contain';
+  const placeholderBackground = 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)';
+
+  const containerStyle = hasFixedAspectRatio
+    ? {
+        aspectRatio: String(1 / normalizedAspectRatio),
+        ...(isLoading ? { background: placeholderBackground } : {}),
+      }
+    : isLoading
+      ? { background: placeholderBackground }
+      : undefined;
+
   return (
     <div
-      className={`relative overflow-hidden ${className}`}
+      className={`relative overflow-hidden ${shouldCenterContainedImage ? 'flex items-center justify-center' : ''} ${className}`}
       onClick={onClick}
-      style={hasFixedAspectRatio ? { aspectRatio: String(1 / normalizedAspectRatio) } : undefined}
+      style={containerStyle}
     >
-      {/* 加载占位符 - 优化版 */}
+      {isLoading && !hasError && (
+        <div className="absolute inset-0">
+          <motion.div
+            className="absolute inset-0"
+            animate={{ opacity: [0.82, 1, 0.82] }}
+            transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}
+            style={{ background: placeholderBackground }}
+          />
+          <motion.div
+            className="absolute inset-y-0 left-[-35%] w-[35%]"
+            animate={{ x: ['0%', '420%'] }}
+            transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+            style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.45), rgba(255,255,255,0))' }}
+          />
+        </div>
+      )}
+
       <AnimatePresence>
-        {showLoadingAnimation && isLoading && !hasError && (
+        {shouldShowRichLoading && showLoadingAnimation && isLoading && !hasError && (
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-            style={{
-              background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E8 50%, #FFF4E0 100%)'
-            }}
+            style={{ background: placeholderBackground }}
           >
-            {/* 主动画 - 拍立得相机 */}
             <motion.div
               animate={{
                 rotate: [-2, 2, -2],
-                scale: [1, 1.05, 1]
+                scale: [1, 1.05, 1],
               }}
               transition={{
                 duration: 2,
                 repeat: Infinity,
-                ease: 'easeInOut'
+                ease: 'easeInOut',
               }}
               className="relative"
             >
               <motion.div
                 className="text-4xl"
                 animate={{
-                  filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)']
+                  filter: ['brightness(1)', 'brightness(1.2)', 'brightness(1)'],
                 }}
                 transition={{
                   duration: 1.5,
                   repeat: Infinity,
-                  ease: 'easeInOut'
+                  ease: 'easeInOut',
                 }}
               >
                 📷
               </motion.div>
 
-              {/* 闪光效果 */}
               <motion.div
                 className="absolute -top-1 -right-1 text-xl"
                 animate={{
                   opacity: [0, 1, 0],
-                  scale: [0.5, 1.2, 0.5]
+                  scale: [0.5, 1.2, 0.5],
                 }}
                 transition={{
                   duration: 2,
                   repeat: Infinity,
-                  ease: 'easeOut'
+                  ease: 'easeOut',
                 }}
               >
                 ✨
               </motion.div>
             </motion.div>
 
-            {/* 加载文字 */}
             <motion.div
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -213,18 +256,17 @@ export default function SimpleImage({
               <motion.p
                 className="text-xs text-[#5D4037]/60 font-medium"
                 animate={{
-                  opacity: [0.6, 1, 0.6]
+                  opacity: [0.6, 1, 0.6],
                 }}
                 transition={{
                   duration: 1.5,
                   repeat: Infinity,
-                  ease: 'easeInOut'
+                  ease: 'easeInOut',
                 }}
               >
                 拾光中...
               </motion.p>
 
-              {/* 加载时间提示 */}
               {loadingTime > 3 && (
                 <motion.p
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -236,18 +278,17 @@ export default function SimpleImage({
               )}
             </motion.div>
 
-            {/* 装饰性元素 - 飘动的光点 */}
             <motion.div
               className="absolute top-1/4 left-1/4 text-sm opacity-30"
               animate={{
                 y: [-10, 10, -10],
                 x: [-5, 5, -5],
-                rotate: [0, 360]
+                rotate: [0, 360],
               }}
               transition={{
                 duration: 4,
                 repeat: Infinity,
-                ease: 'easeInOut'
+                ease: 'easeInOut',
               }}
             >
               ✨
@@ -257,13 +298,13 @@ export default function SimpleImage({
               animate={{
                 y: [10, -10, 10],
                 x: [5, -5, 5],
-                rotate: [360, 0]
+                rotate: [360, 0],
               }}
               transition={{
                 duration: 3.5,
                 repeat: Infinity,
                 ease: 'easeInOut',
-                delay: 0.5
+                delay: 0.5,
               }}
             >
               💫
@@ -272,30 +313,33 @@ export default function SimpleImage({
         )}
       </AnimatePresence>
 
-      {/* 错误占位符 */}
       {hasError && (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-2"
           style={{ backgroundColor: '#FFFBF0' }}
         >
-          <span className="text-4xl">📸</span>
+          <span className="text-4xl">🖼️</span>
           <p className="text-xs text-[#5D4037]/60 font-medium">照片去旅行了~</p>
         </div>
       )}
 
-      {/* 原生img标签 - 零额度消耗 */}
       {!hasError && (
         <img
+          key={displaySrc}
           ref={imgRef}
           src={displaySrc}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
           fetchPriority={priority ? 'high' : 'low'}
-          className={`${hasFixedAspectRatio ? 'absolute inset-0 w-full h-full' : 'w-full h-auto'} transition-opacity duration-300 ${
+          className={`${shouldCenterContainedImage
+            ? 'block h-auto max-h-full w-auto max-w-full'
+            : shouldFillImageBounds
+              ? 'absolute inset-0 h-full w-full'
+              : 'h-auto w-full'} transition-opacity duration-300 ${
             isLoading ? 'opacity-0' : 'opacity-100'
           }`}
-          style={{ objectFit: 'cover' }}
+          style={{ objectFit: imageFit, objectPosition: imagePosition }}
           onLoad={(event) => {
             const loadTime = performance.now() - loadStartTimeRef.current;
             if (loadTime > 3000) {
@@ -305,7 +349,7 @@ export default function SimpleImage({
             setIsLoading(false);
             setShowLoadingAnimation(false);
             notifyDimensionsReady(event.currentTarget);
-            onLoad?.();
+            onLoadRef.current?.();
           }}
           onError={() => {
             if (!hasRetriedOriginal && displaySrc !== src) {
@@ -313,7 +357,11 @@ export default function SimpleImage({
               setDisplaySrc(src);
               setIsLoading(true);
               setShowLoadingAnimation(false);
-              scheduleLoadingAnimation();
+              if (shouldShowRichLoading) {
+                scheduleLoadingAnimation();
+              } else {
+                clearLoadingAnimationDelayTimer();
+              }
               setHasError(false);
               loadStartTimeRef.current = performance.now();
               return;
@@ -323,6 +371,7 @@ export default function SimpleImage({
             setIsLoading(false);
             setShowLoadingAnimation(false);
             setHasError(true);
+            onErrorRef.current?.();
           }}
         />
       )}

@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { Phone, Lock, ArrowLeft, Eye, EyeOff, ChevronsRight, RotateCcw } from 'lucide-react';
+import { Phone, Lock, Eye, EyeOff, ChevronsRight, RotateCcw } from 'lucide-react';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { clampChinaMobileInput, isValidChinaMobile, normalizeChinaMobile } from '@/lib/utils/phone';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
+import { usePageCenterRuntime } from '@/lib/page-center/runtime-context';
+import { useAutoDismissString } from '@/lib/hooks/use-auto-dismiss-string';
 
 const SLIDER_WIDTH = 56;
 
@@ -15,6 +19,12 @@ interface SliderPoint {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { shellRuntime } = usePageCenterRuntime();
+  const { title: managedTitle, subtitle: managedSubtitle } = useManagedPageMeta(
+    'register',
+    '注册',
+    '创建账号，开启美好瞬间记录之旅'
+  );
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [captchaId, setCaptchaId] = useState('');
@@ -27,11 +37,23 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  useAutoDismissString(error, setError);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const startTimeRef = useRef(0);
   const trajectoryRef = useRef<SliderPoint[]>([]);
+  const loginEntry = useMemo(() => {
+    const runtimeItems = Array.isArray(shellRuntime?.pageAccessItems) ? shellRuntime.pageAccessItems : [];
+    const current = runtimeItems.find((item) => item.pageKey === 'login');
+    if (!current || current.publishState !== 'online') {
+      return null;
+    }
+    return {
+      href: '/login',
+      label: String(current.navText || current.headerTitle || '登录').trim() || '登录',
+    };
+  }, [shellRuntime]);
 
   const resetSlider = useCallback(() => {
     setSliderPixelPosition(0);
@@ -318,31 +340,18 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] flex flex-col px-8 pt-12 pb-20">
-      <button
-        onClick={() => router.back()}
-        className="absolute left-6 top-6 w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
-      >
-        <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-      </button>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12 mt-8"
-      >
-        <h1 className="text-3xl font-bold text-[#5D4037] mb-2" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-          ✨ 欢迎注册
-        </h1>
-        <p className="text-sm text-[#5D4037]/60">创建账号，开启美好瞬间记录之旅</p>
-      </motion.div>
-
+    <SecondaryPageShell
+      title={managedTitle}
+      subtitle={managedSubtitle || '创建账号，开启美好瞬间记录之旅'}
+      fallbackHref="/profile"
+      contentClassName="px-8 pb-20"
+    >
       <motion.form
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
         onSubmit={handleRegister}
-        className="flex-1 flex flex-col max-w-md mx-auto w-full"
+        className="mx-auto flex w-full max-w-md flex-col"
       >
         <div className="space-y-4 mb-6">
           <div className="relative">
@@ -461,20 +470,22 @@ export default function RegisterPage() {
           transition={{ delay: 0.3 }}
           className="text-center mt-8"
         >
-          <p className="text-sm text-[#5D4037]/60">
-            已有账号？
-            <button
-              type="button"
-              onClick={() => router.push('/login')}
-              className="text-[#FFC857] font-medium ml-1 hover:underline"
-            >
-              立即登录
-            </button>
-          </p>
+          {loginEntry && (
+            <p className="text-sm text-[#5D4037]/60">
+              已有账号？
+              <button
+                type="button"
+                onClick={() => router.push(loginEntry.href)}
+                className="text-[#FFC857] font-medium ml-1 hover:underline"
+              >
+                {loginEntry.label}
+              </button>
+            </p>
+          )}
         </motion.div>
       </motion.form>
 
-      <p className="text-center text-xs text-[#5D4037]/40 mt-6">注册即表示同意我们的服务条款和隐私政策</p>
-    </div>
+      <p className="mt-6 text-center text-xs text-[#5D4037]/40">注册即表示同意我们的服务条款和隐私政策</p>
+    </SecondaryPageShell>
   );
 }

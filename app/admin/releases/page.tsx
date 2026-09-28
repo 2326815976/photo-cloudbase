@@ -19,6 +19,8 @@ import { createClient } from '@/lib/cloudbase/client';
 import { setClipboardText } from '@/lib/android';
 import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
 import { formatDateDisplayUTC8 } from '@/lib/utils/date-helpers';
+import { insertReleaseWithCompat, listReleasesWithCompat } from '@/lib/releases/release-compat';
+import AdminLoadingCard from '../components/AdminLoadingCard';
 
 const RELEASE_PLATFORM_OPTIONS = ['Android', 'iOS', 'HarmonyOS', 'Windows', 'MacOS', 'Linux'] as const;
 const RELEASE_ALLOWED_EXTENSIONS = ['.apk', '.ipa', '.exe', '.dmg', '.zip', '.deb', '.rpm', '.appimage', '.tar.gz'] as const;
@@ -182,10 +184,9 @@ export default function AdminReleasesPage() {
       return;
     }
 
-    const { data, error } = await dbClient
-      .from('app_releases')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await listReleasesWithCompat(dbClient, {
+      fallbackMessage: 'Load releases failed',
+    });
 
     if (loadToken !== releasesLoadTokenRef.current) {
       return;
@@ -430,15 +431,19 @@ export default function AdminReleasesPage() {
 
       uploadedFileId = storageFileId;
 
-      const { error } = await dbClient.from('app_releases').insert({
-        version,
-        platform,
-        download_url: downloadUrl,
-        update_log: updateLog,
-        force_update: releaseForceUpdate,
-        storage_provider: 'cloudbase',
-        storage_file_id: storageFileId,
-      });
+      const { error } = await insertReleaseWithCompat(
+        dbClient,
+        {
+          version,
+          platform,
+          download_url: downloadUrl,
+          update_log: updateLog,
+          force_update: releaseForceUpdate,
+          storage_provider: 'cloudbase',
+          storage_file_id: storageFileId,
+        },
+        'Insert release failed'
+      );
 
       if (error) {
         try {
@@ -497,10 +502,7 @@ export default function AdminReleasesPage() {
             </div>
 
             {releasesLoading ? (
-              <div className="release-loading">
-                <div className="release-spinner" />
-                <span className="release-loading__text">加载中...</span>
-              </div>
+              <AdminLoadingCard description="正在同步已发布版本与更新说明，请稍候。" variant="inline" />
             ) : releases.length === 0 ? (
               <div className="release-empty">
                 <span className="release-empty__icon">📦</span>

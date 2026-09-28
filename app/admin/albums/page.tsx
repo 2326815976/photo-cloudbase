@@ -2,13 +2,17 @@
 
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import ToggleSwitch from '@/components/ui/ToggleSwitch';
+import { insertAlbumWithCompat, listAlbumsWithCompat, updateAlbumWithCompat } from '@/lib/admin/album-compat';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
-import { FolderHeart, Plus, Trash2, Key, Link as LinkIcon, QrCode, Edit, Eye, Calendar, Copy, CheckCircle, XCircle, AlertCircle, Heart, Upload, Mail } from 'lucide-react';
+import { FolderHeart, Plus, Trash2, Link as LinkIcon, QrCode, Pencil, Eye, Calendar, Copy, CheckCircle, XCircle, AlertCircle, Heart, Upload, Search, X, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDateDisplayUTC8, formatDateUTC8, getDateAfterDaysUTC8, getDateTimeAfterDaysUTC8, getDaysDifference, getTodayUTC8, parseDateTimeUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import { useBeforeUnloadGuard } from '@/lib/hooks/useBeforeUnloadGuard';
+import AdminLoadingCard from '../components/AdminLoadingCard';
+
+type WelcomeLetterMode = 'envelope' | 'stamp' | 'none';
 
 interface Album {
   id: string;
@@ -19,12 +23,54 @@ interface Album {
   recipient_name: string;
   enable_tipping: boolean;
   enable_welcome_letter?: boolean;
+  welcome_letter_mode?: WelcomeLetterMode | null;
+  enable_freeze?: boolean;
   donation_qr_code_url: string | null;
   created_at: string;
   expires_at: string | null;
 }
 
-const FIXED_PUBLIC_ORIGIN = 'https://guangyao666.xyz';
+const resolvePublicOrigin = () => {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+  return '';
+};
+
+type AlbumFilterKey = 'all' | 'expiring' | 'expired' | 'no_cover' | 'welcome_off';
+
+const ALBUM_FILTER_OPTIONS: Array<{ key: AlbumFilterKey; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'expiring', label: '即将到期' },
+  { key: 'expired', label: '已过期' },
+  { key: 'no_cover', label: '无封面' },
+  { key: 'welcome_off', label: '无欢迎信' },
+];
+
+const WELCOME_LETTER_MODE_OPTIONS: Array<{
+  value: WelcomeLetterMode;
+  label: string;
+  description: string;
+}> = [
+  { value: 'envelope', label: '拆信封欢迎信', description: '进入空间后自动展示拆信封欢迎信。' },
+  { value: 'stamp', label: '右下角印章欢迎信', description: '在页面右下角显示印章入口，点击后查看欢迎信。' },
+  { value: 'none', label: '无欢迎信', description: '进入空间后不展示欢迎信入口。' },
+];
+
+const ALBUM_EDIT_CONFIRM_BUTTON_CLASS =
+  'flex-1 px-4 py-2.5 rounded-full bg-[#FFC857] text-[#5D4037] font-medium transition-all hover:shadow-md active:scale-95';
+
+const normalizeWelcomeLetterMode = (mode: unknown, enabledFallback = true): WelcomeLetterMode => {
+  const normalized = String(mode ?? '').trim().toLowerCase();
+  if (normalized === 'envelope' || normalized === 'stamp' || normalized === 'none') {
+    return normalized;
+  }
+  return enabledFallback ? 'envelope' : 'none';
+};
+
+const getWelcomeLetterModeLabel = (mode: WelcomeLetterMode): string => (
+  WELCOME_LETTER_MODE_OPTIONS.find((item) => item.value === mode)?.label ?? '拆信封欢迎信'
+);
 
 const createInitialAlbumCreateForm = () => ({
   title: '',
@@ -32,7 +78,8 @@ const createInitialAlbumCreateForm = () => ({
   welcome_letter: '',
   recipient_name: '',
   enable_tipping: true,
-  enable_welcome_letter: true,
+  welcome_letter_mode: 'envelope' as WelcomeLetterMode,
+  enable_freeze: true,
   auto_generate_key: true,
   expiry_days: 7,
   expiry_mode: 'days' as 'days' | 'date',
@@ -62,6 +109,7 @@ export default function AlbumsPage() {
   const [editingRecipient, setEditingRecipient] = useState<Album | null>(null);
   const [newRecipientName, setNewRecipientName] = useState('');
   const [newWelcomeLetter, setNewWelcomeLetter] = useState('');
+  const [newWelcomeLetterMode, setNewWelcomeLetterMode] = useState<WelcomeLetterMode>('envelope');
   const [editingDonation, setEditingDonation] = useState<Album | null>(null);
   const [uploadingQrCode, setUploadingQrCode] = useState(false);
   const [deletingAlbum, setDeletingAlbum] = useState<Album | null>(null);
@@ -72,6 +120,8 @@ export default function AlbumsPage() {
   const [newTitle, setNewTitle] = useState('');
   const [albumSelectionMode, setAlbumSelectionMode] = useState(false);
   const [albumSelectedIds, setAlbumSelectedIds] = useState<string[]>([]);
+  const [albumKeyword, setAlbumKeyword] = useState('');
+  const [albumFilter, setAlbumFilter] = useState<AlbumFilterKey>('all');
   const [albumBatchDeleting, setAlbumBatchDeleting] = useState(false);
   const [albumBatchDeleteConfirmOpen, setAlbumBatchDeleteConfirmOpen] = useState(false);
   const [albumCreateModalOpen, setAlbumCreateModalOpen] = useState(false);
@@ -118,22 +168,38 @@ export default function AlbumsPage() {
       return;
     }
 
-    const { data, error } = await dbClient
-      .from('albums')
-      .select('id, access_key, title, cover_url, welcome_letter, recipient_name, enable_tipping, enable_welcome_letter, donation_qr_code_url, expires_at, created_at')
-      .order('created_at', { ascending: false });
+    const { data, error } = await listAlbumsWithCompat(dbClient);
 
     if (loadToken !== albumsLoadTokenRef.current) {
       return;
     }
 
-    if (!error && data) {
-      // 过滤掉照片墙系统相册
-      const filteredAlbums = data.filter((album: Album) =>
-        album.id !== '00000000-0000-0000-0000-000000000000'
-      );
-      setAlbums(filteredAlbums);
+    if (error) {
+      const normalizedMessage = String(error.message ?? '').toLowerCase();
+      const isTransientBackendError =
+        (error.code ?? '').trim().toUpperCase() === 'TRANSIENT_BACKEND' ||
+        normalizedMessage.includes('connect timeout') ||
+        normalizedMessage.includes('request timeout') ||
+        normalizedMessage.includes('timed out') ||
+        normalizedMessage.includes('etimedout') ||
+        normalizedMessage.includes('esockettimedout') ||
+        normalizedMessage.includes('network');
+      const hasCachedAlbums = albums.length > 0;
+      setLoading(false);
+      setShowToast({
+        message: isTransientBackendError
+          ? (hasCachedAlbums ? '相册列表加载超时，已保留当前数据，请稍后重试' : '相册列表加载超时，请稍后重试')
+          : `加载失败：${error.message}`,
+        type: isTransientBackendError ? 'warning' : 'error',
+      });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
     }
+
+    const filteredAlbums = (data ?? []).filter((album: Album) => (
+      album.id !== '00000000-0000-0000-0000-000000000000'
+    ));
+    setAlbums(filteredAlbums);
     setLoading(false);
   };
 
@@ -175,7 +241,7 @@ export default function AlbumsPage() {
     if (!editingAlbum || !newAccessKey) return;
     const normalizedNewAccessKey = normalizeAccessKey(newAccessKey);
 
-    // 验证密钥格式（8位字符，仅允许大写字母和数字）
+    // 验证密钥格式：8 位字符，仅允许大写字母和数字
     if (!/^[A-Z0-9]{8}$/.test(normalizedNewAccessKey)) {
       setShowToast({ message: '访问密钥必须是8位大写字母或数字', type: 'error' });
       setTimeout(() => setShowToast(null), 3000);
@@ -209,12 +275,12 @@ export default function AlbumsPage() {
       return;
     }
 
-    const { data: updated, error } = await dbClient
-      .from('albums')
-      .update({ access_key: normalizedNewAccessKey })
-      .eq('id', editingAlbum.id)
-      .select('id')
-      .maybeSingle();
+    const { data: updated, error } = await updateAlbumWithCompat(
+      dbClient,
+      editingAlbum.id,
+      { access_key: normalizedNewAccessKey },
+      '更新访问密钥失败'
+    );
 
     if (error) {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
@@ -265,12 +331,12 @@ export default function AlbumsPage() {
       ? `${selectedExpiryDate} 23:59:59`
       : getDateTimeAfterDaysUTC8(safeDays);
 
-    const { data: updated, error } = await dbClient
-      .from('albums')
-      .update({ expires_at: expiresAt })
-      .eq('id', editingExpiry.id)
-      .select('id')
-      .maybeSingle();
+    const { data: updated, error } = await updateAlbumWithCompat(
+      dbClient,
+      editingExpiry.id,
+      { expires_at: expiresAt },
+      '更新有效期失败'
+    );
 
     if (error) {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
@@ -296,6 +362,7 @@ export default function AlbumsPage() {
 
   const handleUpdateRecipient = async () => {
     if (!editingRecipient) return;
+    const welcomeLetterMode = normalizeWelcomeLetterMode(newWelcomeLetterMode);
 
     const dbClient = createClient();
     if (!dbClient) {
@@ -303,15 +370,17 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { data: updated, error } = await dbClient
-      .from('albums')
-      .update({
+    const { data: updated, error } = await updateAlbumWithCompat(
+      dbClient,
+      editingRecipient.id,
+      {
         recipient_name: newRecipientName || '拾光者',
-        welcome_letter: newWelcomeLetter
-      })
-      .eq('id', editingRecipient.id)
-      .select('id')
-      .maybeSingle();
+        welcome_letter: newWelcomeLetter,
+        welcome_letter_mode: welcomeLetterMode,
+        enable_welcome_letter: welcomeLetterMode !== 'none',
+      },
+      '更新收件人与欢迎信失败'
+    );
 
     if (error) {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
@@ -328,6 +397,7 @@ export default function AlbumsPage() {
       setEditingRecipient(null);
       setNewRecipientName('');
       setNewWelcomeLetter('');
+      setNewWelcomeLetterMode('envelope');
       loadAlbums();
       setShowToast({ message: '收件人和信内容已更新', type: 'success' });
       setTimeout(() => setShowToast(null), 3000);
@@ -343,12 +413,12 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { data: updated, error } = await dbClient
-      .from('albums')
-      .update({ title: newTitle.trim() })
-      .eq('id', editingTitle.id)
-      .select('id')
-      .maybeSingle();
+    const { data: updated, error } = await updateAlbumWithCompat(
+      dbClient,
+      editingTitle.id,
+      { title: newTitle.trim() },
+      '更新空间名称失败'
+    );
 
     if (error) {
       setShowToast({ message: `修改失败：${error.message}`, type: 'error' });
@@ -370,41 +440,6 @@ export default function AlbumsPage() {
     }
   };
 
-  const handleToggleWelcomeLetter = async (album: Album) => {
-    const dbClient = createClient();
-    if (!dbClient) {
-      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-    const { data: updated, error } = await dbClient
-      .from('albums')
-      .update({ enable_welcome_letter: !(album.enable_welcome_letter ?? true) })
-      .eq('id', album.id)
-      .select('id')
-      .maybeSingle();
-
-    if (error) {
-      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-    if (!updated) {
-      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
-      setTimeout(() => setShowToast(null), 3000);
-      return;
-    }
-
-    if (!error) {
-      loadAlbums();
-      setShowToast({
-        message: (album.enable_welcome_letter ?? true) ? '欢迎信已关闭' : '欢迎信已开启',
-        type: 'success'
-      });
-      setTimeout(() => setShowToast(null), 3000);
-    }
-  };
-
   const handleToggleDonation = async (album: Album) => {
     const dbClient = createClient();
     if (!dbClient) {
@@ -412,12 +447,12 @@ export default function AlbumsPage() {
       setTimeout(() => setShowToast(null), 3000);
       return;
     }
-    const { data: updated, error } = await dbClient
-      .from('albums')
-      .update({ enable_tipping: !album.enable_tipping })
-      .eq('id', album.id)
-      .select('id')
-      .maybeSingle();
+    const { data: updated, error } = await updateAlbumWithCompat(
+      dbClient,
+      album.id,
+      { enable_tipping: !album.enable_tipping },
+      '更新打赏状态失败'
+    );
 
     if (error) {
       setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
@@ -438,6 +473,40 @@ export default function AlbumsPage() {
       });
       setTimeout(() => setShowToast(null), 3000);
     }
+  };
+
+  const handleToggleFreeze = async (album: Album) => {
+    const dbClient = createClient();
+    if (!dbClient) {
+      setShowToast({ message: '服务初始化失败，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    const nextEnabled = !(album.enable_freeze ?? true);
+    const { data: updated, error } = await updateAlbumWithCompat(
+      dbClient,
+      album.id,
+      { enable_freeze: nextEnabled },
+      '更新定格状态失败'
+    );
+
+    if (error) {
+      setShowToast({ message: `操作失败：${error.message}`, type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+    if (!updated) {
+      setShowToast({ message: '空间不存在或已删除，请刷新后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
+
+    loadAlbums();
+    setShowToast({
+      message: nextEnabled ? '定格功能已开启' : '定格功能已关闭',
+      type: 'success',
+    });
+    setTimeout(() => setShowToast(null), 3000);
   };
 
   const cleanupStorageByUrl = async (
@@ -501,12 +570,12 @@ export default function AlbumsPage() {
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
-      const { data: updated, error: updateError } = await dbClient
-        .from('albums')
-        .update({ donation_qr_code_url: cdnUrl })
-        .eq('id', album.id)
-        .select('id')
-        .maybeSingle();
+      const { data: updated, error: updateError } = await updateAlbumWithCompat(
+        dbClient,
+        album.id,
+        { donation_qr_code_url: cdnUrl },
+        '更新赞赏码失败'
+      );
 
       if (updateError) {
         await cleanupStorageByUrl(cdnUrl, '新赞赏码', false);
@@ -565,12 +634,12 @@ export default function AlbumsPage() {
         setTimeout(() => setShowToast(null), 3000);
         return;
       }
-      const { data: updated, error: updateError } = await dbClient
-        .from('albums')
-        .update({ cover_url: cdnUrl })
-        .eq('id', album.id)
-        .select('id')
-        .maybeSingle();
+      const { data: updated, error: updateError } = await updateAlbumWithCompat(
+        dbClient,
+        album.id,
+        { cover_url: cdnUrl },
+        '更新封面失败'
+      );
 
       if (updateError) {
         await cleanupStorageByUrl(cdnUrl, '新封面', false);
@@ -748,20 +817,25 @@ export default function AlbumsPage() {
       const expiresAt = albumCreateForm.expiry_mode === 'date'
         ? `${albumCreateSelectedExpiryDate} 23:59:59`
         : getDateTimeAfterDaysUTC8(Math.max(1, albumCreateForm.expiry_days || 1));
-  
-      const { error: insertError } = await dbClient
-        .from('albums')
-        .insert({
-        title: albumCreateForm.title.trim() || '未命名空间',
+      const welcomeLetterMode = normalizeWelcomeLetterMode(albumCreateForm.welcome_letter_mode);
+
+      const { error: insertError } = await insertAlbumWithCompat(
+        dbClient,
+        {
+          title: albumCreateForm.title.trim() || '未命名空间',
           access_key: nextAccessKey,
           cover_url: coverUrl,
           donation_qr_code_url: albumCreateForm.enable_tipping ? donationQrUrl : null,
-          welcome_letter: albumCreateForm.enable_welcome_letter ? albumCreateForm.welcome_letter.trim() : '',
-        recipient_name: albumCreateForm.recipient_name.trim() || '拾光者',
+          welcome_letter: albumCreateForm.welcome_letter.trim(),
+          recipient_name: albumCreateForm.recipient_name.trim() || '拾光者',
           enable_tipping: albumCreateForm.enable_tipping,
-          enable_welcome_letter: albumCreateForm.enable_welcome_letter,
+          enable_welcome_letter: welcomeLetterMode !== 'none',
+          welcome_letter_mode: welcomeLetterMode,
+          enable_freeze: albumCreateForm.enable_freeze,
           expires_at: expiresAt,
-        });
+        },
+        '创建专属空间失败'
+      );
   
       if (insertError) {
       await cleanupStorageByUrl(coverUrl, '封面', false);
@@ -808,6 +882,7 @@ const copyAccessKey = async (accessKey: string) => {
     setEditingRecipient(album);
     setNewRecipientName(album.recipient_name || '');
     setNewWelcomeLetter(album.welcome_letter || '');
+    setNewWelcomeLetterMode(normalizeWelcomeLetterMode(album.welcome_letter_mode, album.enable_welcome_letter ?? true));
   };
 
   const openEditExpiryModal = (album: Album) => {
@@ -846,13 +921,15 @@ const copyAccessKey = async (accessKey: string) => {
     if (!albumSelectionMode || albumBatchDeleting) {
       return;
     }
-    setAlbumSelectedIds((prev) => (
-      prev.length === albums.length ? [] : albums.map((album) => album.id)
-    ));
+    setAlbumSelectedIds(albumAllSelected ? [] : albumRows.map((album) => album.id));
   };
 
   const confirmAlbumBatchDelete = async () => {
-    const selectedIds = Array.from(new Set(albumSelectedIds.map((item) => String(item || '').trim()).filter(Boolean)));
+    const selectedIds = Array.from(new Set(
+      albumSelectedIds
+        .map((item) => String(item || '').trim())
+        .filter((id) => Boolean(id) && albumVisibleIdSet.has(id))
+    ));
     if (selectedIds.length === 0 || albumBatchDeleting) {
       return;
     }
@@ -911,7 +988,13 @@ const copyAccessKey = async (accessKey: string) => {
     setTimeout(() => setShowToast(null), 3000);
   };
   const copyAccessLink = async (accessKey: string) => {
-    const link = `${FIXED_PUBLIC_ORIGIN}/album/${accessKey}`;
+    const origin = resolvePublicOrigin();
+    const link = origin ? `${origin}/album/${accessKey}` : '';
+    if (!link) {
+      setShowToast({ message: '当前站点域名未就绪，请刷新页面后重试', type: 'error' });
+      setTimeout(() => setShowToast(null), 3000);
+      return;
+    }
     const { setClipboardText } = await import('@/lib/android');
     const success = setClipboardText(link);
     if (success) {
@@ -923,18 +1006,22 @@ const copyAccessKey = async (accessKey: string) => {
   };
 
   const generateQrCode = (accessKey: string) => {
-    const link = `${FIXED_PUBLIC_ORIGIN}/album/${accessKey}`;
+    const origin = resolvePublicOrigin();
+    const link = origin ? `${origin}/album/${accessKey}` : '';
+    if (!link) {
+      return '';
+    }
     return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(link)}`;
   };
 
-  const albumRows = albums.map((album) => {
+  const baseAlbumRows = albums.map((album) => {
     const parsedExpiry = parseDateTimeUTC8(album.expires_at);
     const daysRemaining = parsedExpiry
       ? Math.ceil((parsedExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
       : null;
+    const welcomeLetterMode = normalizeWelcomeLetterMode(album.welcome_letter_mode, album.enable_welcome_letter ?? true);
     return {
       ...album,
-      selected: albumSelectedIds.includes(album.id),
       hasCover: Boolean(String(album.cover_url || '').trim()),
       coverResolved: String(album.cover_url || '').trim(),
       hasDonationQr: Boolean(String(album.donation_qr_code_url || '').trim()),
@@ -945,15 +1032,70 @@ const copyAccessKey = async (accessKey: string) => {
       daysRemaining,
       expired: daysRemaining !== null && daysRemaining < 0,
       expirySoon: daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 3,
-      welcomeEnabled: album.enable_welcome_letter ?? true,
+      welcomeLetterMode,
+      welcomeModeLabel: getWelcomeLetterModeLabel(welcomeLetterMode),
+      freezeEnabled: album.enable_freeze ?? true,
       recipientLabel: String(album.recipient_name || '').trim() || '拾光者',
-      welcomeLetterText: String(album.welcome_letter || '').trim() || '未设置欢迎信内容',
+      welcomeLetterText:
+        String(album.welcome_letter || '').trim() || (welcomeLetterMode === 'none' ? '当前设置为无欢迎信' : '未设置欢迎信内容'),
     };
   });
-  const albumSelectedCount = albumSelectedIds.length;
+  const normalizedAlbumKeyword = albumKeyword.trim().toLowerCase();
+  const filteredAlbumRows = baseAlbumRows.filter((item) => {
+    const matchesFilter = (() => {
+      switch (albumFilter) {
+        case 'expiring':
+          return item.expirySoon && !item.expired;
+        case 'expired':
+          return item.expired;
+        case 'no_cover':
+          return !item.hasCover;
+        case 'welcome_off':
+          return item.welcomeLetterMode === 'none';
+        case 'all':
+        default:
+          return true;
+      }
+    })();
+    if (!matchesFilter) {
+      return false;
+    }
+    if (!normalizedAlbumKeyword) {
+      return true;
+    }
+    const keywordSource = [
+      item.title,
+      item.access_key,
+      item.recipientLabel,
+      String(item.welcome_letter || '').trim(),
+      item.welcomeModeLabel,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return keywordSource.includes(normalizedAlbumKeyword);
+  });
+  const albumRows = filteredAlbumRows.map((item) => ({
+    ...item,
+    selected: albumSelectedIds.includes(item.id),
+  }));
+  const albumVisibleIdSignature = albumRows.map((item) => item.id).join('|');
+  const albumVisibleIdSet = new Set(albumRows.map((item) => item.id));
+  const albumSelectedCount = albumSelectedIds.filter((id) => albumVisibleIdSet.has(String(id))).length;
   const albumTotalCount = albumRows.length;
   const albumAllSelected = albumTotalCount > 0 && albumSelectedCount === albumTotalCount;
   const albumBusy = uploadingQrCode || uploadingCover || albumBatchDeleting || albumCreating;
+  useEffect(() => {
+    setAlbumSelectedIds((prev) => {
+      const next = prev.filter((id) => albumVisibleIdSet.has(String(id)));
+      return next.length === prev.length ? prev : next;
+    });
+    if (albumRows.length === 0) {
+      setAlbumBatchDeleteConfirmOpen(false);
+      if (albumSelectionMode) {
+        setAlbumSelectionMode(false);
+      }
+    }
+  }, [albumVisibleIdSignature, albumRows.length, albumSelectionMode]);
   return (
     <div className="admin-mobile-page album-admin-page space-y-6 pt-6">
       <div className="module-intro album-page-intro">
@@ -966,6 +1108,21 @@ const copyAccessKey = async (accessKey: string) => {
         className="album-panel"
       >
         <div className="booking-toolbar album-toolbar">
+          <div className="booking-filter-scroll album-toolbar__filter-scroll">
+            <div className="booking-filter-list">
+              {ALBUM_FILTER_OPTIONS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setAlbumFilter(item.key)}
+                  className={`booking-filter-chip ${albumFilter === item.key ? 'booking-filter-chip--active' : ''}`}
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {!albumSelectionMode ? (
             <div className="booking-toolbar-actions booking-toolbar-actions--right">
               <button
@@ -978,19 +1135,11 @@ const copyAccessKey = async (accessKey: string) => {
               </button>
               <button
                 type="button"
-                className="booking-pill-btn booking-pill-btn--ghost"
-                onClick={() => router.push('/admin/gallery')}
-                disabled={albumBusy}
-              >
-                照片墙管理
-              </button>
-              <button
-                type="button"
                 className="booking-pill-btn booking-pill-btn--primary"
                 onClick={() => setAlbumCreateModalOpen(true)}
                 disabled={albumBusy}
               >
-                + 创建空间
+                + 添加空间
               </button>
             </div>
           ) : (
@@ -1023,15 +1172,38 @@ const copyAccessKey = async (accessKey: string) => {
           )}
         </div>
 
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="w-12 h-12 border-4 border-[#FFC857] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-sm text-[#5D4037]/60">加载中...</p>
+        <div className="booking-search-row">
+          <div className="booking-search-box">
+            <Search className="booking-search-box__icon" />
+            <input
+              type="text"
+              value={albumKeyword}
+              onChange={(event) => setAlbumKeyword(event.target.value)}
+              className="booking-search-box__input"
+              placeholder="搜索空间名称 / 收件人 / 访问密钥 / 状态"
+            />
+            {albumKeyword && (
+              <button
+                type="button"
+                className="booking-search-box__clear"
+                onClick={() => setAlbumKeyword('')}
+                aria-label="清空专属空间搜索"
+              >
+                <X className="booking-search-box__clear-icon" />
+              </button>
+            )}
           </div>
+          {(albumKeyword || albumFilter !== 'all') && !loading && (
+            <p className="booking-search-row__meta">匹配 {albumRows.length} 个空间</p>
+          )}
+        </div>
+
+        {loading ? (
+          <AdminLoadingCard description="正在同步空间列表与基础配置，请稍候。" variant="inline" />
         ) : albumRows.length === 0 ? (
           <div className="empty booking-empty-card album-empty-card">
             <span className="booking-empty-card__icon">💝</span>
-            <span>暂无专属空间</span>
+            <span>{albums.length > 0 ? '当前筛选下暂无专属空间' : '暂无专属空间'}</span>
           </div>
         ) : (
           <div className="album-grid">
@@ -1085,7 +1257,7 @@ const copyAccessKey = async (accessKey: string) => {
                       <div className="album-card__title-wrap">
                         <div className="album-card__title">{item.title || '未命名空间'}</div>
                         <div className="album-card__meta-row">
-                          <span className="album-card__meta">创建于 {item.createdDateText}</span>
+                          <span className="album-card__meta">{item.createdDateText}</span>
                           {item.expiresAtText && (
                             <span className={`album-card__expiry-badge ${item.expired ? 'album-card__expiry-badge--expired' : (item.expirySoon ? 'album-card__expiry-badge--soon' : 'album-card__expiry-badge--normal')}`}>
                               到期 {item.expiresDateText}
@@ -1099,65 +1271,69 @@ const copyAccessKey = async (accessKey: string) => {
                         <div className="album-card__quick-actions">
                           <button
                             type="button"
-                            className="album-mini-btn album-mini-btn--edit"
+                            className="icon-button action-icon-btn action-icon-btn--edit"
                             onClick={(event) => {
                               event.stopPropagation();
                               openEditTitleModal(item);
                             }}
                             disabled={albumBusy}
                             title="修改空间名称"
+                            aria-label="修改空间名称"
                           >
-                            <Edit className="album-mini-btn__icon" />
+                            <Pencil className="action-icon-svg action-icon-svg--edit" />
                           </button>
                           <button
                             type="button"
-                            className="album-mini-btn album-mini-btn--danger"
+                            className="icon-button action-icon-btn action-icon-btn--delete"
                             onClick={(event) => {
                               event.stopPropagation();
                               handleDelete(item.id, item.title);
                             }}
                             disabled={albumBusy}
                             title="删除空间"
+                            aria-label="删除空间"
                           >
-                            <Trash2 className="album-mini-btn__icon" />
+                            <Trash2 className="action-icon-svg action-icon-svg--delete" />
                           </button>
                         </div>
                       )}
                     </div>
 
                     <div className="album-access-card">
-                      <div className="album-access-card__main">
-                        <span className="album-access-card__label">访问密钥</span>
+                      <span className="album-access-card__label">访问密钥</span>
+                      <div className="album-access-card__content">
                         <span className="album-access-card__key">{item.access_key}</span>
+                        {!albumSelectionMode && (
+                          <div className="album-access-card__actions">
+                            <button
+                              type="button"
+                              className="icon-button album-icon-btn album-access-card__copy-btn"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                copyAccessKey(item.access_key);
+                              }}
+                              disabled={albumBusy}
+                              title="复制访问密钥"
+                              aria-label="复制访问密钥"
+                            >
+                              <Copy className="album-icon-btn__icon" />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-button action-icon-btn action-icon-btn--edit album-access-card__edit-btn"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEditKeyModal(item);
+                              }}
+                              disabled={albumBusy}
+                              title="修改访问密钥"
+                              aria-label="修改访问密钥"
+                            >
+                              <Pencil className="action-icon-svg action-icon-svg--edit" />
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      {!albumSelectionMode && (
-                        <div className="album-access-card__actions">
-                          <button
-                            type="button"
-                            className="album-icon-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              copyAccessKey(item.access_key);
-                            }}
-                            disabled={albumBusy}
-                            title="复制访问密钥"
-                          >
-                            <Copy className="album-icon-btn__icon" />
-                          </button>
-                          <button
-                            type="button"
-                            className="album-icon-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openEditKeyModal(item);
-                            }}
-                            disabled={albumBusy}
-                            title="修改访问密钥"
-                          >
-                            <Key className="album-icon-btn__icon" />
-                          </button>
-                        </div>
-                      )}
                     </div>
 
                     <div className="album-recipient-card">
@@ -1169,18 +1345,24 @@ const copyAccessKey = async (accessKey: string) => {
                         {!albumSelectionMode && (
                           <button
                             type="button"
-                            className="album-recipient-card__edit-btn"
+                            className="album-recipient-card__edit-pill"
                             onClick={(event) => {
                               event.stopPropagation();
                               openEditRecipientModal(item);
                             }}
                             disabled={albumBusy}
+                            title="编辑文案"
+                            aria-label="编辑文案"
                           >
-                            编辑文案
+                            <Pencil className="album-recipient-card__edit-pill-icon" />
+                            <span className="album-recipient-card__edit-pill-text">编辑文案</span>
                           </button>
                         )}
                       </div>
                       <span className="album-recipient-card__welcome">{item.welcomeLetterText}</span>
+                      <span className="mt-2 inline-flex rounded-full bg-[#5D4037]/6 px-3 py-1 text-xs text-[#5D4037]/70">
+                        欢迎方式：{item.welcomeModeLabel}
+                      </span>
                     </div>
 
                     {!albumSelectionMode && (
@@ -1188,16 +1370,16 @@ const copyAccessKey = async (accessKey: string) => {
                         <div className="album-toggle-grid">
                           <button
                             type="button"
-                            className={`album-toggle-btn ${item.welcomeEnabled ? 'album-toggle-btn--welcome-on' : 'album-toggle-btn--off'}`}
+                            className={`album-toggle-btn ${item.freezeEnabled ? 'album-toggle-btn--freeze-on' : 'album-toggle-btn--off'}`}
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleToggleWelcomeLetter(item);
+                              handleToggleFreeze(item);
                             }}
                             disabled={albumBusy}
-                            title={item.welcomeEnabled ? '关闭欢迎信' : '开启欢迎信'}
+                            title={item.freezeEnabled ? '关闭定格功能' : '开启定格功能'}
                           >
-                            <Mail className="album-toggle-btn__icon" />
-                            <span className="album-toggle-btn__text">欢迎信 {item.welcomeEnabled ? '开启' : '关闭'}</span>
+                            <Sparkles className="album-toggle-btn__icon" />
+                            <span className="album-toggle-btn__text">定格 {item.freezeEnabled ? '开启' : '关闭'}</span>
                           </button>
 
                           <button
@@ -1254,6 +1436,19 @@ const copyAccessKey = async (accessKey: string) => {
                             className="album-action-btn album-action-btn--ghost"
                             onClick={(event) => {
                               event.stopPropagation();
+                              openEditExpiryModal(item);
+                            }}
+                            disabled={albumBusy}
+                          >
+                            <Calendar className="album-action-btn__icon" />
+                            <span className="album-action-btn__text">改有效期</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className="album-action-btn album-action-btn--ghost"
+                            onClick={(event) => {
+                              event.stopPropagation();
                               copyAccessLink(item.access_key);
                             }}
                             disabled={albumBusy}
@@ -1273,19 +1468,6 @@ const copyAccessKey = async (accessKey: string) => {
                           >
                             <QrCode className="album-action-btn__icon" />
                             <span className="album-action-btn__text">二维码</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            className="album-action-btn album-action-btn--ghost"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openEditExpiryModal(item);
-                            }}
-                            disabled={albumBusy}
-                          >
-                            <Calendar className="album-action-btn__icon" />
-                            <span className="album-action-btn__text">改有效期</span>
                           </button>
                         </div>
                       </>
@@ -1326,7 +1508,7 @@ const copyAccessKey = async (accessKey: string) => {
                 </div>
                 <h3 className="text-xl font-bold text-[#5D4037] mb-2">批量删除专属空间</h3>
                 <p className="text-sm text-[#5D4037]/80 mb-4">
-                  即将删除 <span className="font-bold">{albumSelectedCount}</span> 个专属空间
+                  即将删除 <span className="font-bold">{albumSelectedCount}</span> 个专属空间。
                 </p>
                 <div className="bg-red-50 rounded-xl p-4 text-left mb-4">
                   <p className="text-sm text-red-800 font-medium mb-2">此操作将永久删除：</p>
@@ -1382,12 +1564,12 @@ const copyAccessKey = async (accessKey: string) => {
           <h3 className="booking-modal__title">创建专属空间 ✨</h3>
           <button
             type="button"
-            className="booking-modal__close"
+            className="icon-button action-icon-btn action-icon-btn--close"
             onClick={closeAlbumCreateModal}
             disabled={albumCreating}
             aria-label="关闭创建空间弹窗"
           >
-            ✕
+            <X className="action-icon-svg" aria-hidden="true" />
           </button>
         </div>
 
@@ -1418,7 +1600,7 @@ const copyAccessKey = async (accessKey: string) => {
                 disabled={albumCreating}
               />
             </div>
-            <span className="album-create-section__tip">收件人名称会展示在信封 To 后面，默认值为“拾光者”。</span>
+            <span className="album-create-section__tip">收件人名称会展示在信封 “To” 后面，默认值为“拾光者”。</span>
           </div>
 
           <div className="album-create-section album-create-section--soft">
@@ -1472,30 +1654,60 @@ const copyAccessKey = async (accessKey: string) => {
           <div className="album-create-section">
             <div className="switch-row">
               <div className="switch-row__main">
-                <span className="switch-row__title">欢迎信显示</span>
-                <span className="switch-row__desc">收件人打开空间时显示欢迎文案</span>
+                <span className="switch-row__title">欢迎信方式（必选）</span>
+                <span className="switch-row__desc">创建专属空间时请明确选择欢迎信方式，支持拆信封、右下角印章、无欢迎信三种模式</span>
               </div>
-              <ToggleSwitch
-                enabled={albumCreateForm.enable_welcome_letter}
-                onChange={(enabled) => setAlbumCreateForm((prev) => ({ ...prev, enable_welcome_letter: enabled }))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {WELCOME_LETTER_MODE_OPTIONS.map((option) => {
+                const active = albumCreateForm.welcome_letter_mode === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`rounded-full border px-4 py-2 text-sm transition-all ${
+                      active
+                        ? 'border-[#FFC857]/80 bg-[#FFC857]/18 text-[#5D4037] shadow-sm'
+                        : 'border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                    }`}
+                    onClick={() => setAlbumCreateForm((prev) => ({ ...prev, welcome_letter_mode: option.value }))}
+                    disabled={albumCreating}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="album-create-plain-tip">
+              {WELCOME_LETTER_MODE_OPTIONS.find((item) => item.value === albumCreateForm.welcome_letter_mode)?.description}
+            </div>
+            <div className="booking-modal__field">
+              <label className="booking-modal__label">欢迎信内容</label>
+              <textarea
+                className="booking-modal__textarea"
+                value={albumCreateForm.welcome_letter}
+                onChange={(event) => setAlbumCreateForm((prev) => ({ ...prev, welcome_letter: event.target.value }))}
+                placeholder="写一段欢迎语，收件人打开空间时可见"
+                maxLength={400}
+                disabled={albumCreating}
               />
             </div>
+          </div>
 
-            {albumCreateForm.enable_welcome_letter ? (
-              <div className="booking-modal__field">
-                <label className="booking-modal__label">欢迎信内容</label>
-                <textarea
-                  className="booking-modal__textarea"
-                  value={albumCreateForm.welcome_letter}
-                  onChange={(event) => setAlbumCreateForm((prev) => ({ ...prev, welcome_letter: event.target.value }))}
-                  placeholder="写一段欢迎语，收件人打开空间时可见"
-                  maxLength={400}
-                  disabled={albumCreating}
-                />
+          <div className="album-create-section">
+            <div className="switch-row">
+              <div className="switch-row__main">
+                <span className="switch-row__title">定格功能</span>
+                <span className="switch-row__desc">开启后，用户可在该空间内选择定格照片</span>
               </div>
-            ) : (
-              <div className="album-create-plain-tip">已关闭欢迎信显示，可在空间管理页随时开启。</div>
-            )}
+              <ToggleSwitch
+                enabled={albumCreateForm.enable_freeze}
+                onChange={(enabled) => setAlbumCreateForm((prev) => ({ ...prev, enable_freeze: enabled }))}
+              />
+            </div>
+            <div className="album-create-plain-tip">
+              {albumCreateForm.enable_freeze ? '已开启定格，用户可将照片定格到照片墙。' : '已关闭定格，用户端不会显示定格入口。'}
+            </div>
           </div>
 
           <div className="album-create-section">
@@ -1536,7 +1748,7 @@ const copyAccessKey = async (accessKey: string) => {
                         }))}
                         disabled={albumCreating}
                       >
-                        {days}天
+                        {days} 天
                       </button>
                     ))}
                   </div>
@@ -1670,8 +1882,12 @@ const copyAccessKey = async (accessKey: string) => {
               <span>{albumCreateForm.auto_generate_key ? '自动生成' : '手动输入'}</span>
             </div>
             <div className="album-create-summary__row">
-              <span>欢迎信显示</span>
-              <span>{albumCreateForm.enable_welcome_letter ? '开启' : '关闭'}</span>
+              <span>欢迎信方式</span>
+              <span>{getWelcomeLetterModeLabel(normalizeWelcomeLetterMode(albumCreateForm.welcome_letter_mode))}</span>
+            </div>
+            <div className="album-create-summary__row">
+              <span>定格功能</span>
+              <span>{albumCreateForm.enable_freeze ? '开启' : '关闭'}</span>
             </div>
             <div className="album-create-summary__row">
               <span>打赏功能</span>
@@ -1742,7 +1958,7 @@ const copyAccessKey = async (accessKey: string) => {
               </button>
               <button
                 onClick={handleUpdateKey}
-                className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all"
+                className={ALBUM_EDIT_CONFIRM_BUTTON_CLASS}
               >
                 确认修改
               </button>
@@ -1803,7 +2019,7 @@ const copyAccessKey = async (accessKey: string) => {
                     <label className="block text-sm font-medium text-[#5D4037] mb-3">
                       快捷选项
                     </label>
-                    <div className="grid grid-cols-4 gap-2 mb-4">
+                    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {[7, 30, 90, 180].map((days) => (
                         <button
                           key={days}
@@ -1817,7 +2033,7 @@ const copyAccessKey = async (accessKey: string) => {
                               : 'bg-[#5D4037]/5 text-[#5D4037]/60 hover:bg-[#5D4037]/10'
                           }`}
                         >
-                          {days}天
+                          {days} 天
                         </button>
                       ))}
                     </div>
@@ -1872,7 +2088,7 @@ const copyAccessKey = async (accessKey: string) => {
                 </button>
                 <button
                   onClick={handleUpdateExpiry}
-                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all"
+                  className={ALBUM_EDIT_CONFIRM_BUTTON_CLASS}
                 >
                   确认修改
                 </button>
@@ -1924,7 +2140,12 @@ const copyAccessKey = async (accessKey: string) => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setEditingRecipient(null)}
+            onClick={() => {
+              setEditingRecipient(null);
+              setNewRecipientName('');
+              setNewWelcomeLetter('');
+              setNewWelcomeLetterMode('envelope');
+            }}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -1956,8 +2177,30 @@ const copyAccessKey = async (accessKey: string) => {
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-[#5D4037] mb-2">
-                  信内容
+                  欢迎信内容
                 </label>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {WELCOME_LETTER_MODE_OPTIONS.map((option) => {
+                    const active = newWelcomeLetterMode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setNewWelcomeLetterMode(option.value)}
+                        className={`rounded-full border px-4 py-2 text-sm transition-all ${
+                          active
+                            ? 'border-[#FFC857]/80 bg-[#FFC857]/18 text-[#5D4037] shadow-sm'
+                            : 'border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-[#5D4037]/60 mb-3">
+                  {WELCOME_LETTER_MODE_OPTIONS.find((item) => item.value === newWelcomeLetterMode)?.description}
+                </p>
                 <textarea
                   value={newWelcomeLetter}
                   onChange={(e) => setNewWelcomeLetter(e.target.value)}
@@ -1966,7 +2209,7 @@ const copyAccessKey = async (accessKey: string) => {
                   className="w-full px-4 py-3 border-2 border-[#5D4037]/20 rounded-xl focus:outline-none focus:border-[#FFC857] focus:ring-4 focus:ring-[#FFC857]/20 transition-all resize-none"
                 />
                 <p className="text-xs text-[#5D4037]/60 mt-1">
-                  收件人打开专属空间时会看到这段话
+                  收件人打开专属空间时会看到这段内容
                 </p>
               </div>
 
@@ -1976,6 +2219,7 @@ const copyAccessKey = async (accessKey: string) => {
                     setEditingRecipient(null);
                     setNewRecipientName('');
                     setNewWelcomeLetter('');
+                    setNewWelcomeLetterMode('envelope');
                   }}
                   className="flex-1 px-4 py-2.5 border-2 border-[#5D4037]/20 text-[#5D4037] rounded-full hover:bg-[#5D4037]/5 active:scale-95 transition-all font-medium"
                 >
@@ -1983,7 +2227,7 @@ const copyAccessKey = async (accessKey: string) => {
                 </button>
                 <button
                   onClick={handleUpdateRecipient}
-                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all"
+                  className={ALBUM_EDIT_CONFIRM_BUTTON_CLASS}
                 >
                   确认修改
                 </button>
@@ -2033,7 +2277,7 @@ const copyAccessKey = async (accessKey: string) => {
                 </button>
                 <button
                   onClick={handleUpdateTitle}
-                  className="flex-1 px-4 py-2.5 bg-[#FFC857] text-[#5D4037] rounded-full font-medium hover:shadow-md active:scale-95 transition-all"
+                  className={ALBUM_EDIT_CONFIRM_BUTTON_CLASS}
                 >
                   确认修改
                 </button>
@@ -2070,7 +2314,7 @@ const copyAccessKey = async (accessKey: string) => {
                   <img
                     src={editingCover.cover_url}
                     alt="当前封面"
-                    className="w-full h-32 object-cover rounded-lg"
+                    className="album-upload-preview__cover"
                   />
                 </div>
               )}
@@ -2110,7 +2354,7 @@ const copyAccessKey = async (accessKey: string) => {
         )}
       </AnimatePresence>
 
-      {/* 赞赏码编辑弹窗 */}
+      {/* 赞赏码编辑弹窗*/}
       <AnimatePresence>
         {editingDonation && (
           <motion.div
@@ -2137,7 +2381,7 @@ const copyAccessKey = async (accessKey: string) => {
                   <img
                     src={editingDonation.donation_qr_code_url}
                     alt="当前赞赏码"
-                    className="w-full h-40 object-contain rounded-lg border border-[#5D4037]/10 bg-white"
+                    className="album-upload-preview__qr album-upload-preview__qr--compact border border-[#5D4037]/10"
                   />
                 </div>
               ) : (
@@ -2266,6 +2510,3 @@ const copyAccessKey = async (accessKey: string) => {
     </div>
   );
 }
-
-
-

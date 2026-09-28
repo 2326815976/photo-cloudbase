@@ -1,0 +1,1396 @@
+{
+  "summary": {
+    "generated_at": "2026-05-23T21:42:17+08:00",
+    "source_root": "mysql://sh-cynosdbmysql-grp-ny1tmqmq.sql.tencentcdb.com:23248/slogan-3gf3tz4nf12fa5ef",
+    "table_count": 31,
+    "tables_with_fields": 31,
+    "tables_without_fields": 0,
+    "tables_with_description": 31,
+    "notes": [
+      "以 sh-cynosdbmysql-grp-ny1tmqmq.sql.tencentcdb.com:23248/slogan-3gf3tz4nf12fa5ef 的 information_schema 只读元数据重建。",
+      "仅保留表名、表说明、字段名、字段说明，不包含业务数据。",
+      "每张表的字段顺序与数据库 ORDINAL_POSITION 保持一致。",
+      "字段说明基于项目迁移 SQL、管理端文案、运行时代码与字段命名规则补全。"
+    ]
+  },
+  "tables": [
+    {
+      "table_name": "about_settings",
+      "table_description": "关于页面作者信息配置",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "author_name",
+          "field_description": "作者名称"
+        },
+        {
+          "field_name": "phone",
+          "field_description": "联系电话"
+        },
+        {
+          "field_name": "wechat",
+          "field_description": "微信号"
+        },
+        {
+          "field_name": "email",
+          "field_description": "联系邮箱"
+        },
+        {
+          "field_name": "donation_qr_code",
+          "field_description": "作者打赏二维码"
+        },
+        {
+          "field_name": "author_message",
+          "field_description": "作者寄语"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "album_folders",
+      "table_description": "相册文件夹",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "album_id",
+          "field_description": "所属相册ID"
+        },
+        {
+          "field_name": "name",
+          "field_description": "文件夹名称"
+        },
+        {
+          "field_name": "is_hidden",
+          "field_description": "是否在前台隐藏"
+        },
+        {
+          "field_name": "sort_order",
+          "field_description": "排序值"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "album_photos",
+      "table_description": "相册照片",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "album_id",
+          "field_description": "所属相册ID"
+        },
+        {
+          "field_name": "folder_id",
+          "field_description": "所属文件夹ID"
+        },
+        {
+          "field_name": "url",
+          "field_description": "兼容旧版的图片地址"
+        },
+        {
+          "field_name": "thumbnail_url",
+          "field_description": "缩略图地址"
+        },
+        {
+          "field_name": "preview_url",
+          "field_description": "预览图地址"
+        },
+        {
+          "field_name": "original_url",
+          "field_description": "原图地址"
+        },
+        {
+          "field_name": "width",
+          "field_description": "图片宽度"
+        },
+        {
+          "field_name": "height",
+          "field_description": "图片高度"
+        },
+        {
+          "field_name": "blurhash",
+          "field_description": "图片模糊占位编码"
+        },
+        {
+          "field_name": "is_public",
+          "field_description": "是否公开到照片墙"
+        },
+        {
+          "field_name": "view_count",
+          "field_description": "浏览次数"
+        },
+        {
+          "field_name": "like_count",
+          "field_description": "点赞次数"
+        },
+        {
+          "field_name": "rating",
+          "field_description": "照片评分"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "上传时间"
+        },
+        {
+          "field_name": "story_text",
+          "field_description": "照片故事文案"
+        },
+        {
+          "field_name": "is_highlight",
+          "field_description": "是否作为精选故事图"
+        },
+        {
+          "field_name": "sort_order",
+          "field_description": "排序值"
+        },
+        {
+          "field_name": "shot_date",
+          "field_description": "拍摄日期"
+        },
+        {
+          "field_name": "shot_location",
+          "field_description": "拍摄地点"
+        },
+        {
+          "field_name": "download_count",
+          "field_description": "下载次数"
+        }
+      ]
+    },
+    {
+      "table_name": "albums",
+      "table_description": "相册",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "access_key",
+          "field_description": "相册访问密钥"
+        },
+        {
+          "field_name": "title",
+          "field_description": "相册标题"
+        },
+        {
+          "field_name": "root_folder_name",
+          "field_description": "根目录名称"
+        },
+        {
+          "field_name": "cover_url",
+          "field_description": "相册封面地址"
+        },
+        {
+          "field_name": "welcome_letter",
+          "field_description": "欢迎信内容"
+        },
+        {
+          "field_name": "recipient_name",
+          "field_description": "收件人名称"
+        },
+        {
+          "field_name": "enable_tipping",
+          "field_description": "是否开启打赏"
+        },
+        {
+          "field_name": "enable_welcome_letter",
+          "field_description": "是否开启欢迎信"
+        },
+        {
+          "field_name": "welcome_letter_mode",
+          "field_description": "欢迎信展示方式（envelope/stamp/none）"
+        },
+        {
+          "field_name": "enable_freeze",
+          "field_description": "是否开启定格入口"
+        },
+        {
+          "field_name": "hide_root_folder",
+          "field_description": "是否隐藏根目录"
+        },
+        {
+          "field_name": "donation_qr_code_url",
+          "field_description": "相册专属打赏二维码地址"
+        },
+        {
+          "field_name": "expires_at",
+          "field_description": "相册过期时间"
+        },
+        {
+          "field_name": "created_by",
+          "field_description": "创建人档案ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "allowed_cities",
+      "table_description": "允许预约城市",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "city_name",
+          "field_description": "允许预约的城市名称"
+        },
+        {
+          "field_name": "province",
+          "field_description": "所属省份"
+        },
+        {
+          "field_name": "city_code",
+          "field_description": "高德城市编码"
+        },
+        {
+          "field_name": "latitude",
+          "field_description": "城市中心纬度"
+        },
+        {
+          "field_name": "longitude",
+          "field_description": "城市中心经度"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否启用预约"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "analytics_daily",
+      "table_description": "后台统计日快照",
+      "fields": [
+        {
+          "field_name": "date",
+          "field_description": "统计日期"
+        },
+        {
+          "field_name": "new_users_count",
+          "field_description": "新增用户数"
+        },
+        {
+          "field_name": "active_users_count",
+          "field_description": "活跃用户数"
+        },
+        {
+          "field_name": "total_users_count",
+          "field_description": "用户总数"
+        },
+        {
+          "field_name": "admin_users_count",
+          "field_description": "管理员用户数"
+        },
+        {
+          "field_name": "total_albums_count",
+          "field_description": "相册总数"
+        },
+        {
+          "field_name": "new_albums_count",
+          "field_description": "新增相册数"
+        },
+        {
+          "field_name": "expired_albums_count",
+          "field_description": "已过期相册数"
+        },
+        {
+          "field_name": "tipping_enabled_albums_count",
+          "field_description": "开启打赏相册数"
+        },
+        {
+          "field_name": "total_photos_count",
+          "field_description": "照片总数"
+        },
+        {
+          "field_name": "new_photos_count",
+          "field_description": "新增照片数"
+        },
+        {
+          "field_name": "public_photos_count",
+          "field_description": "公开照片数"
+        },
+        {
+          "field_name": "private_photos_count",
+          "field_description": "私密照片数"
+        },
+        {
+          "field_name": "total_photo_views",
+          "field_description": "照片总浏览数"
+        },
+        {
+          "field_name": "total_photo_likes",
+          "field_description": "照片总点赞数"
+        },
+        {
+          "field_name": "total_photo_comments",
+          "field_description": "照片总评论数"
+        },
+        {
+          "field_name": "total_bookings_count",
+          "field_description": "预约总数"
+        },
+        {
+          "field_name": "new_bookings_count",
+          "field_description": "新增预约数"
+        },
+        {
+          "field_name": "pending_bookings_count",
+          "field_description": "待确认预约数"
+        },
+        {
+          "field_name": "confirmed_bookings_count",
+          "field_description": "已确认预约数"
+        },
+        {
+          "field_name": "finished_bookings_count",
+          "field_description": "已完成预约数"
+        },
+        {
+          "field_name": "cancelled_bookings_count",
+          "field_description": "已取消预约数"
+        },
+        {
+          "field_name": "total_poses_count",
+          "field_description": "摆姿总数"
+        },
+        {
+          "field_name": "new_poses_count",
+          "field_description": "新增摆姿数"
+        },
+        {
+          "field_name": "total_pose_tags_count",
+          "field_description": "摆姿标签总数"
+        },
+        {
+          "field_name": "total_pose_views",
+          "field_description": "摆姿总浏览数"
+        }
+      ]
+    },
+    {
+      "table_name": "app_page_beta_codes",
+      "table_description": "页面内测码",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "page_id",
+          "field_description": "页面ID"
+        },
+        {
+          "field_name": "channel",
+          "field_description": "适用渠道（web/miniprogram/shared）"
+        },
+        {
+          "field_name": "beta_name",
+          "field_description": "内测码名称"
+        },
+        {
+          "field_name": "beta_code",
+          "field_description": "页面内测码"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否启用"
+        },
+        {
+          "field_name": "expires_at",
+          "field_description": "过期时间"
+        },
+        {
+          "field_name": "created_by",
+          "field_description": "创建人用户ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "app_page_publish_rules",
+      "table_description": "页面发布规则",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "page_id",
+          "field_description": "页面ID"
+        },
+        {
+          "field_name": "channel",
+          "field_description": "发布渠道（web/miniprogram）"
+        },
+        {
+          "field_name": "publish_state",
+          "field_description": "发布状态（offline/beta/online）"
+        },
+        {
+          "field_name": "show_in_nav",
+          "field_description": "是否显示在导航中"
+        },
+        {
+          "field_name": "nav_order",
+          "field_description": "导航排序"
+        },
+        {
+          "field_name": "nav_text",
+          "field_description": "登录态导航文案"
+        },
+        {
+          "field_name": "guest_nav_text",
+          "field_description": "访客态导航文案"
+        },
+        {
+          "field_name": "header_title",
+          "field_description": "页面头部标题"
+        },
+        {
+          "field_name": "header_subtitle",
+          "field_description": "页面头部副标题"
+        },
+        {
+          "field_name": "is_home_entry",
+          "field_description": "是否作为首页入口"
+        },
+        {
+          "field_name": "notes",
+          "field_description": "发布备注"
+        },
+        {
+          "field_name": "updated_by",
+          "field_description": "更新人用户ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "app_page_registry",
+      "table_description": "页面注册表",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "page_key",
+          "field_description": "页面稳定标识"
+        },
+        {
+          "field_name": "page_name",
+          "field_description": "页面名称"
+        },
+        {
+          "field_name": "page_description",
+          "field_description": "页面说明"
+        },
+        {
+          "field_name": "route_path_web",
+          "field_description": "Web 访问路由"
+        },
+        {
+          "field_name": "route_path_miniprogram",
+          "field_description": "小程序访问路由"
+        },
+        {
+          "field_name": "preview_route_path_web",
+          "field_description": "Web 预览路由"
+        },
+        {
+          "field_name": "preview_route_path_miniprogram",
+          "field_description": "小程序预览路由"
+        },
+        {
+          "field_name": "tab_key",
+          "field_description": "小程序底栏菜单键"
+        },
+        {
+          "field_name": "icon_key",
+          "field_description": "页面图标标识"
+        },
+        {
+          "field_name": "default_tab_text",
+          "field_description": "默认菜单文案"
+        },
+        {
+          "field_name": "default_guest_tab_text",
+          "field_description": "默认访客菜单文案"
+        },
+        {
+          "field_name": "is_nav_candidate_web",
+          "field_description": "是否可作为 Web 导航候选"
+        },
+        {
+          "field_name": "is_tab_candidate_miniprogram",
+          "field_description": "是否可作为小程序底栏候选"
+        },
+        {
+          "field_name": "supports_beta",
+          "field_description": "是否支持内测入口"
+        },
+        {
+          "field_name": "supports_preview",
+          "field_description": "是否支持预览入口"
+        },
+        {
+          "field_name": "is_builtin",
+          "field_description": "是否内置页面"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否启用"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "app_releases",
+      "table_description": "版本发布记录",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "version",
+          "field_description": "版本号"
+        },
+        {
+          "field_name": "platform",
+          "field_description": "发布平台（android/ios/harmonyos）"
+        },
+        {
+          "field_name": "download_url",
+          "field_description": "安装包下载地址"
+        },
+        {
+          "field_name": "storage_provider",
+          "field_description": "兼容存储提供方（当前固定 cloudbase）"
+        },
+        {
+          "field_name": "storage_file_id",
+          "field_description": "云存储文件ID"
+        },
+        {
+          "field_name": "update_log",
+          "field_description": "更新日志"
+        },
+        {
+          "field_name": "force_update",
+          "field_description": "是否强制更新"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "发布时间"
+        }
+      ]
+    },
+    {
+      "table_name": "booking_blackouts",
+      "table_description": "档期锁定",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "date",
+          "field_description": "锁定日期"
+        },
+        {
+          "field_name": "reason",
+          "field_description": "锁定原因"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "booking_types",
+      "table_description": "约拍类型",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "name",
+          "field_description": "约拍类型名称"
+        },
+        {
+          "field_name": "description",
+          "field_description": "类型说明"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否启用"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "bookings",
+      "table_description": "预约主表",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "预约用户ID"
+        },
+        {
+          "field_name": "type_id",
+          "field_description": "约拍类型ID"
+        },
+        {
+          "field_name": "booking_date",
+          "field_description": "预约日期"
+        },
+        {
+          "field_name": "time_slot_start",
+          "field_description": "预约开始时间（兼容字段）"
+        },
+        {
+          "field_name": "time_slot_end",
+          "field_description": "预约结束时间（兼容字段）"
+        },
+        {
+          "field_name": "location",
+          "field_description": "约拍地点"
+        },
+        {
+          "field_name": "latitude",
+          "field_description": "地点纬度"
+        },
+        {
+          "field_name": "longitude",
+          "field_description": "地点经度"
+        },
+        {
+          "field_name": "city_name",
+          "field_description": "预约城市名称"
+        },
+        {
+          "field_name": "phone",
+          "field_description": "联系电话"
+        },
+        {
+          "field_name": "wechat",
+          "field_description": "联系微信号"
+        },
+        {
+          "field_name": "notes",
+          "field_description": "预约备注"
+        },
+        {
+          "field_name": "status",
+          "field_description": "预约状态（pending/confirmed/in_progress/finished/cancelled）"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        },
+        {
+          "field_name": "active_booking_date",
+          "field_description": "进行中预约日期（生成列，用于一天一单约束）"
+        },
+        {
+          "field_name": "active_booking_user_id",
+          "field_description": "进行中预约用户ID（生成列，用于一人一单约束）"
+        }
+      ]
+    },
+    {
+      "table_name": "feature_beta_routes",
+      "table_description": "内测功能路由定义",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "route_path",
+          "field_description": "功能路由路径"
+        },
+        {
+          "field_name": "route_title",
+          "field_description": "功能路由标题"
+        },
+        {
+          "field_name": "route_description",
+          "field_description": "功能路由说明"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否启用"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "feature_beta_versions",
+      "table_description": "内测功能版本（密钥）",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "feature_name",
+          "field_description": "内测功能名称"
+        },
+        {
+          "field_name": "feature_description",
+          "field_description": "内测功能说明"
+        },
+        {
+          "field_name": "feature_code",
+          "field_description": "内测功能码"
+        },
+        {
+          "field_name": "route_id",
+          "field_description": "功能路由ID"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否启用"
+        },
+        {
+          "field_name": "expires_at",
+          "field_description": "过期时间"
+        },
+        {
+          "field_name": "created_by",
+          "field_description": "创建人用户ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "ip_registration_attempts",
+      "table_description": "IP 注册尝试记录",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "ip_address",
+          "field_description": "注册来源 IP 地址"
+        },
+        {
+          "field_name": "attempted_at",
+          "field_description": "尝试时间"
+        },
+        {
+          "field_name": "success",
+          "field_description": "是否注册成功"
+        },
+        {
+          "field_name": "user_agent",
+          "field_description": "客户端 User-Agent"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "miniprogram_runtime_settings",
+      "table_description": "微信小程序运行时配置",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "config_key",
+          "field_description": "配置键"
+        },
+        {
+          "field_name": "config_name",
+          "field_description": "配置名称"
+        },
+        {
+          "field_name": "scene_code",
+          "field_description": "场景代码（standard/review/custom）"
+        },
+        {
+          "field_name": "legacy_hide_audit",
+          "field_description": "兼容旧审核态隐藏逻辑标记"
+        },
+        {
+          "field_name": "home_mode",
+          "field_description": "首页模式（pose/gallery）"
+        },
+        {
+          "field_name": "guest_profile_mode",
+          "field_description": "访客态我的页模式"
+        },
+        {
+          "field_name": "auth_mode",
+          "field_description": "登录方式（phone_password/wechat_only/mixed）"
+        },
+        {
+          "field_name": "tab_bar_items_json",
+          "field_description": "底部菜单配置 JSON"
+        },
+        {
+          "field_name": "feature_flags_json",
+          "field_description": "功能开关配置 JSON"
+        },
+        {
+          "field_name": "notes",
+          "field_description": "配置备注"
+        },
+        {
+          "field_name": "is_active",
+          "field_description": "是否生效"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        }
+      ]
+    },
+    {
+      "table_name": "password_reset_tokens",
+      "table_description": "密码重置令牌表",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "token_hash",
+          "field_description": "重置令牌哈希"
+        },
+        {
+          "field_name": "expires_at",
+          "field_description": "令牌过期时间"
+        },
+        {
+          "field_name": "used_at",
+          "field_description": "使用时间"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "photo_comments",
+      "table_description": "照片评论",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "photo_id",
+          "field_description": "照片ID"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "评论用户ID"
+        },
+        {
+          "field_name": "nickname",
+          "field_description": "评论昵称"
+        },
+        {
+          "field_name": "content",
+          "field_description": "评论内容"
+        },
+        {
+          "field_name": "is_admin_reply",
+          "field_description": "是否管理员回复"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "photo_likes",
+      "table_description": "照片点赞",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "点赞用户ID"
+        },
+        {
+          "field_name": "photo_id",
+          "field_description": "照片ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "photo_views",
+      "table_description": "照片浏览去重记录",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "photo_id",
+          "field_description": "照片ID"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "浏览用户ID"
+        },
+        {
+          "field_name": "session_id",
+          "field_description": "匿名会话标识（用于浏览去重）"
+        },
+        {
+          "field_name": "viewed_at",
+          "field_description": "浏览时间"
+        }
+      ]
+    },
+    {
+      "table_name": "pose_tags",
+      "table_description": "摆姿标签",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "name",
+          "field_description": "标签名称"
+        },
+        {
+          "field_name": "usage_count",
+          "field_description": "标签使用次数"
+        },
+        {
+          "field_name": "sort_order",
+          "field_description": "排序值"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "poses",
+      "table_description": "摆姿资源表",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "image_url",
+          "field_description": "摆姿图片地址"
+        },
+        {
+          "field_name": "storage_path",
+          "field_description": "云存储路径"
+        },
+        {
+          "field_name": "tags",
+          "field_description": "标签列表 JSON"
+        },
+        {
+          "field_name": "view_count",
+          "field_description": "浏览次数"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "rand_key",
+          "field_description": "随机抽取排序键"
+        }
+      ]
+    },
+    {
+      "table_name": "profiles",
+      "table_description": "用户档案",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "email",
+          "field_description": "邮箱"
+        },
+        {
+          "field_name": "name",
+          "field_description": "昵称"
+        },
+        {
+          "field_name": "avatar",
+          "field_description": "头像地址"
+        },
+        {
+          "field_name": "role",
+          "field_description": "角色（user/admin）"
+        },
+        {
+          "field_name": "phone",
+          "field_description": "手机号"
+        },
+        {
+          "field_name": "wechat",
+          "field_description": "微信号"
+        },
+        {
+          "field_name": "payment_qr_code",
+          "field_description": "兼容保留的个人收款码"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "last_active_at",
+          "field_description": "最后活跃时间"
+        }
+      ]
+    },
+    {
+      "table_name": "slider_captcha_challenges",
+      "table_description": "滑块验证码挑战短生命周期表",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "ip_address",
+          "field_description": "请求 IP 地址"
+        },
+        {
+          "field_name": "user_agent_hash",
+          "field_description": "User-Agent 哈希"
+        },
+        {
+          "field_name": "max_attempts",
+          "field_description": "最大失败次数"
+        },
+        {
+          "field_name": "failed_attempts",
+          "field_description": "已失败次数"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "expires_at",
+          "field_description": "挑战过期时间"
+        },
+        {
+          "field_name": "verified_at",
+          "field_description": "验证通过时间"
+        },
+        {
+          "field_name": "verify_token_hash",
+          "field_description": "验证令牌哈希"
+        },
+        {
+          "field_name": "verify_token_expires_at",
+          "field_description": "验证令牌过期时间"
+        },
+        {
+          "field_name": "consumed_at",
+          "field_description": "令牌消费时间"
+        },
+        {
+          "field_name": "last_error_code",
+          "field_description": "最近失败原因码"
+        }
+      ]
+    },
+    {
+      "table_name": "user_active_logs",
+      "table_description": "用户活跃日志",
+      "fields": [
+        {
+          "field_name": "user_id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "active_date",
+          "field_description": "活跃日期"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "user_album_bindings",
+      "table_description": "用户-相册绑定",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "album_id",
+          "field_description": "绑定相册ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "user_beta_feature_bindings",
+      "table_description": "用户绑定的内测功能",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "feature_id",
+          "field_description": "内测功能版本ID"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "user_page_beta_bindings",
+      "table_description": "用户页面内测绑定",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "page_id",
+          "field_description": "页面ID"
+        },
+        {
+          "field_name": "beta_code_id",
+          "field_description": "页面内测码ID"
+        },
+        {
+          "field_name": "channel",
+          "field_description": "绑定渠道（web/miniprogram）"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        }
+      ]
+    },
+    {
+      "table_name": "user_sessions",
+      "table_description": "登录会话表",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "user_id",
+          "field_description": "用户ID"
+        },
+        {
+          "field_name": "token_hash",
+          "field_description": "会话令牌哈希"
+        },
+        {
+          "field_name": "expires_at",
+          "field_description": "会话过期时间"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "last_seen_at",
+          "field_description": "最近访问时间"
+        },
+        {
+          "field_name": "user_agent",
+          "field_description": "客户端 User-Agent"
+        },
+        {
+          "field_name": "ip_address",
+          "field_description": "登录 IP 地址"
+        },
+        {
+          "field_name": "is_revoked",
+          "field_description": "是否已失效"
+        }
+      ]
+    },
+    {
+      "table_name": "users",
+      "table_description": "应用层用户表（替代旧认证用户表）",
+      "fields": [
+        {
+          "field_name": "id",
+          "field_description": "主键"
+        },
+        {
+          "field_name": "email",
+          "field_description": "登录邮箱"
+        },
+        {
+          "field_name": "phone",
+          "field_description": "登录手机号"
+        },
+        {
+          "field_name": "password_hash",
+          "field_description": "登录密码哈希"
+        },
+        {
+          "field_name": "role",
+          "field_description": "账号角色（user/admin）"
+        },
+        {
+          "field_name": "is_disabled",
+          "field_description": "是否禁用"
+        },
+        {
+          "field_name": "disabled_at",
+          "field_description": "禁用时间"
+        },
+        {
+          "field_name": "created_at",
+          "field_description": "创建时间"
+        },
+        {
+          "field_name": "updated_at",
+          "field_description": "更新时间"
+        },
+        {
+          "field_name": "deleted_at",
+          "field_description": "软删除时间"
+        }
+      ]
+    }
+  ]
+}

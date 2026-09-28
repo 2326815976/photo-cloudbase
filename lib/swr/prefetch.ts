@@ -29,6 +29,7 @@ export async function prefetchGallery(page: number = 1, pageSize: number = 20) {
     page_no: page,
     page_size: pageSize,
     folder_id: '__ROOT__',
+    client_source: 'web',
   });
 
   if (data) {

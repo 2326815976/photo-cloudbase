@@ -51,7 +51,9 @@ export async function getCachedPublicGallery() {
   if (!dbClient) {
     return { data: null, error: { message: '数据库客户端不可用' } };
   }
-  const { data, error } = await dbClient.rpc('get_public_gallery');
+  const { data, error } = await dbClient.rpc('get_public_gallery', {
+    client_source: 'web',
+  });
 
   if (!error && data) {
     setCachedData(cacheKey, { data, error });
@@ -73,5 +75,4 @@ export function clearAlbumCache(accessKey: string) {
 export function clearGalleryCache() {
   clearCachedData('public_gallery');
 }
-
 

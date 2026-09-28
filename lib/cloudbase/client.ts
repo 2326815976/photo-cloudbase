@@ -8,8 +8,22 @@ interface CompatError {
 }
 
 type CompatClient = ReturnType<typeof buildCompatClient>;
+type SessionResponse = { ok: boolean; body: any };
+type JsonResponse = { ok: boolean; status: number; body: any };
+
+const SESSION_CACHE_TTL_MS = 45 * 1000;
+const CLIENT_TRANSIENT_RETRY_TIMES = 1;
+const CLIENT_TRANSIENT_RETRY_DELAY_MS = 320;
+const CLIENT_READY_CACHE_TTL_MS = 300;
+const TRANSIENT_BACKEND_ERROR_CODE = 'TRANSIENT_BACKEND';
+const NON_RETRYABLE_RPC_FUNCTIONS = new Set(['pin_photo_to_wall']);
 
 let compatClientInstance: CompatClient | null = null;
+let cachedSessionResponse: SessionResponse | null = null;
+let cachedSessionAt = 0;
+let pendingSessionRequest: Promise<SessionResponse> | null = null;
+let pendingReadyProbe: Promise<boolean> | null = null;
+let cachedReadyProbe: { ok: boolean; expiresAt: number } | null = null;
 
 function normalizeCompatError(input: unknown, fallback: string): CompatError {
   if (input && typeof input === 'object') {
@@ -47,7 +61,19 @@ async function parseResponseBody(response: Response): Promise<any> {
   }
 }
 
-async function requestJson(url: string, init: RequestInit): Promise<{ ok: boolean; body: any }> {
+async function wait(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientBackendBody(body: any): boolean {
+  return String(body?.error?.code || '').trim().toUpperCase() === TRANSIENT_BACKEND_ERROR_CODE;
+}
+
+async function fetchJsonOnce(url: string, init: RequestInit): Promise<JsonResponse> {
   const response = await fetch(url, {
     credentials: 'include',
     ...init,
@@ -56,8 +82,145 @@ async function requestJson(url: string, init: RequestInit): Promise<{ ok: boolea
   const body = await parseResponseBody(response);
   return {
     ok: response.ok,
+    status: response.status,
     body,
   };
+}
+
+async function probeBackendReady(): Promise<boolean> {
+  const now = Date.now();
+  if (cachedReadyProbe && cachedReadyProbe.expiresAt > now) {
+    return cachedReadyProbe.ok;
+  }
+
+  if (pendingReadyProbe) {
+    return pendingReadyProbe;
+  }
+
+  pendingReadyProbe = fetchJsonOnce('/api/health/ready', {
+    method: 'GET',
+    cache: 'no-store',
+  })
+    .then((result) => {
+      const ok = result.ok && result.body?.ok === true;
+      cachedReadyProbe = {
+        ok,
+        expiresAt: Date.now() + CLIENT_READY_CACHE_TTL_MS,
+      };
+      return ok;
+    })
+    .catch(() => {
+      cachedReadyProbe = {
+        ok: false,
+        expiresAt: Date.now() + CLIENT_READY_CACHE_TTL_MS,
+      };
+      return false;
+    })
+    .finally(() => {
+      pendingReadyProbe = null;
+    });
+
+  return pendingReadyProbe;
+}
+
+async function requestJson(
+  url: string,
+  init: RequestInit & { backendRecovery?: { disabled?: boolean; skipReadyGate?: boolean } }
+): Promise<{ ok: boolean; body: any }> {
+  const { backendRecovery, ...fetchInit } = init;
+  const disableRecovery = backendRecovery?.disabled === true || url === '/api/health/ready';
+  const skipReadyGate = backendRecovery?.skipReadyGate === true;
+  const totalAttempts = disableRecovery ? 1 : CLIENT_TRANSIENT_RETRY_TIMES + 1;
+  let lastResult: JsonResponse | null = null;
+
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    try {
+      const result = await fetchJsonOnce(url, fetchInit);
+      lastResult = result;
+      const isTransientFailure = result.status === 503 || isTransientBackendBody(result.body);
+
+      if (!isTransientFailure || attempt === totalAttempts - 1) {
+        return {
+          ok: result.ok,
+          body: result.body,
+        };
+      }
+
+      if (!skipReadyGate) {
+        await probeBackendReady();
+      }
+
+      await wait(CLIENT_TRANSIENT_RETRY_DELAY_MS * (attempt + 1));
+    } catch (error) {
+      if (attempt === totalAttempts - 1) {
+        throw error;
+      }
+
+      if (!skipReadyGate) {
+        await probeBackendReady();
+      }
+
+      await wait(CLIENT_TRANSIENT_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+
+  return {
+    ok: lastResult?.ok ?? false,
+    body: lastResult?.body ?? null,
+  };
+}
+
+function clearSessionCache() {
+  cachedSessionResponse = null;
+  cachedSessionAt = 0;
+  pendingSessionRequest = null;
+}
+
+async function fetchSessionResponse(force = false): Promise<SessionResponse> {
+  if (!force && cachedSessionResponse) {
+    const age = Date.now() - cachedSessionAt;
+    if (age >= 0 && age <= SESSION_CACHE_TTL_MS) {
+      return cachedSessionResponse;
+    }
+  }
+
+  if (!force && pendingSessionRequest) {
+    return pendingSessionRequest;
+  }
+
+  const request: Promise<SessionResponse> = requestJson('/api/auth/session', {
+    method: 'GET',
+    cache: 'no-store',
+    backendRecovery: { skipReadyGate: true },
+  })
+    .then((result) => {
+      if (pendingSessionRequest !== request) {
+        return fetchSessionResponse();
+      }
+      const hasAuthenticatedUser = Boolean(result.body?.user || result.body?.session?.user);
+      if (result.ok && !result.body?.error && hasAuthenticatedUser) {
+        cachedSessionResponse = result;
+        cachedSessionAt = Date.now();
+      } else {
+        clearSessionCache();
+      }
+      return result;
+    })
+    .catch((error) => {
+      if (pendingSessionRequest !== request) {
+        return fetchSessionResponse();
+      }
+      clearSessionCache();
+      throw error;
+    })
+    .finally(() => {
+      if (pendingSessionRequest === request) {
+        pendingSessionRequest = null;
+      }
+    });
+
+  pendingSessionRequest = request;
+  return request;
 }
 
 type StorageFolder = 'albums' | 'gallery' | 'poses' | 'releases';
@@ -152,6 +315,7 @@ function buildBrowserCompatClient(): CompatClient {
     },
     rpcExecutor: async (functionName: string, args?: Record<string, unknown>) => {
       try {
+        const disableBackendRecovery = NON_RETRYABLE_RPC_FUNCTIONS.has(String(functionName || '').trim());
         const { ok, body } = await requestJson('/api/db/rpc', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -159,6 +323,12 @@ function buildBrowserCompatClient(): CompatClient {
             functionName,
             args: args ?? {},
           }),
+          backendRecovery: disableBackendRecovery
+            ? {
+                disabled: true,
+                skipReadyGate: true,
+              }
+            : undefined,
         });
 
         const error = body?.error
@@ -181,9 +351,7 @@ function buildBrowserCompatClient(): CompatClient {
     authClient: {
       getUser: async () => {
         try {
-          const { ok, body } = await requestJson('/api/auth/session', {
-            method: 'GET',
-          });
+          const { ok, body } = await fetchSessionResponse();
 
           if (!ok && !body?.error) {
             return {
@@ -205,9 +373,7 @@ function buildBrowserCompatClient(): CompatClient {
       },
       getSession: async () => {
         try {
-          const { ok, body } = await requestJson('/api/auth/session', {
-            method: 'GET',
-          });
+          const { ok, body } = await fetchSessionResponse();
 
           if (!ok && !body?.error) {
             return {
@@ -230,6 +396,7 @@ function buildBrowserCompatClient(): CompatClient {
         }
       },
       signInWithPassword: async (params: { phone: string; password: string }) => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/login', {
             method: 'POST',
@@ -244,6 +411,7 @@ function buildBrowserCompatClient(): CompatClient {
             };
           }
 
+          clearSessionCache();
           return {
             data: { user: body?.data?.user ?? null },
             error: null,
@@ -256,6 +424,7 @@ function buildBrowserCompatClient(): CompatClient {
         }
       },
       signOut: async () => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/logout', {
             method: 'POST',
@@ -272,9 +441,18 @@ function buildBrowserCompatClient(): CompatClient {
           return {
             error: normalizeCompatError(error, '登出失败'),
           };
+        } finally {
+          clearSessionCache();
         }
       },
-      updateUser: async (params: { password?: string }) => {
+      updateUser: async (params: {
+        password?: string;
+        currentPassword?: string;
+        name?: string;
+        phone?: string | null;
+        wechat?: string | null;
+      }) => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/update-user', {
             method: 'POST',
@@ -289,6 +467,7 @@ function buildBrowserCompatClient(): CompatClient {
             };
           }
 
+          clearSessionCache();
           return {
             data: { user: body?.data?.user ?? null },
             error: null,
@@ -356,6 +535,7 @@ function buildBrowserCompatClient(): CompatClient {
         }
       },
       exchangeCodeForSession: async (code: string) => {
+        clearSessionCache();
         try {
           const { ok, body } = await requestJson('/api/auth/exchange-code', {
             method: 'POST',
@@ -370,6 +550,7 @@ function buildBrowserCompatClient(): CompatClient {
             };
           }
 
+          clearSessionCache();
           return {
             data: { session: body?.data?.session ?? null },
             error: null,
@@ -460,4 +641,8 @@ export function createClient(): CompatClient {
 
   compatClientInstance = buildBrowserCompatClient();
   return compatClientInstance;
+}
+
+export function invalidateClientSessionCache(): void {
+  clearSessionCache();
 }

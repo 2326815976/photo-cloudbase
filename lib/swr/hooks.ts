@@ -44,6 +44,7 @@ export function useGallery(
       page_no: page,
       page_size: pageSize,
       folder_id: folderId ?? '__ROOT__',
+      client_source: 'web',
     });
 
     const { data, error } = await Promise.race([queryPromise, timeoutPromise]);

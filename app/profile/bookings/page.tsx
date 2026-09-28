@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, MapPin, Phone, MessageSquare, ArrowLeft, Trash2, X } from 'lucide-react';
+import { Calendar, MapPin, Phone, MessageSquare, Trash2, X } from 'lucide-react';
+import SecondaryPageShell from '@/components/shell/SecondaryPageShell';
 import { createClient } from '@/lib/cloudbase/client';
+import { useManagedPageMeta } from '@/lib/page-center/use-managed-page-meta';
 import { formatDateDisplayUTC8, getTodayUTC8 } from '@/lib/utils/date-helpers';
 
 interface Booking {
@@ -36,31 +38,32 @@ const statusConfig = {
   confirmed: {
     label: '已确认',
     color: 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border border-emerald-200/50',
-    emoji: '✓',
+    emoji: '✅',
     shadow: 'shadow-sm shadow-emerald-100'
   },
   in_progress: {
     label: '进行中',
     color: 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 border border-blue-200/50',
-    emoji: '📸',
+    emoji: '馃摳',
     shadow: 'shadow-sm shadow-blue-100'
   },
   finished: {
     label: '已完成',
     color: 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border border-purple-200/50',
-    emoji: '✨',
+    emoji: '🎉',
     shadow: 'shadow-sm shadow-purple-100'
   },
   cancelled: {
     label: '已取消',
     color: 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-600 border border-gray-200/50',
-    emoji: '✕',
+    emoji: '🕊️',
     shadow: 'shadow-sm shadow-gray-100'
   },
 };
 
 export default function BookingsPage() {
   const router = useRouter();
+  const { title: managedTitle } = useManagedPageMeta('profile-bookings', '我的预约记录');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
@@ -86,6 +89,14 @@ export default function BookingsPage() {
 
   const showActionNotice = (message: string, type: ActionNotice['type'] = 'error') => {
     setActionNotice({ message, type });
+  };
+
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push('/profile');
   };
 
   const loadBookings = async () => {
@@ -139,12 +150,10 @@ export default function BookingsPage() {
 
   const canCancelBooking = (booking: Pick<Booking, 'booking_date' | 'status'>) => {
     const today = getTodayUTC8();
-    // 约拍当天前，待确认和已确认状态可以取消（UTC+8）
     return booking.booking_date > today && (booking.status === 'pending' || booking.status === 'confirmed');
   };
 
   const canDeleteBooking = (booking: Pick<Booking, 'status'>) => {
-    // 已取消和已完成的订单可以删除
     return booking.status === 'cancelled' || booking.status === 'finished';
   };
 
@@ -216,7 +225,7 @@ export default function BookingsPage() {
       }
 
       if (!latestBooking) {
-        showActionNotice('该预约不存在或已无权限操作');
+        showActionNotice('该预约不存在或你无权操作');
         await loadBookings();
         return;
       }
@@ -300,66 +309,55 @@ export default function BookingsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#FFFBF0]">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex flex-col items-center gap-6"
-        >
-          <div className="relative">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Calendar className="w-8 h-8 text-[#FFC857]" />
-            </div>
-          </div>
+      <SecondaryPageShell
+        title={managedTitle}
+        onBack={handleBack}
+        align="left"
+        className="w-full"
+        contentClassName="flex items-center justify-center px-6"
+      >
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-center"
+            className="flex flex-col items-center gap-6"
           >
-            <p className="text-lg font-medium text-[#5D4037] mb-2">
-              加载中...
-            </p>
-            <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
+            <div className="relative">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                className="w-24 h-24 rounded-full border-4 border-[#FFC857]/30 border-t-[#FFC857]"
+              />
+              <motion.div
+                animate={{ rotate: -360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-3 rounded-full border-4 border-[#5D4037]/20 border-b-[#5D4037]"
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Calendar className="w-8 h-8 text-[#FFC857]" />
+              </div>
+            </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="text-center"
+            >
+              <p className="text-lg font-medium text-[#5D4037] mb-2">{managedTitle}</p>
+              <p className="text-sm text-[#5D4037]/60">正在获取预约记录</p>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      </div>
+      </SecondaryPageShell>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* 页头 */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex-none bg-[#FFFBF0]/95 backdrop-blur-md border-b-2 border-dashed border-[#5D4037]/15 shadow-[0_2px_12px_rgba(93,64,55,0.08)]"
-      >
-        <div className="px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => router.back()}
-            className="w-8 h-8 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
-          </button>
-          <h1 className="text-2xl font-bold text-[#5D4037] leading-none" style={{ fontFamily: "'ZQKNNY', cursive" }}>
-            我的预约记录
-          </h1>
-        </div>
-      </motion.div>
-
-      {/* 内容区域 */}
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+    <SecondaryPageShell
+      title={managedTitle}
+      onBack={handleBack}
+      align="left"
+      className="w-full"
+      contentClassName="overflow-y-auto px-6 pt-6 pb-20"
+    >
         <AnimatePresence>
           {actionNotice && (
             <motion.div
@@ -396,7 +394,7 @@ export default function BookingsPage() {
                 transition={{ delay: index * 0.05 }}
                 className="bg-white rounded-2xl p-5 shadow-sm border border-[#5D4037]/10"
               >
-                {/* 状态标签 */}
+                {/* 鐘舵€佹爣绛?*/}
                 <div className="flex items-center justify-between mb-4">
                   <span className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium ${statusConfig[booking.status].color} ${statusConfig[booking.status].shadow}`}>
                     <span className="text-sm">{statusConfig[booking.status].emoji}</span>
@@ -413,7 +411,7 @@ export default function BookingsPage() {
                     <Calendar className="w-4 h-4 text-[#FFC857] mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
                       <p className="text-xs text-[#5D4037]/60">约拍类型</p>
-                      <p className="text-sm font-medium text-[#5D4037]">{booking.booking_types?.name || '未知'}</p>
+                      <p className="text-sm font-medium text-[#5D4037]">{booking.booking_types?.name || "未知"}</p>
                     </div>
                   </div>
 
@@ -423,7 +421,7 @@ export default function BookingsPage() {
                       <p className="text-xs text-[#5D4037]/60">约拍地点</p>
                       <p className="text-sm font-medium text-[#5D4037]">{booking.location}</p>
                       {booking.city_name && (
-                        <p className="text-xs text-[#5D4037]/50 mt-0.5">📍 {booking.city_name}</p>
+                        <p className="text-xs text-[#5D4037]/50 mt-0.5">馃搷 {booking.city_name}</p>
                       )}
                     </div>
                   </div>
@@ -448,7 +446,7 @@ export default function BookingsPage() {
 
                   {booking.notes && (
                     <div className="pt-3 border-t border-[#5D4037]/10">
-                      <p className="text-xs text-[#5D4037]/60 mb-1">备注</p>
+                      <p className="text-xs text-[#5D4037]/60 mb-1">澶囨敞</p>
                       <p className="text-sm text-[#5D4037]/80">{booking.notes}</p>
                     </div>
                   )}
@@ -483,7 +481,6 @@ export default function BookingsPage() {
             ))}
           </div>
         )}
-      </div>
 
       {/* 删除确认弹窗 */}
       <AnimatePresence>
@@ -500,15 +497,15 @@ export default function BookingsPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl p-6 max-w-sm w-full"
+              className="relative bg-white rounded-2xl p-6 max-w-sm w-full"
             >
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 pr-12">
                 <h3 className="text-lg font-bold text-[#5D4037]">确认删除</h3>
                 <button
                   onClick={() => setShowDeleteConfirm(null)}
-                  className="w-8 h-8 rounded-full bg-[#5D4037]/10 flex items-center justify-center hover:bg-[#5D4037]/20 transition-colors"
+                  className="icon-button action-icon-btn action-icon-btn--close absolute top-3 right-3 z-20"
                 >
-                  <X className="w-5 h-5 text-[#5D4037]" />
+                  <X className="action-icon-svg" />
                 </button>
               </div>
               <p className="text-sm text-[#5D4037]/70 mb-6">
@@ -532,8 +529,6 @@ export default function BookingsPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </SecondaryPageShell>
   );
 }
-
-

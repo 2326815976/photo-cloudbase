@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { insertAlbumWithCompat } from '@/lib/admin/album-compat';
 import { createClient } from '@/lib/cloudbase/client';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Key, Sparkles, CheckCircle, XCircle, AlertCircle, Upload, QrCode } from 'lucide-react';
@@ -8,6 +9,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { uploadToCloudBaseDirect } from '@/lib/storage/cloudbase-upload-client';
 import { formatDateDisplayUTC8, getDateAfterDaysUTC8, getDateTimeAfterDaysUTC8, getDaysDifference, getTodayUTC8 } from '@/lib/utils/date-helpers';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
+
+type WelcomeLetterMode = 'envelope' | 'stamp' | 'none';
+
+const WELCOME_LETTER_MODE_OPTIONS: Array<{ value: WelcomeLetterMode; label: string }> = [
+  { value: 'envelope', label: '拆信封欢迎信' },
+  { value: 'stamp', label: '右下角印章欢迎信' },
+  { value: 'none', label: '无欢迎信' },
+];
+
+const normalizeWelcomeLetterMode = (mode: unknown, enabledFallback = true): WelcomeLetterMode => {
+  const normalized = String(mode ?? '').trim().toLowerCase();
+  if (normalized === 'envelope' || normalized === 'stamp' || normalized === 'none') {
+    return normalized;
+  }
+  return enabledFallback ? 'envelope' : 'none';
+};
+
+const getWelcomeLetterModeLabel = (mode: WelcomeLetterMode) => (
+  WELCOME_LETTER_MODE_OPTIONS.find((item) => item.value === mode)?.label ?? '拆信封欢迎信'
+);
 
 export default function NewAlbumPage() {
   const router = useRouter();
@@ -23,7 +44,8 @@ export default function NewAlbumPage() {
     welcome_letter: '',
     recipient_name: '',
     enable_tipping: true,
-    enable_welcome_letter: true,
+    welcome_letter_mode: 'envelope' as WelcomeLetterMode,
+    enable_freeze: true,
     auto_generate_key: true,
     expiry_days: 7,
     expiry_mode: 'days' as 'days' | 'date',
@@ -140,6 +162,7 @@ export default function NewAlbumPage() {
       const accessKey = formData.auto_generate_key
         ? generateRandomKey()
         : normalizeAccessKey(formData.access_key);
+      const welcomeLetterMode = normalizeWelcomeLetterMode(formData.welcome_letter_mode);
       const currentDate = getTodayUTC8();
 
       if (!accessKey) {
@@ -223,17 +246,23 @@ export default function NewAlbumPage() {
         ? `${selectedExpiryDate} 23:59:59`
         : getDateTimeAfterDaysUTC8(formData.expiry_days);
 
-      const { error } = await dbClient.from('albums').insert({
-        title: formData.title || '未命名空间',
-        access_key: accessKey,
-        cover_url: coverUrl,
-        donation_qr_code_url: formData.enable_tipping ? donationQrUrl : null,
-        welcome_letter: formData.welcome_letter,
-        recipient_name: formData.recipient_name || '拾光者',
-        enable_tipping: formData.enable_tipping,
-        enable_welcome_letter: formData.enable_welcome_letter,
-        expires_at: expiresAt,
-      });
+      const { error } = await insertAlbumWithCompat(
+        dbClient,
+        {
+          title: formData.title || '未命名空间',
+          access_key: accessKey,
+          cover_url: coverUrl,
+          donation_qr_code_url: formData.enable_tipping ? donationQrUrl : null,
+          welcome_letter: formData.welcome_letter,
+          recipient_name: formData.recipient_name || '拾光者',
+          enable_tipping: formData.enable_tipping,
+          enable_welcome_letter: welcomeLetterMode !== 'none',
+          welcome_letter_mode: welcomeLetterMode,
+          enable_freeze: formData.enable_freeze,
+          expires_at: expiresAt,
+        },
+        '创建专属空间失败'
+      );
 
       if (error) {
         await cleanupStorageByUrl(coverUrl, '封面');
@@ -258,7 +287,7 @@ export default function NewAlbumPage() {
     <div className="max-w-5xl mx-auto space-y-6 pt-6">
       <button
         onClick={() => router.back()}
-        className="w-9 h-9 rounded-full bg-[#FFC857]/20 flex items-center justify-center hover:bg-[#FFC857]/30 transition-colors"
+        className="icon-button action-icon-btn action-icon-btn--back"
       >
         <ArrowLeft className="w-5 h-5 text-[#5D4037]" />
       </button>
@@ -346,30 +375,58 @@ export default function NewAlbumPage() {
 
             <div className="space-y-3 rounded-2xl border border-[#5D4037]/10 p-4">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-[#5D4037]">欢迎内容</h2>
-                <label className="inline-flex items-center gap-2 text-sm text-[#5D4037]">
+                <div className="space-y-1 min-w-0">
+                  <h2 className="text-base font-semibold text-[#5D4037]">欢迎内容</h2>
+                  <p className="text-xs text-[#5D4037]/55">创建专属空间时请明确选择欢迎信方式</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {WELCOME_LETTER_MODE_OPTIONS.map((option) => {
+                  const active = formData.welcome_letter_mode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, welcome_letter_mode: option.value })}
+                      className={`rounded-full border px-4 py-2 text-sm transition-all ${
+                        active
+                          ? 'border-[#FFC857]/80 bg-[#FFC857]/18 text-[#5D4037] shadow-sm'
+                          : 'border-[#5D4037]/15 bg-white text-[#5D4037]/70 hover:bg-[#5D4037]/5'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <textarea
+                value={formData.welcome_letter}
+                onChange={(e) => setFormData({ ...formData, welcome_letter: e.target.value })}
+                placeholder="写一段简短欢迎语，用户打开空间时可见"
+                rows={4}
+                className="w-full px-3 py-2.5 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFC857]/60 resize-none"
+              />
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-[#5D4037]/10 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-1 min-w-0">
+                  <p className="text-sm font-medium text-[#5D4037]">定格功能</p>
+                  <p className="text-xs text-[#5D4037]/55">开启后，用户可在该空间内定格照片并同步到照片墙</p>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-[#5D4037] whitespace-nowrap flex-shrink-0">
                   <input
                     type="checkbox"
-                    checked={formData.enable_welcome_letter}
-                    onChange={(e) => setFormData({ ...formData, enable_welcome_letter: e.target.checked })}
+                    checked={formData.enable_freeze}
+                    onChange={(e) => setFormData({ ...formData, enable_freeze: e.target.checked })}
                     className="w-4 h-4 text-[#FFC857] rounded focus:ring-[#FFC857]"
                   />
-                  启用欢迎信显示
+                  <span className="whitespace-nowrap">{formData.enable_freeze ? '已开启' : '已关闭'}</span>
                 </label>
               </div>
-              {formData.enable_welcome_letter ? (
-                <textarea
-                  value={formData.welcome_letter}
-                  onChange={(e) => setFormData({ ...formData, welcome_letter: e.target.value })}
-                  placeholder="写一段简短欢迎语，用户打开空间时可见"
-                  rows={4}
-                  className="w-full px-3 py-2.5 border border-[#5D4037]/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFC857]/60 resize-none"
-                />
-              ) : (
-                <div className="text-sm text-[#5D4037]/50 bg-[#5D4037]/5 rounded-xl p-3">
-                  已关闭欢迎信显示，可在空间管理页随时开启。
-                </div>
-              )}
+              <div className="text-sm text-[#5D4037]/50 bg-[#5D4037]/5 rounded-xl p-3">
+                {formData.enable_freeze ? '创建后前台会显示定格入口，可继续在后台随时调整。' : '创建后前台不会显示定格入口，用户无法执行定格操作。'}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -483,7 +540,7 @@ export default function NewAlbumPage() {
                         <button
                           type="button"
                           onClick={removeDonationQr}
-                          className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                          className="icon-button absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
                           title="移除赞赏码"
                         >
                           <XCircle className="w-4 h-4" />
@@ -523,7 +580,7 @@ export default function NewAlbumPage() {
                 <button
                   type="button"
                   onClick={removeCover}
-                  className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                  className="icon-button absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
                   title="移除封面"
                 >
                   <XCircle className="w-5 h-5" />
@@ -538,8 +595,12 @@ export default function NewAlbumPage() {
                 <span>{formData.auto_generate_key ? '自动生成' : '手动输入'}</span>
               </div>
               <div className="flex items-center justify-between text-sm text-[#5D4037]/70">
-                <span>欢迎信显示</span>
-                <span>{formData.enable_welcome_letter ? '开启' : '关闭'}</span>
+                <span>欢迎信方式</span>
+                <span>{getWelcomeLetterModeLabel(normalizeWelcomeLetterMode(formData.welcome_letter_mode))}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm text-[#5D4037]/70">
+                <span>定格功能</span>
+                <span>{formData.enable_freeze ? '开启' : '关闭'}</span>
               </div>
               <div className="flex items-center justify-between text-sm text-[#5D4037]/70">
                 <span>打赏功能</span>

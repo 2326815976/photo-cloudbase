@@ -1,0 +1,14 @@
+.git
+**/node_modules
+.next
+.tmp
+.codex-run
+.serena
+.spec-workflow
+coverage
+out
+build
+*.log
+*.tsbuildinfo
+.env*
+!.env.example

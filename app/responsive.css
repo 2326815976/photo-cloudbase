@@ -3,7 +3,7 @@
 /* 移动端优化 (< 768px) */
 @media (max-width: 767px) {
   /* 标签按钮特殊处理 - 移动端更小 */
-  button.tag-button {
+  button.tag-button:not(.album-toolbar-tag) {
     padding-top: 0.5rem !important;
     padding-bottom: 0.5rem !important;
     padding-left: 0.875rem !important;
@@ -12,10 +12,32 @@
     min-width: auto !important;
   }
 
+  button.album-toolbar-tag {
+    min-height: 34px !important;
+    height: 34px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    padding-left: 13px !important;
+    padding-right: 13px !important;
+  }
+
+  button.album-toolbar-chip {
+    min-height: 34px !important;
+    height: 34px !important;
+  }
+
   /* 确保移动端触摸目标至少44x44px */
-  button:not(.tag-button):not(.compact-button), a:not(.tag-button), input[type="button"], input[type="submit"] {
+  button.icon-button,
+  a.icon-button {
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+
+  button:not(.tag-button):not(.compact-button):not(.album-toolbar-chip):not(.icon-button),
+  a:not(.tag-button):not(.album-toolbar-chip):not(.icon-button),
+  input[type="button"],
+  input[type="submit"] {
     min-height: 44px;
-    min-width: 44px;
   }
 
   /* 优化移动端字体大小 */

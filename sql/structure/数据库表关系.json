@@ -1,0 +1,311 @@
+{
+  "generated_at": "2026-05-23T21:19:32+08:00",
+  "source_summary_file": "D:/Software/Code/Work/demo/photo/sql/structure/数据库表结构.json",
+  "notes": [
+    "包含现库真实外键（rule=database_foreign_key，confidence=database）及基于字段名和表命名规则推断出的关联建议。",
+    "所有关系均已按现库结构校验 from_table/from_field/to_table/to_field 存在。",
+    "推断关系不等同于数据库真实外键；confidence=high 的关系优先使用，confidence=medium 需结合业务语义复核。"
+  ],
+  "relationship_count": 30,
+  "relationships": [
+    {
+      "from_table": "album_folders",
+      "from_field": "album_id",
+      "to_table": "albums",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_album_folders_album",
+      "constraint_name": "fk_album_folders_album"
+    },
+    {
+      "from_table": "album_photos",
+      "from_field": "album_id",
+      "to_table": "albums",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_album_photos_album",
+      "constraint_name": "fk_album_photos_album"
+    },
+    {
+      "from_table": "album_photos",
+      "from_field": "folder_id",
+      "to_table": "album_folders",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_album_photos_folder",
+      "constraint_name": "fk_album_photos_folder"
+    },
+    {
+      "from_table": "albums",
+      "from_field": "created_by",
+      "to_table": "profiles",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_albums_creator",
+      "constraint_name": "fk_albums_creator"
+    },
+    {
+      "from_table": "app_page_beta_codes",
+      "from_field": "created_by",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_app_page_beta_codes_user",
+      "constraint_name": "fk_app_page_beta_codes_user"
+    },
+    {
+      "from_table": "app_page_beta_codes",
+      "from_field": "page_id",
+      "to_table": "app_page_registry",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_app_page_beta_codes_page",
+      "constraint_name": "fk_app_page_beta_codes_page"
+    },
+    {
+      "from_table": "app_page_publish_rules",
+      "from_field": "page_id",
+      "to_table": "app_page_registry",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_app_page_publish_rules_page",
+      "constraint_name": "fk_app_page_publish_rules_page"
+    },
+    {
+      "from_table": "app_page_publish_rules",
+      "from_field": "updated_by",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_app_page_publish_rules_user",
+      "constraint_name": "fk_app_page_publish_rules_user"
+    },
+    {
+      "from_table": "bookings",
+      "from_field": "type_id",
+      "to_table": "booking_types",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_bookings_type_restrict",
+      "constraint_name": "fk_bookings_type_restrict"
+    },
+    {
+      "from_table": "bookings",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_bookings_user_restrict",
+      "constraint_name": "fk_bookings_user_restrict"
+    },
+    {
+      "from_table": "feature_beta_versions",
+      "from_field": "created_by",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_feature_beta_versions_creator",
+      "constraint_name": "fk_feature_beta_versions_creator"
+    },
+    {
+      "from_table": "feature_beta_versions",
+      "from_field": "route_id",
+      "to_table": "feature_beta_routes",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_feature_beta_versions_route",
+      "constraint_name": "fk_feature_beta_versions_route"
+    },
+    {
+      "from_table": "password_reset_tokens",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_password_reset_tokens_user",
+      "constraint_name": "fk_password_reset_tokens_user"
+    },
+    {
+      "from_table": "photo_comments",
+      "from_field": "photo_id",
+      "to_table": "album_photos",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_photo_comments_photo",
+      "constraint_name": "fk_photo_comments_photo"
+    },
+    {
+      "from_table": "photo_comments",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_photo_comments_user",
+      "constraint_name": "fk_photo_comments_user"
+    },
+    {
+      "from_table": "photo_likes",
+      "from_field": "photo_id",
+      "to_table": "album_photos",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_photo_likes_photo",
+      "constraint_name": "fk_photo_likes_photo"
+    },
+    {
+      "from_table": "photo_likes",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_photo_likes_user",
+      "constraint_name": "fk_photo_likes_user"
+    },
+    {
+      "from_table": "photo_views",
+      "from_field": "photo_id",
+      "to_table": "album_photos",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_photo_views_photo",
+      "constraint_name": "fk_photo_views_photo"
+    },
+    {
+      "from_table": "photo_views",
+      "from_field": "session_id",
+      "to_table": "user_sessions",
+      "to_field": "id",
+      "confidence": "medium",
+      "rule": "table_alias_id",
+      "rationale": "字段以 _id 结尾，且表别名唯一匹配到目标表主键"
+    },
+    {
+      "from_table": "photo_views",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_photo_views_user",
+      "constraint_name": "fk_photo_views_user"
+    },
+    {
+      "from_table": "profiles",
+      "from_field": "id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_profiles_user",
+      "constraint_name": "fk_profiles_user"
+    },
+    {
+      "from_table": "user_active_logs",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_active_logs_user",
+      "constraint_name": "fk_user_active_logs_user"
+    },
+    {
+      "from_table": "user_album_bindings",
+      "from_field": "album_id",
+      "to_table": "albums",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_album_bindings_album",
+      "constraint_name": "fk_user_album_bindings_album"
+    },
+    {
+      "from_table": "user_album_bindings",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_album_bindings_user",
+      "constraint_name": "fk_user_album_bindings_user"
+    },
+    {
+      "from_table": "user_beta_feature_bindings",
+      "from_field": "feature_id",
+      "to_table": "feature_beta_versions",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_beta_feature_bindings_feature",
+      "constraint_name": "fk_user_beta_feature_bindings_feature"
+    },
+    {
+      "from_table": "user_beta_feature_bindings",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_beta_feature_bindings_user",
+      "constraint_name": "fk_user_beta_feature_bindings_user"
+    },
+    {
+      "from_table": "user_page_beta_bindings",
+      "from_field": "beta_code_id",
+      "to_table": "app_page_beta_codes",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_page_beta_bindings_code",
+      "constraint_name": "fk_user_page_beta_bindings_code"
+    },
+    {
+      "from_table": "user_page_beta_bindings",
+      "from_field": "page_id",
+      "to_table": "app_page_registry",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_page_beta_bindings_page",
+      "constraint_name": "fk_user_page_beta_bindings_page"
+    },
+    {
+      "from_table": "user_page_beta_bindings",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_page_beta_bindings_user",
+      "constraint_name": "fk_user_page_beta_bindings_user"
+    },
+    {
+      "from_table": "user_sessions",
+      "from_field": "user_id",
+      "to_table": "users",
+      "to_field": "id",
+      "confidence": "database",
+      "rule": "database_foreign_key",
+      "rationale": "来自现库真实外键约束 fk_user_sessions_user",
+      "constraint_name": "fk_user_sessions_user"
+    }
+  ]
+}

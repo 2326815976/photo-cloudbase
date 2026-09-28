@@ -1,13 +1,21 @@
-﻿import 'server-only';
+import 'server-only';
 
 import { Buffer } from 'buffer';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { AuthContext } from '@/lib/auth/types';
 import { deleteCloudBaseObjects, uploadFileToCloudBase } from '@/lib/cloudbase/storage';
+import {
+  WALL_PREVIEW_MAX_WIDTH,
+  WALL_PREVIEW_QUALITY,
+  WALL_THUMBNAIL_MAX_WIDTH,
+  WALL_THUMBNAIL_QUALITY,
+} from '@/lib/gallery/wall-image-config';
 import { hydrateCloudBaseTempUrlsInRows } from '@/lib/cloudbase/storage-url';
 import { normalizeAccessKey } from '@/lib/utils/access-key';
 import {
   executeSQL,
+  extractErrorMessage,
+  isMissingDefinerSqlError,
   isRetryableSqlError,
   TRANSIENT_BACKEND_ERROR_CODE,
   TRANSIENT_BACKEND_ERROR_MESSAGE,
@@ -274,6 +282,15 @@ function getTodayDateUTC8(): string {
   return `${year}-${month}-${day}`;
 }
 
+function getDateTextUTC8(daysAgo: number = 0): string {
+  const safeDaysAgo = Math.max(0, Math.floor(Number(daysAgo) || 0));
+  const now = new Date(Date.now() + 8 * 60 * 60 * 1000 - safeDaysAgo * 24 * 60 * 60 * 1000);
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function resolveAlbumFolderFilter(folderIdInput: unknown): {
   clause: string;
   params: Record<string, unknown>;
@@ -298,15 +315,31 @@ function resolveAlbumFolderFilter(folderIdInput: unknown): {
   };
 }
 
+function createNeverMatchAlbumFolderFilter(): {
+  clause: string;
+  params: Record<string, unknown>;
+  normalizedFolderId: string | null;
+} {
+  return {
+    clause: '1 = 0',
+    params: {},
+    normalizedFolderId: null,
+  };
+}
+
 function mapAlbumPhotoRow(
   row: Record<string, any>,
   commentsByPhotoId?: Map<string, Array<Record<string, any>>>
 ): Record<string, any> {
   const photoId = String(row.id);
   const storyText = normalizeMaybeStoryText(row.story_text);
+  const legacyUrl = normalizeMaybeUrlText(
+    row.url ?? row.original_url ?? row.preview_url ?? row.thumbnail_url
+  );
   return {
     id: photoId,
     folder_id: row.folder_id ? String(row.folder_id) : null,
+    url: legacyUrl,
     thumbnail_url: row.thumbnail_url ?? null,
     preview_url: row.preview_url ?? null,
     original_url: row.original_url ?? null,
@@ -348,10 +381,8 @@ const NOW_UTC8_EXPR = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)';
 const TODAY_UTC8_EXPR = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))';
 const SYSTEM_WALL_ALBUM_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_WALL_ALBUM_ACCESS_KEY = 'WALL0000';
-const WALL_THUMBNAIL_MAX_WIDTH = 1280;
-const WALL_PREVIEW_MAX_WIDTH = 2560;
-const WALL_THUMBNAIL_QUALITY = 82;
-const WALL_PREVIEW_QUALITY = 92;
+const SYSTEM_WALL_FREEZE_FOLDER_NAME = '定格';
+const SYSTEM_WALL_FREEZE_FOLDER_ID = '00000000-0000-0000-0000-000000000001';
 const SHOT_DATE_COLUMN_CACHE_TTL_MS = 60 * 1000;
 
 let albumPhotoShotDateColumnCache: {
@@ -365,6 +396,26 @@ let albumPhotoShotLocationColumnCache: {
 } | null = null;
 
 let albumPhotoDownloadCountColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumEnableFreezeColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumWelcomeLetterModeColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumFolderHiddenColumnCache: {
+  value: boolean;
+  expiresAt: number;
+} | null = null;
+
+let albumHideRootFolderColumnCache: {
   value: boolean;
   expiresAt: number;
 } | null = null;
@@ -397,7 +448,10 @@ async function hasTable(tableName: string): Promise<boolean> {
       }
     );
     exists = toNumber(result.rows[0]?.value, 0) > 0;
-  } catch {
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
     exists = false;
   }
 
@@ -409,6 +463,10 @@ async function hasTable(tableName: string): Promise<boolean> {
 }
 
 let sharpModulePromise: Promise<any> | null = null;
+const PHOTO_DIMENSION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const PHOTO_DIMENSION_PROBE_CONCURRENCY = 6;
+const PHOTO_DIMENSION_EAGER_LIMIT = 48;
+const photoDimensionCache = new Map<string, { width: number; height: number; expiresAt: number }>();
 
 async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
   const now = Date.now();
@@ -429,7 +487,10 @@ async function hasAlbumPhotoShotDateColumn(): Promise<boolean> {
       `
     );
     exists = toNumber(result.rows[0]?.value, 0) > 0;
-  } catch {
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
     exists = false;
   }
 
@@ -459,7 +520,10 @@ async function hasAlbumPhotoShotLocationColumn(): Promise<boolean> {
       `
     );
     exists = toNumber(result.rows[0]?.value, 0) > 0;
-  } catch {
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
     exists = false;
   }
 
@@ -489,11 +553,154 @@ async function hasAlbumPhotoDownloadCountColumn(): Promise<boolean> {
       `
     );
     exists = toNumber(result.rows[0]?.value, 0) > 0;
-  } catch {
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
     exists = false;
   }
 
   albumPhotoDownloadCountColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumFolderHiddenColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumFolderHiddenColumnCache && albumFolderHiddenColumnCache.expiresAt > now) {
+    return albumFolderHiddenColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'album_folders'
+          AND column_name = 'is_hidden'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
+    exists = false;
+  }
+
+  albumFolderHiddenColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumHideRootFolderColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumHideRootFolderColumnCache && albumHideRootFolderColumnCache.expiresAt > now) {
+    return albumHideRootFolderColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'albums'
+          AND column_name = 'hide_root_folder'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
+    exists = false;
+  }
+
+  albumHideRootFolderColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+async function hasAlbumEnableFreezeColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumEnableFreezeColumnCache && albumEnableFreezeColumnCache.expiresAt > now) {
+    return albumEnableFreezeColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'albums'
+          AND column_name = 'enable_freeze'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
+    exists = false;
+  }
+
+  albumEnableFreezeColumnCache = {
+    value: exists,
+    expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
+  };
+  return exists;
+}
+
+function normalizeWelcomeLetterMode(value: unknown, enabledFallback = true): 'envelope' | 'stamp' | 'none' {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'envelope' || normalized === 'stamp' || normalized === 'none') {
+    return normalized;
+  }
+  return enabledFallback ? 'envelope' : 'none';
+}
+
+async function hasAlbumWelcomeLetterModeColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (albumWelcomeLetterModeColumnCache && albumWelcomeLetterModeColumnCache.expiresAt > now) {
+    return albumWelcomeLetterModeColumnCache.value;
+  }
+
+  let exists = false;
+  try {
+    const result = await executeSQL(
+      `
+        SELECT COUNT(*) AS value
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'albums'
+          AND column_name = 'welcome_letter_mode'
+        LIMIT 1
+      `
+    );
+    exists = toNumber(result.rows[0]?.value, 0) > 0;
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
+    exists = false;
+  }
+
+  albumWelcomeLetterModeColumnCache = {
     value: exists,
     expiresAt: now + SHOT_DATE_COLUMN_CACHE_TTL_MS,
   };
@@ -507,10 +714,212 @@ function getSafeWallSourceToken(photoId: string): string {
   return safe || randomUUID().replace(/-/g, '').slice(0, 16);
 }
 
+type GalleryClientSource = 'web' | 'mini' | 'unknown';
+
+function normalizeGalleryClientSource(value: unknown): GalleryClientSource {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (raw === 'web' || raw === 'h5') {
+    return 'web';
+  }
+  if (raw === 'mini' || raw === 'miniprogram' || raw === 'wechat' || raw === 'wechat-mini') {
+    return 'mini';
+  }
+  return 'unknown';
+}
+
+async function findWallFolderByName(folderName: string): Promise<Record<string, any> | null> {
+  const normalizedName = String(folderName ?? '').trim();
+  if (!normalizedName) {
+    return null;
+  }
+
+  const result = await executeSQL(
+    `
+      SELECT id, name, sort_order
+      FROM album_folders
+      WHERE album_id = {{wall_album_id}}
+        AND name = {{folder_name}}
+      ORDER BY sort_order ASC, created_at ASC
+      LIMIT 1
+    `,
+    {
+      wall_album_id: SYSTEM_WALL_ALBUM_ID,
+      folder_name: normalizedName,
+    }
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function ensureWallFolderByName(folderName: string): Promise<string> {
+  const normalizedName = String(folderName ?? '').trim();
+  if (!normalizedName) {
+    throw new Error('缺少照片墙文件夹名称');
+  }
+
+  const existing = await findWallFolderByName(normalizedName);
+  if (existing?.id) {
+    return String(existing.id);
+  }
+
+  const folderId =
+    normalizedName === SYSTEM_WALL_FREEZE_FOLDER_NAME
+      ? SYSTEM_WALL_FREEZE_FOLDER_ID
+      : randomUUID();
+
+  try {
+    await executeSQL(
+      `
+        INSERT INTO album_folders (
+          id,
+          album_id,
+          name,
+          created_at
+        ) VALUES (
+          {{id}},
+          {{wall_album_id}},
+          {{folder_name}},
+          ${NOW_UTC8_EXPR}
+        )
+      `,
+      {
+        id: folderId,
+        wall_album_id: SYSTEM_WALL_ALBUM_ID,
+        folder_name: normalizedName,
+      }
+    );
+
+    return folderId;
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) {
+      throw error;
+    }
+
+    const duplicated = await findWallFolderByName(normalizedName);
+    if (duplicated?.id) {
+      return String(duplicated.id);
+    }
+
+    return folderId;
+  }
+}
+
 function buildWallStorageKey(sourcePhotoId: string, kind: 'thumb' | 'preview'): string {
   const token = getSafeWallSourceToken(sourcePhotoId);
   const suffix = randomUUID().replace(/-/g, '').slice(0, 8);
   return `wall/${token}_${Date.now()}_${suffix}_${kind}.webp`;
+}
+
+function buildDeterministicWallPhotoId(sourcePhotoId: string): string {
+  const normalizedId = String(sourcePhotoId ?? '').trim();
+  const digest = createHash('md5').update(`wall:${normalizedId}`).digest('hex');
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`;
+}
+
+function extractWallSourceTokenFromUrl(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  const marker = '/wall/';
+  const markerIndex = raw.toLowerCase().lastIndexOf(marker);
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const tail = raw.slice(markerIndex + marker.length);
+  const underscoreIndex = tail.indexOf('_');
+  if (underscoreIndex <= 0) {
+    return null;
+  }
+
+  const token = tail.slice(0, underscoreIndex).trim();
+  return token || null;
+}
+
+function resolveWallPhotoSourceToken(row: Record<string, any>): string | null {
+  return extractWallSourceTokenFromUrl(
+    row.original_url ?? row.preview_url ?? row.thumbnail_url ?? row.url
+  );
+}
+
+function splitWallPhotoDuplicates<T extends Record<string, any>>(rows: T[]) {
+  const uniqueRows: T[] = [];
+  const duplicateRows: T[] = [];
+  const seenTokens = new Set<string>();
+
+  rows.forEach((row) => {
+    const token = resolveWallPhotoSourceToken(row);
+    if (!token) {
+      uniqueRows.push(row);
+      return;
+    }
+
+    if (seenTokens.has(token)) {
+      duplicateRows.push(row);
+      return;
+    }
+
+    seenTokens.add(token);
+    uniqueRows.push(row);
+  });
+
+  return {
+    uniqueRows,
+    duplicateRows,
+  };
+}
+
+async function deleteWallPhotoRows(
+  rows: Array<Record<string, any>>,
+  options?: {
+    strictStorageCleanup?: boolean;
+  }
+) {
+  const strictStorageCleanup = Boolean(options?.strictStorageCleanup);
+  const targets = Array.from(
+    new Set(
+      rows
+        .flatMap((row) => [
+          String(row.url ?? '').trim(),
+          String(row.thumbnail_url ?? '').trim(),
+          String(row.preview_url ?? '').trim(),
+          String(row.original_url ?? '').trim(),
+        ])
+        .filter(Boolean)
+    )
+  );
+
+  if (targets.length > 0) {
+    try {
+      await deleteCloudBaseObjects(targets);
+    } catch (error) {
+      if (strictStorageCleanup) {
+        const message = error instanceof Error ? error.message : 'unknown error';
+        throw new Error(`删除照片墙对象存储失败：${message}`);
+      }
+      console.warn('delete wall photo assets failed:', error);
+    }
+  }
+
+  for (const row of rows) {
+    const wallPhotoId = String(row.id ?? '').trim();
+    if (!wallPhotoId) {
+      continue;
+    }
+
+    await executeSQL(
+      `
+        DELETE FROM album_photos
+        WHERE id = {{id}}
+        LIMIT 1
+      `,
+      {
+        id: wallPhotoId,
+      }
+    );
+  }
 }
 
 async function getSharp() {
@@ -533,6 +942,225 @@ async function downloadImageBuffer(url: string): Promise<Buffer> {
 
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+function resolvePhotoDimensionProbeUrl(row: Record<string, any>): string {
+  const candidates = [
+    row.thumbnail_url,
+    row.preview_url,
+    row.original_url,
+    row.url,
+  ];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const value = normalizeMaybeUrlText(candidates[index]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function buildPhotoDimensionCacheKeys(row: Record<string, any>): string[] {
+  const keys: string[] = [];
+  const photoId = String(row.id ?? '').trim();
+  if (photoId) {
+    keys.push(`photo:${photoId}`);
+  }
+
+  const probeUrl = resolvePhotoDimensionProbeUrl(row);
+  if (probeUrl) {
+    keys.push(`url:${createHash('sha1').update(probeUrl).digest('hex')}`);
+  }
+
+  return keys;
+}
+
+function readCachedPhotoDimensions(row: Record<string, any>): { width: number; height: number } | null {
+  const now = Date.now();
+  const cacheKeys = buildPhotoDimensionCacheKeys(row);
+
+  for (let index = 0; index < cacheKeys.length; index += 1) {
+    const cacheKey = cacheKeys[index];
+    const cached = photoDimensionCache.get(cacheKey);
+    if (!cached) {
+      continue;
+    }
+    if (cached.expiresAt <= now) {
+      photoDimensionCache.delete(cacheKey);
+      continue;
+    }
+    return {
+      width: cached.width,
+      height: cached.height,
+    };
+  }
+
+  return null;
+}
+
+function writeCachedPhotoDimensions(row: Record<string, any>, dimensions: { width: number; height: number }) {
+  const width = toNumber(dimensions.width, 0);
+  const height = toNumber(dimensions.height, 0);
+  if (!(width > 0 && height > 0)) {
+    return;
+  }
+
+  const expiresAt = Date.now() + PHOTO_DIMENSION_CACHE_TTL_MS;
+  buildPhotoDimensionCacheKeys(row).forEach((cacheKey) => {
+    photoDimensionCache.set(cacheKey, { width, height, expiresAt });
+  });
+}
+
+function resolveOrientedImageDimensions(width: number, height: number, orientation: number): { width: number; height: number } {
+  if (orientation >= 5 && orientation <= 8) {
+    return {
+      width: height,
+      height: width,
+    };
+  }
+
+  return { width, height };
+}
+
+async function probePhotoDimensionsFromUrl(url: string): Promise<{ width: number; height: number } | null> {
+  const target = String(url || '').trim();
+  if (!target) {
+    return null;
+  }
+
+  const buffer = await downloadImageBuffer(target);
+  const sharp = await getSharp();
+  const metadata = await sharp(buffer).metadata();
+  const safeWidth = toNumber(metadata.width, 0);
+  const safeHeight = toNumber(metadata.height, 0);
+  if (!(safeWidth > 0 && safeHeight > 0)) {
+    return null;
+  }
+
+  const oriented = resolveOrientedImageDimensions(
+    safeWidth,
+    safeHeight,
+    toNumber((metadata as { orientation?: unknown }).orientation, 1)
+  );
+  if (!(oriented.width > 0 && oriented.height > 0)) {
+    return null;
+  }
+
+  return oriented;
+}
+
+async function persistAlbumPhotoDimensions(photoId: string, dimensions: { width: number; height: number }) {
+  const normalizedPhotoId = String(photoId || '').trim();
+  const width = toNumber(dimensions.width, 0);
+  const height = toNumber(dimensions.height, 0);
+  if (!normalizedPhotoId || !(width > 0 && height > 0)) {
+    return;
+  }
+
+  try {
+    await executeSQL(
+      `
+        UPDATE album_photos
+        SET width = {{width}},
+            height = {{height}}
+        WHERE id = {{photo_id}}
+          AND (COALESCE(width, 0) <= 0 OR COALESCE(height, 0) <= 0)
+      `,
+      {
+        photo_id: normalizedPhotoId,
+        width,
+        height,
+      }
+    );
+  } catch {
+    // ignore dimension backfill persistence failures
+  }
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+) {
+  const queue = Array.isArray(items) ? items : [];
+  if (queue.length <= 0) {
+    return;
+  }
+
+  const safeConcurrency = Math.max(1, Math.min(queue.length, Math.floor(Number(concurrency) || 1)));
+  let cursor = 0;
+
+  await Promise.all(
+    Array.from({ length: safeConcurrency }, async () => {
+      while (cursor < queue.length) {
+        const currentIndex = cursor;
+        cursor += 1;
+        try {
+          await worker(queue[currentIndex]);
+        } catch {
+          // ignore single-row probe failures
+        }
+      }
+    })
+  );
+}
+
+async function ensurePhotoRowsHaveDimensions(
+  rows: Record<string, any>[],
+  options?: { maxProbeCount?: number }
+) {
+  const photoRows = Array.isArray(rows) ? rows : [];
+  if (photoRows.length <= 0) {
+    return;
+  }
+
+  const missingRows = photoRows.filter((row) => {
+    const width = toNumber(row?.width, 0);
+    const height = toNumber(row?.height, 0);
+    return !(width > 0 && height > 0);
+  });
+  if (missingRows.length <= 0) {
+    return;
+  }
+
+  const rawMaxProbeCount = Number(options?.maxProbeCount);
+  const maxProbeCount = Number.isFinite(rawMaxProbeCount) && rawMaxProbeCount > 0
+    ? Math.floor(rawMaxProbeCount)
+    : missingRows.length;
+  const targetRows = missingRows.slice(0, maxProbeCount);
+  if (targetRows.length <= 0) {
+    return;
+  }
+
+  await runWithConcurrency(targetRows, PHOTO_DIMENSION_PROBE_CONCURRENCY, async (row) => {
+    const cached = readCachedPhotoDimensions(row);
+    if (cached) {
+      row.width = cached.width;
+      row.height = cached.height;
+      return;
+    }
+
+    const probeUrl = resolvePhotoDimensionProbeUrl(row);
+    if (!probeUrl) {
+      return;
+    }
+
+    const dimensions = await probePhotoDimensionsFromUrl(probeUrl);
+    if (!dimensions) {
+      return;
+    }
+
+    row.width = dimensions.width;
+    row.height = dimensions.height;
+    writeCachedPhotoDimensions(row, dimensions);
+
+    const photoId = String(row.id ?? '').trim();
+    if (photoId) {
+      await persistAlbumPhotoDimensions(photoId, dimensions);
+    }
+  });
 }
 
 async function buildWallImageVariantsFromSource(sourceUrl: string): Promise<{
@@ -568,7 +1196,6 @@ function resolveSourcePhotoBestUrl(source: Record<string, any>): string {
   const candidates = [
     source.original_url,
     source.preview_url,
-    source.url,
     source.thumbnail_url,
   ];
   for (let i = 0; i < candidates.length; i += 1) {
@@ -584,9 +1211,15 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const pageNo = Math.max(1, Number(args.page_no ?? 1));
   const pageSize = Math.min(100, Math.max(1, Number(args.page_size ?? 20)));
   const offset = (pageNo - 1) * pageSize;
+  const clientSource = String(args.client_source ?? '').trim();
+  if (clientSource === '__mini__') {
+    throw new Error('微信小程序暂不支持定格照片，请在 Web 端操作');
+  }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
   const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
+  const hasFolderHiddenColumn = await hasAlbumFolderHiddenColumn();
+  const hasHideRootFolderColumn = await hasAlbumHideRootFolderColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
   const shotLocationSelect = hasShotLocationColumn
     ? 'p.shot_location AS shot_location'
@@ -594,18 +1227,22 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
   const downloadCountSelect = hasDownloadCountColumn
     ? 'p.download_count AS download_count'
     : '0 AS download_count';
+  const photoLikeCountSelect = `(
+    SELECT COUNT(*)
+    FROM photo_likes pl_count
+    WHERE pl_count.photo_id = p.id
+  ) AS like_count`;
+  const folderHiddenSelect = hasFolderHiddenColumn ? 'is_hidden' : '0 AS is_hidden';
+  const hideRootFolderSelect = hasHideRootFolderColumn
+    ? 'hide_root_folder'
+    : '0 AS hide_root_folder';
   const photoOrderBy = hasShotDateColumn
     ? 'COALESCE(p.sort_order, 2147483647) ASC, COALESCE(p.shot_date, DATE(p.created_at)) DESC, p.created_at DESC'
     : 'COALESCE(p.sort_order, 2147483647) ASC, p.created_at DESC';
-  const folderFilter = resolveAlbumFolderFilter(args.folder_id);
-  const wallValues: Record<string, unknown> = {
-    wall_album_id: SYSTEM_WALL_ALBUM_ID,
-    ...folderFilter.params,
-  };
 
   const wallMetaResult = await executeSQL(
     `
-      SELECT root_folder_name
+      SELECT root_folder_name, ${hideRootFolderSelect}
       FROM albums
       WHERE id = {{wall_album_id}}
       LIMIT 1
@@ -615,71 +1252,104 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     }
   );
   const wallMetaRow = wallMetaResult.rows[0];
+  const hideRootFolder = toBoolean(wallMetaRow?.hide_root_folder);
 
   const foldersResult = await executeSQL(
     `
-      SELECT id, name
+      SELECT id, name, sort_order, ${folderHiddenSelect}
       FROM album_folders
       WHERE album_id = {{wall_album_id}}
-      ORDER BY created_at DESC
+      ORDER BY sort_order ASC, created_at ASC
     `,
     {
       wall_album_id: SYSTEM_WALL_ALBUM_ID,
     }
   );
+  const folderRows = Array.isArray(foldersResult.rows) ? foldersResult.rows : [];
+  const hiddenFolderIds = new Set(
+    folderRows
+      .filter((row) => toBoolean(row?.is_hidden))
+      .map((row) => String(row?.id ?? '').trim())
+      .filter(Boolean)
+  );
+  const visibleFolders = folderRows.filter(
+    (row) => !hiddenFolderIds.has(String(row?.id ?? '').trim())
+  );
+  const firstVisibleFolderId = visibleFolders[0]
+    ? String(visibleFolders[0].id ?? '').trim() || null
+    : null;
+  const requestedFolderFilter = resolveAlbumFolderFilter(args.folder_id);
+  const fallbackFolderFilter = hideRootFolder
+    ? (firstVisibleFolderId ? resolveAlbumFolderFilter(firstVisibleFolderId) : createNeverMatchAlbumFolderFilter())
+    : resolveAlbumFolderFilter(null);
+  let folderFilter = requestedFolderFilter;
+  if (requestedFolderFilter.normalizedFolderId) {
+    if (hiddenFolderIds.has(requestedFolderFilter.normalizedFolderId)) {
+      folderFilter = fallbackFolderFilter;
+    }
+  } else if (hideRootFolder) {
+    folderFilter = fallbackFolderFilter;
+  }
+  const wallValues: Record<string, unknown> = {
+    wall_album_id: SYSTEM_WALL_ALBUM_ID,
+    ...folderFilter.params,
+  };
 
-  let photos: Record<string, any>[] = [];
-  if (context.user?.id) {
+  const fetchWallPhotosPage = async (): Promise<Record<string, any>[]> => {
+    if (context.user?.id) {
+      const result = await executeSQL(
+        `
+          SELECT
+            p.id,
+            COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+            COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+            COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+            COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
+            p.width,
+            p.height,
+            p.blurhash,
+            ${photoLikeCountSelect},
+            p.view_count,
+            ${downloadCountSelect},
+            p.story_text,
+            p.is_highlight,
+            p.sort_order,
+            ${shotDateSelect},
+            ${shotLocationSelect},
+            p.created_at,
+            p.folder_id,
+            CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
+          FROM album_photos p
+          LEFT JOIN photo_likes pl
+            ON pl.photo_id = p.id
+           AND pl.user_id = {{user_id}}
+          WHERE p.album_id = {{wall_album_id}}
+            AND ${folderFilter.clause}
+          ORDER BY ${photoOrderBy}
+          LIMIT {{limit}} OFFSET {{offset}}
+        `,
+        {
+          user_id: context.user.id,
+          ...wallValues,
+          limit: pageSize,
+          offset,
+        }
+      );
+      return result.rows;
+    }
+
     const result = await executeSQL(
       `
         SELECT
           p.id,
-          COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
-          COALESCE(p.preview_url, p.url) AS preview_url,
-          COALESCE(p.original_url, p.preview_url, p.url) AS original_url,
+          COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+          COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+          COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+          COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
           p.width,
           p.height,
           p.blurhash,
-          p.like_count,
-          p.view_count,
-          ${downloadCountSelect},
-          p.story_text,
-          p.is_highlight,
-          p.sort_order,
-          ${shotDateSelect},
-          ${shotLocationSelect},
-          p.created_at,
-          p.folder_id,
-          CASE WHEN pl.id <=> NULL THEN 0 ELSE 1 END AS is_liked
-        FROM album_photos p
-        LEFT JOIN photo_likes pl
-          ON pl.photo_id = p.id
-         AND pl.user_id = {{user_id}}
-        WHERE p.album_id = {{wall_album_id}}
-          AND ${folderFilter.clause}
-        ORDER BY ${photoOrderBy}
-        LIMIT {{limit}} OFFSET {{offset}}
-      `,
-      {
-        user_id: context.user.id,
-        ...wallValues,
-        limit: pageSize,
-        offset,
-      }
-    );
-    photos = result.rows;
-  } else {
-    const result = await executeSQL(
-      `
-        SELECT
-          p.id,
-          COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
-          COALESCE(p.preview_url, p.url) AS preview_url,
-          COALESCE(p.original_url, p.preview_url, p.url) AS original_url,
-          p.width,
-          p.height,
-          p.blurhash,
-          p.like_count,
+          ${photoLikeCountSelect},
           p.view_count,
           ${downloadCountSelect},
           p.story_text,
@@ -702,7 +1372,14 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
         offset,
       }
     );
-    photos = result.rows;
+    return result.rows;
+  };
+
+  let photos = await fetchWallPhotosPage();
+  const { duplicateRows } = splitWallPhotoDuplicates(photos);
+  if (duplicateRows.length > 0) {
+    await deleteWallPhotoRows(duplicateRows);
+    photos = await fetchWallPhotosPage();
   }
 
   const countResult = await executeSQL(
@@ -715,11 +1392,13 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     wallValues
   );
 
-  await hydrateCloudBaseTempUrlsInRows(photos, ['thumbnail_url', 'preview_url', 'original_url']);
+  await hydrateCloudBaseTempUrlsInRows(photos, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
+  await ensurePhotoRowsHaveDimensions(photos);
 
   return {
     photos: photos.map((row) => ({
       ...row,
+      url: normalizeMaybeUrlText(row.url ?? row.original_url ?? row.preview_url ?? row.thumbnail_url),
       story_text: normalizeMaybeStoryText(row.story_text),
       is_liked: toBoolean(row.is_liked),
       like_count: toNumber(row.like_count, 0),
@@ -736,11 +1415,13 @@ async function rpcGetPublicGallery(args: Record<string, unknown>, context: AuthC
     })),
     total: toNumber(countResult.rows[0]?.total, 0),
     folder_id: folderFilter.normalizedFolderId,
+    hide_root_folder: hideRootFolder,
     root_folder_name:
       String(wallMetaRow?.root_folder_name ?? '').trim() || '根目录',
-    folders: foldersResult.rows.map((row) => ({
+    folders: visibleFolders.map((row) => ({
       id: String(row.id),
       name: String(row.name ?? ''),
+      sort_order: toNumber(row.sort_order, 2147483647),
     })),
   };
 }
@@ -754,10 +1435,16 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
   const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
+  const hasAlbumFreezeColumn = await hasAlbumEnableFreezeColumn();
+  const hasAlbumWelcomeLetterMode = await hasAlbumWelcomeLetterModeColumn();
   const shotDateSelect = hasShotDateColumn ? 'shot_date' : 'NULL AS shot_date';
   const shotLocationSelect = hasShotLocationColumn
     ? 'shot_location'
     : 'NULL AS shot_location';
+  const enableFreezeSelect = hasAlbumFreezeColumn ? 'enable_freeze' : '1 AS enable_freeze';
+  const welcomeLetterModeSelect = hasAlbumWelcomeLetterMode
+    ? 'welcome_letter_mode'
+    : "CASE WHEN COALESCE(enable_welcome_letter, 1) = 0 THEN 'none' ELSE 'envelope' END AS welcome_letter_mode";
   const downloadCountSelect = hasDownloadCountColumn
     ? 'download_count'
     : '0 AS download_count';
@@ -773,6 +1460,8 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
         cover_url,
         enable_tipping,
         enable_welcome_letter,
+        ${welcomeLetterModeSelect},
+        ${enableFreezeSelect},
         donation_qr_code_url,
         recipient_name,
         created_at,
@@ -799,10 +1488,10 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
 
   const foldersResult = await executeSQL(
     `
-      SELECT id, name
+      SELECT id, name, sort_order
       FROM album_folders
       WHERE album_id = {{album_id}}
-      ORDER BY created_at DESC
+      ORDER BY sort_order ASC, created_at ASC
     `,
     {
       album_id: album.id,
@@ -818,9 +1507,10 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
         SELECT
           id,
           folder_id,
-          COALESCE(thumbnail_url, url) AS thumbnail_url,
-          COALESCE(preview_url, url) AS preview_url,
-          COALESCE(original_url, url) AS original_url,
+          COALESCE(url, original_url, preview_url, thumbnail_url) AS url,
+          COALESCE(thumbnail_url, preview_url, original_url, url) AS thumbnail_url,
+          COALESCE(preview_url, original_url, thumbnail_url, url) AS preview_url,
+          COALESCE(original_url, preview_url, thumbnail_url, url) AS original_url,
           story_text,
           is_highlight,
           sort_order,
@@ -845,7 +1535,8 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
     );
 
     photoRows = photosResult.rows;
-    await hydrateCloudBaseTempUrlsInRows(photoRows, ['thumbnail_url', 'preview_url', 'original_url']);
+    await hydrateCloudBaseTempUrlsInRows(photoRows, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
+    await ensurePhotoRowsHaveDimensions(photoRows, { maxProbeCount: PHOTO_DIMENSION_EAGER_LIMIT });
 
     const photoIds = photoRows.map((row) => String(row.id));
     if (photoIds.length > 0) {
@@ -896,17 +1587,28 @@ async function rpcGetAlbumContent(args: Record<string, unknown>) {
       root_folder_name: String(album.root_folder_name ?? '').trim() || '根目录',
       welcome_letter: album.welcome_letter ?? '',
       cover_url: normalizeMaybeUrlText(album.cover_url),
-      enable_tipping: toBoolean(album.enable_tipping),
-      enable_welcome_letter: album.enable_welcome_letter === null ? true : toBoolean(album.enable_welcome_letter),
       donation_qr_code_url: normalizeMaybeUrlText(album.donation_qr_code_url),
-      recipient_name: album.recipient_name ?? '拾光者',
       created_at: album.created_at,
       expires_at: album.effective_expires_at,
       is_expired: toBoolean(album.is_expired),
+      ...(() => {
+        const welcomeLetterMode = normalizeWelcomeLetterMode(
+          album.welcome_letter_mode,
+          album.enable_welcome_letter === null ? true : toBoolean(album.enable_welcome_letter)
+        );
+        return {
+          enable_tipping: toBoolean(album.enable_tipping),
+          enable_welcome_letter: welcomeLetterMode !== 'none',
+          welcome_letter_mode: welcomeLetterMode,
+          enable_freeze: album.enable_freeze === null ? true : toBoolean(album.enable_freeze),
+          recipient_name: album.recipient_name ?? '拾光者',
+        };
+      })(),
     },
     folders: foldersResult.rows.map((row) => ({
       id: String(row.id),
       name: String(row.name ?? ''),
+      sort_order: toNumber(row.sort_order, 2147483647),
     })),
     photos: photoRows.map((row) => mapAlbumPhotoRow(row, commentsByPhotoId)),
   };
@@ -960,9 +1662,10 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
       SELECT
         p.id,
         p.folder_id,
-        COALESCE(p.thumbnail_url, p.url) AS thumbnail_url,
-        COALESCE(p.preview_url, p.url) AS preview_url,
-        COALESCE(p.original_url, p.url) AS original_url,
+        COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+        COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+        COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+        COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
         p.story_text,
         p.is_highlight,
         p.sort_order,
@@ -989,7 +1692,8 @@ async function rpcGetAlbumPhotoPage(args: Record<string, unknown>) {
       offset,
     }
   );
-  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['thumbnail_url', 'preview_url', 'original_url']);
+  await hydrateCloudBaseTempUrlsInRows(photosResult.rows, ['url', 'thumbnail_url', 'preview_url', 'original_url']);
+  await ensurePhotoRowsHaveDimensions(photosResult.rows);
 
   const countResult = await executeSQL(
     `
@@ -1370,25 +2074,29 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
   }
   const hasShotDateColumn = await hasAlbumPhotoShotDateColumn();
   const hasShotLocationColumn = await hasAlbumPhotoShotLocationColumn();
+  const hasAlbumFreezeColumn = await hasAlbumEnableFreezeColumn();
   const shotDateSelect = hasShotDateColumn ? 'p.shot_date AS shot_date' : 'NULL AS shot_date';
   const shotLocationSelect = hasShotLocationColumn
     ? 'p.shot_location AS shot_location'
     : 'NULL AS shot_location';
+  const enableFreezeSelect = hasAlbumFreezeColumn ? 'a.enable_freeze AS enable_freeze' : '1 AS enable_freeze';
 
   const result = await executeSQL(
     `
       SELECT
         p.id,
         p.album_id,
-        p.url,
-        p.thumbnail_url,
-        p.preview_url,
-        p.original_url,
+        p.is_public,
+        COALESCE(p.url, p.original_url, p.preview_url, p.thumbnail_url) AS url,
+        COALESCE(p.thumbnail_url, p.preview_url, p.original_url, p.url) AS thumbnail_url,
+        COALESCE(p.preview_url, p.original_url, p.thumbnail_url, p.url) AS preview_url,
+        COALESCE(p.original_url, p.preview_url, p.thumbnail_url, p.url) AS original_url,
         p.width,
         p.height,
         p.blurhash,
         p.story_text,
         p.is_highlight,
+        ${enableFreezeSelect},
         ${shotDateSelect},
         ${shotLocationSelect}
       FROM album_photos p
@@ -1408,8 +2116,13 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     throw new Error('无权操作：密钥错误或照片不属于该空间');
   }
 
+  if (sourcePhoto.enable_freeze === false || toBoolean(sourcePhoto.enable_freeze) === false) {
+    throw new Error('当前专属空间未开启定格功能');
+  }
+
   const sourceToken = getSafeWallSourceToken(photoId);
   const sourcePattern = `%/wall/${sourceToken}_%`;
+  const wallPhotoId = buildDeterministicWallPhotoId(photoId);
 
   const existingWallResult = await executeSQL(
     `
@@ -1417,43 +2130,29 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
       FROM album_photos
       WHERE album_id = {{wall_album_id}}
         AND (
-          thumbnail_url LIKE {{source_pattern}}
-          OR preview_url LIKE {{source_pattern}}
+          id = {{wall_photo_id}}
           OR url LIKE {{source_pattern}}
+          OR thumbnail_url LIKE {{source_pattern}}
+          OR preview_url LIKE {{source_pattern}}
+          OR original_url LIKE {{source_pattern}}
         )
-      ORDER BY created_at DESC
-      LIMIT 1
+      ORDER BY created_at DESC, id DESC
     `,
     {
       wall_album_id: SYSTEM_WALL_ALBUM_ID,
+      wall_photo_id: wallPhotoId,
       source_pattern: sourcePattern,
     }
   );
-  const existingWall = existingWallResult.rows[0];
+  const existingWallRows = Array.isArray(existingWallResult.rows) ? existingWallResult.rows : [];
 
-  if (existingWall) {
-    const deleteTargets = [
-      String(existingWall.thumbnail_url ?? '').trim(),
-      String(existingWall.preview_url ?? '').trim(),
-      String(existingWall.original_url ?? '').trim(),
-      String(existingWall.url ?? '').trim(),
-    ].filter(Boolean);
+  if (existingWallRows.length > 0) {
+    await deleteWallPhotoRows(existingWallRows, {
+      strictStorageCleanup: true,
+    });
+  }
 
-    if (deleteTargets.length > 0) {
-      await deleteCloudBaseObjects(deleteTargets);
-    }
-
-    await executeSQL(
-      `
-        DELETE FROM album_photos
-        WHERE id = {{id}}
-        LIMIT 1
-      `,
-      {
-        id: String(existingWall.id),
-      }
-    );
-
+  if (toBoolean(sourcePhoto.is_public)) {
     await executeSQL(
       `
         UPDATE album_photos
@@ -1473,6 +2172,7 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     throw new Error('定格失败：缺少源图地址');
   }
 
+  const freezeFolderId = await ensureWallFolderByName(SYSTEM_WALL_FREEZE_FOLDER_NAME);
   const wallVariant = await buildWallImageVariantsFromSource(sourceUrl);
   const thumbnailUpload = await uploadFileToCloudBase(
     wallVariant.thumbnailBuffer,
@@ -1491,11 +2191,12 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
     const shotLocationInsertColumn = hasShotLocationColumn ? ',\n          shot_location' : '';
     const shotLocationInsertValue = hasShotLocationColumn ? ',\n          {{shot_location}}' : '';
     const insertValues: Record<string, unknown> = {
-      id: randomUUID(),
+      id: wallPhotoId,
       album_id: SYSTEM_WALL_ALBUM_ID,
-      url: previewUpload.downloadUrl,
+      folder_id: freezeFolderId,
       thumbnail_url: thumbnailUpload.downloadUrl,
       preview_url: previewUpload.downloadUrl,
+      original_url: previewUpload.downloadUrl,
       story_text: normalizeMaybeStoryText(sourcePhoto.story_text),
       is_highlight: toBoolean(sourcePhoto.is_highlight) ? 1 : 0,
       width: wallVariant.width || toNumber(sourcePhoto.width, 0),
@@ -1515,7 +2216,6 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
           id,
           album_id,
           folder_id,
-          url,
           thumbnail_url,
           preview_url,
           original_url,
@@ -1533,11 +2233,10 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
         ) VALUES (
           {{id}},
           {{album_id}},
-          NULL,
-          {{url}},
+          {{folder_id}},
           {{thumbnail_url}},
           {{preview_url}},
-          NULL,
+          {{original_url}},
           {{story_text}},
           {{is_highlight}},
           2147483647,
@@ -1554,11 +2253,18 @@ async function rpcPinPhotoToWall(args: Record<string, unknown>) {
       insertValues
     );
   } catch (insertError) {
-    await deleteCloudBaseObjects([
-      thumbnailUpload.downloadUrl,
-      previewUpload.downloadUrl,
-    ]);
-    throw insertError;
+    try {
+      await deleteCloudBaseObjects([
+        thumbnailUpload.downloadUrl,
+        previewUpload.downloadUrl,
+      ]);
+    } catch (cleanupError) {
+      console.warn('cleanup wall upload assets failed:', cleanupError);
+    }
+
+    if (!isDuplicateEntryError(insertError)) {
+      throw insertError;
+    }
   }
 
   await executeSQL(
@@ -1581,7 +2287,7 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
 
   const result = await executeSQL(
     `
-      SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
+      SELECT p.id, p.url, p.thumbnail_url, p.preview_url, p.original_url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE a.access_key = {{access_key}}
@@ -1625,10 +2331,10 @@ async function rpcDeleteAlbumPhoto(args: Record<string, unknown>) {
   }
 
   const deleteTargets = [
+    String(targetRow.url ?? '').trim(),
     String(targetRow.thumbnail_url ?? '').trim(),
     String(targetRow.preview_url ?? '').trim(),
     String(targetRow.original_url ?? '').trim(),
-    String(targetRow.url ?? '').trim(),
   ].filter(Boolean);
 
   let storageCleanupFailed = false;
@@ -1656,6 +2362,34 @@ async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext)
     throw new Error('参数错误');
   }
 
+  const syncPhotoLikeCount = async () => {
+    const countResult = await executeSQL(
+      `
+        SELECT COUNT(*) AS total
+        FROM photo_likes
+        WHERE photo_id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+      }
+    );
+    const likeCount = toNumber(countResult.rows[0]?.total, 0);
+
+    await executeSQL(
+      `
+        UPDATE album_photos
+        SET like_count = {{like_count}}
+        WHERE id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+        like_count: likeCount,
+      }
+    );
+
+    return likeCount;
+  };
+
   const existing = await executeSQL(
     `
       SELECT id
@@ -1681,43 +2415,33 @@ async function rpcLikePhoto(args: Record<string, unknown>, context: AuthContext)
       }
     );
 
+    return {
+      liked: false,
+      like_count: await syncPhotoLikeCount(),
+    };
+  }
+
+  try {
     await executeSQL(
       `
-        UPDATE album_photos
-        SET like_count = GREATEST(0, like_count - 1)
-        WHERE id = {{photo_id}}
+        INSERT INTO photo_likes (user_id, photo_id, created_at)
+        VALUES ({{user_id}}, {{photo_id}}, ${NOW_UTC8_EXPR})
       `,
       {
+        user_id: userId,
         photo_id: photoId,
       }
     );
-
-    return { liked: false };
+  } catch (error) {
+    if (!isDuplicateEntryError(error)) {
+      throw error;
+    }
   }
 
-  await executeSQL(
-    `
-      INSERT INTO photo_likes (user_id, photo_id, created_at)
-      VALUES ({{user_id}}, {{photo_id}}, ${NOW_UTC8_EXPR})
-    `,
-    {
-      user_id: userId,
-      photo_id: photoId,
-    }
-  );
-
-  await executeSQL(
-    `
-      UPDATE album_photos
-      SET like_count = like_count + 1
-      WHERE id = {{photo_id}}
-    `,
-    {
-      photo_id: photoId,
-    }
-  );
-
-  return { liked: true };
+  return {
+    liked: true,
+    like_count: await syncPhotoLikeCount(),
+  };
 }
 
 async function rpcIncrementPhotoView(args: Record<string, unknown>, context: AuthContext) {
@@ -1777,6 +2501,7 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
   }
 
   let counted = false;
+  let fallbackViewCount: number | null = null;
   if (hasViewerIdentity && !alreadyViewed) {
     try {
       if (userId && sessionId) {
@@ -1832,21 +2557,40 @@ async function rpcIncrementPhotoView(args: Record<string, unknown>, context: Aut
     } catch (error) {
       if (isDuplicateEntryError(error)) {
         counted = false;
+      } else if (isMissingDefinerSqlError(error)) {
+        counted = true;
+        const fallbackCountResult = await executeSQL(
+          `
+            SELECT COUNT(*) AS total
+            FROM photo_views
+            WHERE photo_id = {{photo_id}}
+          `,
+          {
+            photo_id: photoId,
+          }
+        );
+        fallbackViewCount = toNumber(fallbackCountResult.rows[0]?.total, 0);
       }
     }
   }
 
-  const countResult = await executeSQL(
-    `
-      SELECT view_count
-      FROM album_photos
-      WHERE id = {{photo_id}}
-      LIMIT 1
-    `,
-    {
-      photo_id: photoId,
-    }
-  );
+  const countResult = fallbackViewCount === null
+    ? await executeSQL(
+        `
+          SELECT view_count
+          FROM album_photos
+          WHERE id = {{photo_id}}
+          LIMIT 1
+        `,
+        {
+          photo_id: photoId,
+        }
+      )
+    : {
+        rows: [{ view_count: fallbackViewCount }],
+        affectedRows: 0,
+        insertId: null,
+      };
 
   return {
     counted,
@@ -1873,34 +2617,58 @@ async function rpcIncrementPhotoDownload(args: Record<string, unknown>) {
     };
   }
 
-  const updateResult = await executeSQL(
-    `
-      UPDATE album_photos
-      SET download_count = download_count + {{count}}
-      WHERE id = {{photo_id}}
-    `,
-    {
-      photo_id: photoId,
-      count: incrementBy,
-    }
-  );
+  try {
+    const updateResult = await executeSQL(
+      `
+        UPDATE album_photos
+        SET download_count = download_count + {{count}}
+        WHERE id = {{photo_id}}
+      `,
+      {
+        photo_id: photoId,
+        count: incrementBy,
+      }
+    );
 
-  const countResult = await executeSQL(
-    `
-      SELECT download_count
-      FROM album_photos
-      WHERE id = {{photo_id}}
-      LIMIT 1
-    `,
-    {
-      photo_id: photoId,
-    }
-  );
+    const countResult = await executeSQL(
+      `
+        SELECT download_count
+        FROM album_photos
+        WHERE id = {{photo_id}}
+        LIMIT 1
+      `,
+      {
+        photo_id: photoId,
+      }
+    );
 
-  return {
-    counted: updateResult.affectedRows > 0,
-    download_count: toNumber(countResult.rows[0]?.download_count, 0),
-  };
+    return {
+      counted: updateResult.affectedRows > 0,
+      download_count: toNumber(countResult.rows[0]?.download_count, 0),
+    };
+  } catch (error) {
+    if (!isMissingDefinerSqlError(error)) {
+      throw error;
+    }
+
+    const countResult = await executeSQL(
+      `
+        SELECT download_count
+        FROM album_photos
+        WHERE id = {{photo_id}}
+        LIMIT 1
+      `,
+      {
+        photo_id: photoId,
+      }
+    );
+
+    return {
+      counted: false,
+      download_count: toNumber(countResult.rows[0]?.download_count, 0),
+      missing_legacy_trigger_definer: true,
+    };
+  }
 }
 
 async function rpcPostAlbumComment(args: Record<string, unknown>, context: AuthContext) {
@@ -2182,30 +2950,76 @@ interface ScalarQueryTask {
   key?: string;
 }
 
-async function runScalarQueryTasks(tasks: ScalarQueryTask[], concurrency: number = 6): Promise<number[]> {
+async function runTasksWithConcurrency<T>(
+  taskFactories: Array<() => Promise<T>>,
+  concurrency: number = 1
+): Promise<T[]> {
   const safeConcurrency = Math.max(1, concurrency);
-  const values: number[] = [];
+  const values: T[] = [];
 
-  for (let index = 0; index < tasks.length; index += safeConcurrency) {
-    const chunk = tasks.slice(index, index + safeConcurrency);
-    const chunkValues = await Promise.all(
-      chunk.map((task) => scalar(task.sql, task.values ?? {}, task.key ?? 'value'))
-    );
+  for (let index = 0; index < taskFactories.length; index += safeConcurrency) {
+    const chunk = taskFactories.slice(index, index + safeConcurrency);
+    const chunkValues = await Promise.all(chunk.map((taskFactory) => taskFactory()));
     values.push(...chunkValues);
   }
 
   return values;
 }
 
+async function runScalarQueryTasks(tasks: ScalarQueryTask[], concurrency: number = 3): Promise<number[]> {
+  return runTasksWithConcurrency(
+    tasks.map((task) => () => scalar(task.sql, task.values ?? {}, task.key ?? 'value')),
+    concurrency
+  );
+}
+
 async function rpcGetAdminDashboardStats(context: AuthContext) {
   requireAdmin(context);
+
+  const trendWindowDays = 7;
+  const [
+    hasUserActiveLogsTable,
+    hasPhotoCommentsTable,
+    hasPoseTagsTable,
+    hasAllowedCitiesTable,
+    hasBookingBlackoutsTable,
+    hasAppReleasesTable,
+    hasAnalyticsDailyTable,
+    hasBookingTypesTable,
+    ] = await runTasksWithConcurrency(
+    [
+      () => hasTable('user_active_logs'),
+      () => hasTable('photo_comments'),
+      () => hasTable('pose_tags'),
+      () => hasTable('allowed_cities'),
+      () => hasTable('booking_blackouts'),
+      () => hasTable('app_releases'),
+      () => hasTable('analytics_daily'),
+      () => hasTable('booking_types'),
+    ],
+    2
+  );
+
+  const unavailableSources: string[] = [];
+  if (!hasUserActiveLogsTable) unavailableSources.push('user_active_logs');
+  if (!hasPhotoCommentsTable) unavailableSources.push('photo_comments');
+  if (!hasPoseTagsTable) unavailableSources.push('pose_tags');
+  if (!hasAllowedCitiesTable) unavailableSources.push('allowed_cities');
+  if (!hasBookingBlackoutsTable) unavailableSources.push('booking_blackouts');
+  if (!hasAppReleasesTable) unavailableSources.push('app_releases');
+  if (!hasAnalyticsDailyTable) unavailableSources.push('analytics_daily');
+  if (!hasBookingTypesTable) unavailableSources.push('booking_types');
 
   const scalarTasks: ScalarQueryTask[] = [
     { sql: 'SELECT COUNT(*) AS value FROM profiles' },
     { sql: "SELECT COUNT(*) AS value FROM profiles WHERE role = 'admin'" },
     { sql: "SELECT COUNT(*) AS value FROM profiles WHERE role = 'user'" },
     { sql: `SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
-    { sql: `SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}` },
+    {
+      sql: hasUserActiveLogsTable
+        ? `SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = ${TODAY_UTC8_EXPR}`
+        : 'SELECT 0 AS value',
+    },
     {
       sql: 'SELECT COUNT(*) AS value FROM albums WHERE id <> {{system_wall_album_id}} AND access_key <> {{system_wall_album_access_key}}',
       values: {
@@ -2240,7 +3054,9 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     { sql: 'SELECT COUNT(*) AS value FROM album_photos WHERE is_public = 0' },
     { sql: 'SELECT COALESCE(SUM(view_count), 0) AS value FROM album_photos' },
     { sql: 'SELECT COALESCE(SUM(like_count), 0) AS value FROM album_photos' },
-    { sql: 'SELECT COUNT(*) AS value FROM photo_comments' },
+    {
+      sql: hasPhotoCommentsTable ? 'SELECT COUNT(*) AS value FROM photo_comments' : 'SELECT 0 AS value',
+    },
     { sql: 'SELECT COALESCE(ROUND(AVG(rating), 2), 0) AS value FROM album_photos WHERE rating > 0' },
     { sql: 'SELECT COUNT(*) AS value FROM bookings' },
     { sql: `SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
@@ -2253,10 +3069,20 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     { sql: 'SELECT COUNT(*) AS value FROM poses' },
     { sql: `SELECT COUNT(*) AS value FROM poses WHERE DATE(created_at) = ${TODAY_UTC8_EXPR}` },
     { sql: 'SELECT COALESCE(SUM(view_count), 0) AS value FROM poses' },
-    { sql: 'SELECT COUNT(*) AS value FROM pose_tags' },
-    { sql: 'SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1' },
-    { sql: `SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}` },
-    { sql: 'SELECT COUNT(*) AS value FROM app_releases' },
+    {
+      sql: hasPoseTagsTable ? 'SELECT COUNT(*) AS value FROM pose_tags' : 'SELECT 0 AS value',
+    },
+    {
+      sql: hasAllowedCitiesTable ? 'SELECT COUNT(*) AS value FROM allowed_cities WHERE is_active = 1' : 'SELECT 0 AS value',
+    },
+    {
+      sql: hasBookingBlackoutsTable
+        ? `SELECT COUNT(*) AS value FROM booking_blackouts WHERE date >= ${TODAY_UTC8_EXPR}`
+        : 'SELECT 0 AS value',
+    },
+    {
+      sql: hasAppReleasesTable ? 'SELECT COUNT(*) AS value FROM app_releases' : 'SELECT 0 AS value',
+    },
   ];
 
   const [
@@ -2292,7 +3118,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
     totalCities,
     totalBlackoutDates,
     totalReleases,
-  ] = await runScalarQueryTasks(scalarTasks, 6);
+  ] = await runScalarQueryTasks(scalarTasks, 3);
 
   const hasDownloadCountColumn = await hasAlbumPhotoDownloadCountColumn();
   const photosTotalDownloads = hasDownloadCountColumn
@@ -2310,7 +3136,10 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
           AND LOWER(TRIM(COALESCE(story_text, ''))) NOT IN ('null', 'undefined', 'none', 'nil')
       `
     );
-  } catch {
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
     photosWithStory = 0;
   }
 
@@ -2322,64 +3151,123 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
         WHERE is_highlight = 1
       `
     );
-  } catch {
+  } catch (error) {
+    if (isRetryableSqlError(error)) {
+      throw error;
+    }
     photosHighlighted = 0;
   }
 
-  const bookingsTypesResult = await executeSQL(
-    `
-      SELECT bt.name AS type_name, COUNT(b.id) AS count
-      FROM booking_types bt
-      LEFT JOIN bookings b ON b.type_id = bt.id
-      GROUP BY bt.id, bt.name
-      ORDER BY bt.id ASC
-    `
-  );
+  const bookingsTypesRows = hasBookingTypesTable
+    ? (
+        await executeSQL(
+          `
+            SELECT bt.name AS type_name, COUNT(b.id) AS count
+            FROM booking_types bt
+            LEFT JOIN bookings b ON b.type_id = bt.id
+            GROUP BY bt.id, bt.name
+            ORDER BY bt.id ASC
+          `
+        )
+      ).rows
+    : [];
 
-  const topTagsResult = await executeSQL(
-    `
-      SELECT name AS tag_name, usage_count
-      FROM pose_tags
-      ORDER BY usage_count DESC
-      LIMIT 10
-    `
-  );
+  const topTagsRows = hasPoseTagsTable
+    ? (
+        await executeSQL(
+          `
+            SELECT name AS tag_name, usage_count
+            FROM pose_tags
+            ORDER BY usage_count DESC
+            LIMIT 10
+          `
+        )
+      ).rows
+    : [];
 
-  const latestReleaseResult = await executeSQL(
-    `
-      SELECT version, platform, created_at
-      FROM app_releases
-      ORDER BY created_at DESC
-      LIMIT 1
-    `
-  );
+  const latestReleaseRows = hasAppReleasesTable
+    ? (
+        await executeSQL(
+          `
+            SELECT version, platform, created_at
+            FROM app_releases
+            ORDER BY created_at DESC
+            LIMIT 1
+          `
+        )
+      ).rows
+    : [];
 
-  const trendUsersResult = await executeSQL(
-    `
-      SELECT date, new_users_count AS count
-      FROM analytics_daily
-      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
-      ORDER BY date DESC
-    `
-  );
+  const trendUsersRows = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT date, new_users_count AS count
+            FROM analytics_daily
+            WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY)
+            ORDER BY date ASC
+          `
+        )
+      ).rows
+    : [];
 
-  const trendActiveUsersResult = await executeSQL(
-    `
-      SELECT date, active_users_count AS count
-      FROM analytics_daily
-      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
-      ORDER BY date DESC
-    `
-  );
+  const trendActiveUsersRows = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT date, active_users_count AS count
+            FROM analytics_daily
+            WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY)
+            ORDER BY date ASC
+          `
+        )
+      ).rows
+    : [];
 
-  const trendBookingsResult = await executeSQL(
-    `
-      SELECT date, new_bookings_count AS count
-      FROM analytics_daily
-      WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL 6 DAY)
-      ORDER BY date DESC
-    `
+  const trendBookingsRows = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT date, new_bookings_count AS count
+            FROM analytics_daily
+            WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY)
+            ORDER BY date ASC
+          `
+        )
+      ).rows
+    : [];
+
+  const snapshotMetaRow = hasAnalyticsDailyTable
+    ? (
+        await executeSQL(
+          `
+            SELECT
+              MAX(date) AS latest_date,
+              SUM(CASE WHEN date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${trendWindowDays - 1} DAY) THEN 1 ELSE 0 END) AS recent_days,
+              CASE
+                WHEN (MAX(date) <=> NULL) THEN NULL
+                ELSE DATEDIFF(${TODAY_UTC8_EXPR}, MAX(date))
+              END AS lag_days
+            FROM analytics_daily
+          `
+        )
+      ).rows[0] ?? null
+    : null;
+
+  const trendDaysAvailable = Math.max(
+    trendUsersRows.length,
+    trendActiveUsersRows.length,
+    trendBookingsRows.length,
+    toNumber(snapshotMetaRow?.recent_days, 0)
   );
+  const snapshotLagDays = snapshotMetaRow ? toNumber(snapshotMetaRow.lag_days, 0) : null;
+  const snapshotStatus = !hasAnalyticsDailyTable
+    ? 'unavailable'
+    : trendDaysAvailable <= 0
+      ? 'empty'
+      : snapshotLagDays !== null && snapshotLagDays > 0
+        ? 'stale'
+        : 'ready';
 
   return {
     users: {
@@ -2417,7 +3305,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       finished: bookingsFinished,
       cancelled: bookingsCancelled,
       upcoming: bookingsUpcoming,
-      types: bookingsTypesResult.rows.map((row) => ({
+      types: bookingsTypesRows.map((row) => ({
         type_name: row.type_name ?? '',
         count: toNumber(row.count, 0),
       })),
@@ -2427,7 +3315,7 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       new_today: posesNewToday,
       total_views: posesTotalViews,
       total_tags: posesTotalTags,
-      top_tags: topTagsResult.rows.map((row) => ({
+      top_tags: topTagsRows.map((row) => ({
         tag_name: row.tag_name ?? '',
         usage_count: toNumber(row.usage_count, 0),
       })),
@@ -2436,12 +3324,21 @@ async function rpcGetAdminDashboardStats(context: AuthContext) {
       total_cities: totalCities,
       total_blackout_dates: totalBlackoutDates,
       total_releases: totalReleases,
-      latest_version: latestReleaseResult.rows[0] ?? null,
+      latest_version: latestReleaseRows[0] ?? null,
     },
     trends: {
-      daily_new_users: trendUsersResult.rows,
-      daily_active_users: trendActiveUsersResult.rows,
-      daily_new_bookings: trendBookingsResult.rows,
+      daily_new_users: trendUsersRows,
+      daily_active_users: trendActiveUsersRows,
+      daily_new_bookings: trendBookingsRows,
+    },
+    meta: {
+      generated_at: new Date().toISOString(),
+      trend_days_expected: trendWindowDays,
+      trend_days_available: trendDaysAvailable,
+      snapshot_latest_date: snapshotMetaRow?.latest_date ?? null,
+      snapshot_lag_days: snapshotLagDays,
+      snapshot_status: snapshotStatus,
+      unavailable_sources: unavailableSources,
     },
   };
 }
@@ -2455,6 +3352,7 @@ async function updateDailyAnalyticsSnapshot() {
       phone: null,
       role: 'admin',
       name: 'system',
+      avatar: null,
     },
   } as AuthContext);
 
@@ -2572,13 +3470,130 @@ async function updateDailyAnalyticsSnapshot() {
   );
 }
 
+interface DailyTrendSnapshot {
+  date: string;
+  new_users_count: number;
+  active_users_count: number;
+  new_bookings_count: number;
+}
+
+async function queryDailyTrendSnapshotByDate(
+  targetDate: string,
+  hasUserActiveLogsTable: boolean
+): Promise<DailyTrendSnapshot> {
+  const safeTargetDate = String(targetDate || '').trim();
+  if (!safeTargetDate) {
+    throw new Error('缺少趋势快照日期');
+  }
+
+  const [newUsersCount, activeUsersCount, newBookingsCount] = await runScalarQueryTasks(
+    [
+      {
+        sql: 'SELECT COUNT(*) AS value FROM profiles WHERE DATE(created_at) = {{target_date}}',
+        values: { target_date: safeTargetDate },
+      },
+      {
+        sql: hasUserActiveLogsTable
+          ? 'SELECT COUNT(DISTINCT user_id) AS value FROM user_active_logs WHERE active_date = {{target_date}}'
+          : 'SELECT 0 AS value',
+        values: { target_date: safeTargetDate },
+      },
+      {
+        sql: 'SELECT COUNT(*) AS value FROM bookings WHERE DATE(created_at) = {{target_date}}',
+        values: { target_date: safeTargetDate },
+      },
+    ],
+    3
+  );
+
+  return {
+    date: safeTargetDate,
+    new_users_count: newUsersCount,
+    active_users_count: activeUsersCount,
+    new_bookings_count: newBookingsCount,
+  };
+}
+
+async function upsertDailyTrendSnapshot(snapshot: DailyTrendSnapshot): Promise<void> {
+  await executeSQL(
+    `
+      INSERT INTO analytics_daily (
+        date,
+        new_users_count,
+        active_users_count,
+        new_bookings_count
+      ) VALUES (
+        {{target_date}},
+        {{new_users_count}},
+        {{active_users_count}},
+        {{new_bookings_count}}
+      )
+      ON DUPLICATE KEY UPDATE
+        new_users_count = VALUES(new_users_count),
+        active_users_count = VALUES(active_users_count),
+        new_bookings_count = VALUES(new_bookings_count)
+    `,
+    {
+      target_date: snapshot.date,
+      new_users_count: snapshot.new_users_count,
+      active_users_count: snapshot.active_users_count,
+      new_bookings_count: snapshot.new_bookings_count,
+    }
+  );
+}
+
+async function backfillRecentAnalyticsTrendSnapshots(windowDays: number = 7): Promise<{
+  backfilled_days: number;
+  backfilled_dates: string[];
+}> {
+  const safeWindowDays = Math.max(1, Math.floor(Number(windowDays) || 0));
+  if (safeWindowDays <= 1) {
+    return {
+      backfilled_days: 0,
+      backfilled_dates: [],
+    };
+  }
+
+  const existingRows = (
+    await executeSQL(
+      `
+        SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date
+        FROM analytics_daily
+        WHERE date >= DATE_SUB(${TODAY_UTC8_EXPR}, INTERVAL ${safeWindowDays - 1} DAY)
+        ORDER BY date ASC
+      `
+    )
+  ).rows;
+  const existingDateSet = new Set(
+    existingRows
+      .map((row) => String(row?.date ?? '').trim())
+      .filter(Boolean)
+  );
+  const hasUserActiveLogsTable = await hasTable('user_active_logs');
+  const backfilledDates: string[] = [];
+
+  for (let offsetDays = safeWindowDays - 1; offsetDays >= 1; offsetDays -= 1) {
+    const targetDate = getDateTextUTC8(offsetDays);
+    const snapshot = await queryDailyTrendSnapshotByDate(targetDate, hasUserActiveLogsTable);
+    await upsertDailyTrendSnapshot(snapshot);
+    if (!existingDateSet.has(targetDate)) {
+      backfilledDates.push(targetDate);
+    }
+  }
+
+  return {
+    backfilled_days: backfilledDates.length,
+    backfilled_dates: backfilledDates,
+  };
+}
+
 async function cleanupExpiredData() {
   const storageCleanupWarnings: string[] = [];
   const deleteChunkSize = 200;
 
   const expiredPhotoAssets = await executeSQL(
     `
-      SELECT p.id, p.thumbnail_url, p.preview_url, p.original_url, p.url
+      SELECT p.id, p.url, p.thumbnail_url, p.preview_url, p.original_url
       FROM album_photos p
       JOIN albums a ON a.id = p.album_id
       WHERE p.album_id <> {{wall_album_id}}
@@ -2591,10 +3606,10 @@ async function cleanupExpiredData() {
 
   const photoRows = expiredPhotoAssets.rows.map((row) => ({
     id: String(row.id ?? '').trim(),
+    url: String(row.url ?? '').trim(),
     thumbnail_url: String(row.thumbnail_url ?? '').trim(),
     preview_url: String(row.preview_url ?? '').trim(),
     original_url: String(row.original_url ?? '').trim(),
-    url: String(row.url ?? '').trim(),
   })).filter((row) => row.id);
 
   const photoIds = Array.from(new Set(photoRows.map((row) => row.id)));
@@ -2664,7 +3679,7 @@ async function cleanupExpiredData() {
     if (existingPhotoIdSet.has(row.id)) {
       return;
     }
-    [row.thumbnail_url, row.preview_url, row.original_url, row.url]
+    [row.url, row.thumbnail_url, row.preview_url, row.original_url]
       .filter(Boolean)
       .forEach((item) => photoDeleteTargets.add(item));
   });
@@ -2922,6 +3937,8 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
 
   let analyticsDailyCleaned = 0;
   let analyticsUpdated = false;
+  let analyticsSnapshotsBackfilled = 0;
+  let analyticsBackfilledDates: string[] = [];
   const hasAnalyticsDailyTable = await hasTable('analytics_daily');
   if (hasAnalyticsDailyTable) {
     const analyticsDailyCleanupResult = await executeSQL(
@@ -2956,6 +3973,9 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
 
   if (hasAnalyticsDailyTable) {
     await updateDailyAnalyticsSnapshot();
+    const analyticsBackfillResult = await backfillRecentAnalyticsTrendSnapshots(7);
+    analyticsSnapshotsBackfilled = analyticsBackfillResult.backfilled_days;
+    analyticsBackfilledDates = analyticsBackfillResult.backfilled_dates;
     analyticsUpdated = true;
   }
 
@@ -2970,6 +3990,8 @@ async function rpcRunMaintenanceTasks(context: AuthContext) {
     slider_captcha_challenges_cleaned: sliderCaptchaChallengesCleaned,
     booking_blackouts_cleaned: bookingBlackoutsCleaned,
     analytics_daily_cleaned: analyticsDailyCleaned,
+    analytics_snapshots_backfilled: analyticsSnapshotsBackfilled,
+    analytics_backfilled_dates: analyticsBackfilledDates,
     skipped_tasks: Array.from(skippedTasks),
     safety_history_retention: {
       ip_registration_attempts_days: IP_REGISTRATION_ATTEMPT_RETENTION_DAYS,
@@ -3069,6 +4091,9 @@ export async function executeRpc(functionName: string, args: Record<string, unkn
       error: null,
     };
   } catch (error) {
+    if (process.env.NODE_ENV !== 'production' && isRetryableSqlError(error)) {
+      console.warn('[cloudbase.rpc.transient]', { functionName, raw: extractErrorMessage(error) });
+    }
     const normalizedError = normalizeRpcError(error, 'RPC 调用失败');
     return {
       data: null,

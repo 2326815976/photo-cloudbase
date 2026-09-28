@@ -42,3 +42,6 @@ next-env.d.ts
 
 # else
 /.serena
+/.spec-workflow
+/.tmp
+/.codex-run

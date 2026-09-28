@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeftCircle } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 interface TopNavProps {
   title: string;
@@ -26,9 +26,9 @@ export default function TopNav({ title, showBack = false, onBack }: TopNavProps)
       {showBack && (
         <button
           onClick={handleBack}
-          className="absolute left-4 top-1/2 -translate-y-1/2 active:scale-90 transition-transform"
+          className="icon-button action-icon-btn action-icon-btn--back absolute left-4 top-1/2 -translate-y-1/2"
         >
-          <ArrowLeftCircle className="w-7 h-7 text-[#FFC857]" strokeWidth={2} />
+          <ArrowLeft className="action-icon-svg" strokeWidth={2.2} />
         </button>
       )}
 

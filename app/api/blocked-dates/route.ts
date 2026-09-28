@@ -22,7 +22,7 @@ export async function GET() {
       .lte('date', maxDateStr);
 
     if (blackoutError) {
-      console.error('Error fetching blackout dates:', blackoutError);
+      throw blackoutError;
     }
 
     // 2. 获取已有预约的日期（pending、confirmed、in_progress状态）
@@ -34,7 +34,7 @@ export async function GET() {
       .lte('booking_date', maxDateStr);
 
     if (bookingError) {
-      console.error('Error fetching booked dates:', bookingError);
+      throw bookingError;
     }
 
     // 3. 合并所有不可用日期（去重）
@@ -54,7 +54,12 @@ export async function GET() {
     return NextResponse.json({ dates });
   } catch (error) {
     console.error('Unexpected error:', error);
-    return NextResponse.json({ dates: [] }, { status: 200 });
+    return NextResponse.json(
+      {
+        error: '获取不可预约日期失败，请稍后重试',
+      },
+      { status: 503 }
+    );
   }
 }
 

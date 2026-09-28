@@ -58,7 +58,7 @@ export default function ShareButton({ photo }: ShareButtonProps) {
     <>
       <button
         onClick={handleShare}
-        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+        className="icon-button p-2 rounded-full hover:bg-gray-100 transition-colors"
         aria-label="分享"
       >
         <Share2 className="w-5 h-5 text-[#5D4037]" />

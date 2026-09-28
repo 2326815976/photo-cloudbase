@@ -4,9 +4,9 @@ import { Buffer } from 'buffer';
 import { env } from '@/lib/env';
 import { getCloudBaseApp } from '@/lib/cloudbase/sdk';
 
-export type CloudBaseStorageFolder = 'albums' | 'gallery' | 'poses' | 'releases';
+export type CloudBaseStorageFolder = 'albums' | 'gallery' | 'poses' | 'releases' | 'avatars';
 
-const ALLOWED_FOLDERS = new Set<CloudBaseStorageFolder>(['albums', 'gallery', 'poses', 'releases']);
+const ALLOWED_FOLDERS = new Set<CloudBaseStorageFolder>(['albums', 'gallery', 'poses', 'releases', 'avatars']);
 const TEMP_FILE_URL_CACHE_LIMIT = 5000;
 const TEMP_FILE_URL_CACHE_SAFETY_WINDOW_MS = 2 * 60 * 1000;
 
