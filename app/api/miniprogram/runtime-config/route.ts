@@ -3,7 +3,12 @@ import {
   buildMiniProgramRuntimeWithPageCenter,
   loadEffectiveMiniProgramRuntimeConfig,
 } from '@/lib/page-center/runtime';
-import { buildRuntimeConfigPreset } from '@/lib/miniprogram/runtime-config';
+import {
+  isRetryableSqlError,
+  logSqlError,
+  TRANSIENT_BACKEND_ERROR_CODE,
+  TRANSIENT_BACKEND_ERROR_MESSAGE,
+} from '@/lib/cloudbase/sql-executor';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -23,11 +28,17 @@ export async function GET() {
     const baseRuntimeConfig = await loadEffectiveMiniProgramRuntimeConfig();
     const mergedRuntimeConfig = await buildMiniProgramRuntimeWithPageCenter(baseRuntimeConfig);
     return NextResponse.json(applyLegacyGuestProfileCompat(mergedRuntimeConfig));
-  } catch {
-    // 数据库未迁移或暂时不可用时，回退到标准默认配置
+  } catch (error) {
+    logSqlError('读取小程序运行时配置失败:', error);
+    const transient = isRetryableSqlError(error);
+    return NextResponse.json(
+      {
+        error: {
+          message: transient ? TRANSIENT_BACKEND_ERROR_MESSAGE : '读取小程序运行时配置失败',
+          code: transient ? TRANSIENT_BACKEND_ERROR_CODE : 'RUNTIME_CONFIG_UNAVAILABLE',
+        },
+      },
+      { status: transient ? 503 : 500 }
+    );
   }
-
-  return NextResponse.json(
-    applyLegacyGuestProfileCompat(buildRuntimeConfigPreset('standard'))
-  );
 }

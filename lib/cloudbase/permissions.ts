@@ -177,6 +177,11 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
         if (isWechatMiniProgramAccount(context)) {
           restrictWechatMiniProfileValues(scoped.values);
         } else {
+          const values = ensureObjectValues(scoped.values);
+          const editableFields = new Set(['name', 'avatar', 'phone', 'wechat', 'payment_qr_code']);
+          if (Object.keys(values).some((key) => !editableFields.has(key))) {
+            throw new Error('未授权操作：仅允许修改个人资料');
+          }
           sanitizeChinaMobileInValues(scoped.values, { allowNull: true });
         }
       }
@@ -201,6 +206,10 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
       }
 
       if (scoped.action === 'insert') {
+        const rows = Array.isArray(scoped.values) ? scoped.values : [scoped.values];
+        if (rows.some((row) => row?.status !== undefined && row.status !== 'pending')) {
+          throw new Error('未授权操作：新预约仅允许待确认状态');
+        }
         enforceUserIdInValues(scoped, context.user.id);
         sanitizeChinaMobileInValues(scoped.values, { require: true, allowNull: false });
         return scoped;
@@ -257,6 +266,9 @@ export function enforceQueryPermissions(payload: DbQueryPayload, context: AuthCo
       ensureAuthenticated(context);
       if (!context.user) {
         throw new Error('未授权操作');
+      }
+      if (scoped.action !== 'select' && scoped.action !== 'delete') {
+        throw new Error('未授权操作：请使用相册绑定RPC校验密钥');
       }
       forceUserFilter(scoped, context.user.id);
       return scoped;

@@ -188,12 +188,15 @@ async function fetchSessionResponse(force = false): Promise<SessionResponse> {
     return pendingSessionRequest;
   }
 
-  pendingSessionRequest = requestJson('/api/auth/session', {
+  const request: Promise<SessionResponse> = requestJson('/api/auth/session', {
     method: 'GET',
     cache: 'no-store',
     backendRecovery: { skipReadyGate: true },
   })
     .then((result) => {
+      if (pendingSessionRequest !== request) {
+        return fetchSessionResponse();
+      }
       const hasAuthenticatedUser = Boolean(result.body?.user || result.body?.session?.user);
       if (result.ok && !result.body?.error && hasAuthenticatedUser) {
         cachedSessionResponse = result;
@@ -204,14 +207,20 @@ async function fetchSessionResponse(force = false): Promise<SessionResponse> {
       return result;
     })
     .catch((error) => {
+      if (pendingSessionRequest !== request) {
+        return fetchSessionResponse();
+      }
       clearSessionCache();
       throw error;
     })
     .finally(() => {
-      pendingSessionRequest = null;
+      if (pendingSessionRequest === request) {
+        pendingSessionRequest = null;
+      }
     });
 
-  return pendingSessionRequest;
+  pendingSessionRequest = request;
+  return request;
 }
 
 type StorageFolder = 'albums' | 'gallery' | 'poses' | 'releases';
@@ -403,7 +412,6 @@ function buildBrowserCompatClient(): CompatClient {
           }
 
           clearSessionCache();
-          clearSessionCache();
           return {
             data: { user: body?.data?.user ?? null },
             error: null,
@@ -433,6 +441,8 @@ function buildBrowserCompatClient(): CompatClient {
           return {
             error: normalizeCompatError(error, '登出失败'),
           };
+        } finally {
+          clearSessionCache();
         }
       },
       updateUser: async (params: {

@@ -351,7 +351,7 @@ export function normalizeTabBarItems(
 ): MiniProgramTabBarItem[] {
   const fallback = buildStandardTabBarItems();
   const rows = parseJsonArray(input);
-  if (!rows || rows.length === 0) {
+  if (!rows) {
     return fallback;
   }
 
@@ -395,7 +395,7 @@ export function normalizeTabBarItems(
   });
 
   const enabledRows = normalized.filter((item) => item.enabled);
-  return (enabledRows.length > 0 ? enabledRows : fallback).slice(0, MAX_TAB_BAR_ITEMS);
+  return enabledRows.slice(0, MAX_TAB_BAR_ITEMS);
 }
 
 export function normalizeFeatureFlags(
@@ -419,11 +419,11 @@ export function normalizeHomeEntryPagePath(value: unknown, tabBarItems: MiniProg
   if (matched) {
     return matched.pagePath;
   }
-  if (homeMode === 'pose') {
+  if (homeMode === 'pose' && tabBarItems.some((item) => item.enabled && item.pagePath === 'pages/index/index')) {
     return 'pages/index/index';
   }
   const firstEnabled = tabBarItems.find((item) => item.enabled);
-  return firstEnabled?.pagePath || 'pages/gallery/index';
+  return firstEnabled?.pagePath || '';
 }
 
 export function normalizeRuntimeConfigRow(

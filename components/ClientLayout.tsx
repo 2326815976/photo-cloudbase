@@ -107,6 +107,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const isAdminRoute = pathname.startsWith('/admin');
   const backendState = useBackendRecoveryState();
   const [shellRuntime, setShellRuntime] = useState<WebShellRuntime | null>();
+  const [shellRuntimeError, setShellRuntimeError] = useState(false);
+  const [runtimeReloadKey, setRuntimeReloadKey] = useState(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [routeGuardLoading, setRouteGuardLoading] = useState(false);
   const [hasCompletedInitialShellLoad, setHasCompletedInitialShellLoad] = useState(false);
@@ -320,6 +322,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       }
 
       runtimeFetchAtRef.current = now;
+      setShellRuntimeError(false);
       runtimeFetchPendingRef.current = (async () => {
         try {
           const response = await fetch('/api/page-center/runtime', {
@@ -328,13 +331,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           } as RequestInit & { backendRecovery: { skipReadyGate: true } });
           const payload = (await response.json()) as WebShellRuntime | { error?: string };
           const isRuntimePayload =
-            payload && typeof payload === 'object' && !('error' in payload);
-          if (!cancelled && response.ok && isRuntimePayload) {
+            payload && typeof payload === 'object' && !('error' in payload) &&
+            Array.isArray((payload as WebShellRuntime).navItems) &&
+            Array.isArray((payload as WebShellRuntime).pageAccessItems);
+          if (!response.ok || !isRuntimePayload) {
+            throw new Error('页面配置加载失败');
+          }
+          if (!cancelled) {
             setShellRuntime(payload as WebShellRuntime);
           }
         } catch {
           if (!cancelled) {
-            setShellRuntime(null);
+            setShellRuntimeError(true);
           }
         }
       })().finally(() => {
@@ -350,7 +358,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       cancelled = true;
       runtimeFetchPendingRef.current = null;
     };
-  }, [isAdminRoute]);
+  }, [isAdminRoute, runtimeReloadKey]);
 
   useEffect(() => {
     if (isAdminRoute) {
@@ -575,11 +583,25 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <main className="app-shell__main relative flex h-full min-h-0 w-full min-w-0 max-w-[430px] flex-col overflow-hidden bg-[#FFFBF0] shadow-[0_0_40px_rgba(93,64,55,0.15)]">
               <PageCenterRuntimeProvider value={pageCenterRuntimeValue}>
                 {shouldHoldShell ? (
-                  <MiniProgramRecoveryScreen
-                    title={shellLoadingTitle}
-                    description={shellLoadingDescription}
-                    className="h-full flex-1"
-                  />
+                  shellRuntimeError ? (
+                    <div role="alert" className="flex h-full flex-1 flex-col items-center justify-center gap-4 px-6 text-center text-[#5D4037]">
+                      <p className="text-lg font-medium">页面暂时无法加载</p>
+                      <p className="text-sm text-[#5D4037]/60">请检查网络后重试</p>
+                      <button
+                        type="button"
+                        className="rounded-xl bg-[#FFC857] px-6 py-3 font-medium"
+                        onClick={() => setRuntimeReloadKey((value) => value + 1)}
+                      >
+                        重新加载
+                      </button>
+                    </div>
+                  ) : (
+                    <MiniProgramRecoveryScreen
+                      title={shellLoadingTitle}
+                      description={shellLoadingDescription}
+                      className="h-full flex-1"
+                    />
+                  )
                 ) : (
                   children
                 )}

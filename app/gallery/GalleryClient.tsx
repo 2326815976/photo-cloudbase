@@ -1013,7 +1013,7 @@ export default function GalleryClient({ initialPhotos = [], initialTotal = 0, in
 
       try {
         const pageData = pageNo > 1
-          ? await (prefetchGalleryPage(pageNo, targetFolderId) || fetchGalleryPageData(pageNo, targetFolderId))
+          ? (await prefetchGalleryPage(pageNo, targetFolderId)) || await fetchGalleryPageData(pageNo, targetFolderId)
           : await fetchGalleryPageData(pageNo, targetFolderId);
 
         if (requestToken !== loadRequestTokenRef.current) {

@@ -131,38 +131,34 @@ async function loadPagePublishRuleRowsWithCompat() {
 }
 
 export async function loadActiveMiniProgramRuntimeConfigFromDatabase(): Promise<MiniProgramRuntimeConfig | null> {
-  try {
-    const hasTable = await tableExists('miniprogram_runtime_settings');
-    if (!hasTable) {
-      return null;
-    }
-
-    const result = await executeSQL(
-      `
-        SELECT
-          id,
-          config_key,
-          config_name,
-          scene_code,
-          home_mode,
-          guest_profile_mode,
-          auth_mode,
-          tab_bar_items_json,
-          feature_flags_json,
-          notes,
-          updated_at
-        FROM miniprogram_runtime_settings
-        WHERE is_active = 1
-        ORDER BY updated_at DESC, id DESC
-        LIMIT 1
-      `
-    );
-
-    const row = Array.isArray(result.rows) && result.rows.length > 0 ? result.rows[0] : null;
-    return normalizeRuntimeConfigRow(row);
-  } catch {
+  const hasTable = await tableExists('miniprogram_runtime_settings');
+  if (!hasTable) {
     return null;
   }
+
+  const result = await executeSQL(
+    `
+      SELECT
+        id,
+        config_key,
+        config_name,
+        scene_code,
+        home_mode,
+        guest_profile_mode,
+        auth_mode,
+        tab_bar_items_json,
+        feature_flags_json,
+        notes,
+        updated_at
+      FROM miniprogram_runtime_settings
+      WHERE is_active = 1
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+    `
+  );
+
+  const row = Array.isArray(result.rows) && result.rows.length > 0 ? result.rows[0] : null;
+  return normalizeRuntimeConfigRow(row);
 }
 
 export async function loadEffectiveMiniProgramRuntimeConfig(): Promise<MiniProgramRuntimeConfig> {
@@ -186,142 +182,138 @@ export async function loadPageCenterRows(): Promise<PageCenterRows> {
     return fallback;
   }
 
-  try {
-    const hasWebNavCandidateColumn = await hasRegistryWebNavCandidateColumn();
-    const registryResult = await executeSQL(
+  const hasWebNavCandidateColumn = await hasRegistryWebNavCandidateColumn();
+  const registryResult = await executeSQL(
+    `
+      SELECT
+        id,
+        page_key,
+        page_name,
+        page_description,
+        route_path_web,
+        route_path_miniprogram,
+        preview_route_path_web,
+        preview_route_path_miniprogram,
+        tab_key,
+        icon_key,
+        default_tab_text,
+        default_guest_tab_text,
+        ${hasWebNavCandidateColumn ? 'is_nav_candidate_web,' : 'NULL AS is_nav_candidate_web,'}
+        is_tab_candidate_miniprogram,
+        supports_beta,
+        supports_preview,
+        is_builtin,
+        is_active
+      FROM app_page_registry
+      WHERE is_active = 1
+      ORDER BY is_builtin DESC, id ASC
+    `
+  );
+
+  const registryItems = (Array.isArray(registryResult.rows) ? registryResult.rows : [])
+    .map((row, index): AppPageRegistryItem => {
+      const pageKey = normalizeText(row.page_key);
+      const miniprogramEnabled = isMiniProgramPageEnabled(pageKey);
+
+      return {
+        id: normalizeNumber(row.id, index + 1),
+        pageKey,
+        pageName: normalizeText(row.page_name),
+        pageDescription: normalizeText(row.page_description),
+        routePathWeb: normalizePath(row.route_path_web),
+        routePathMiniProgram: miniprogramEnabled ? normalizeMiniProgramPath(row.route_path_miniprogram) : '',
+        previewRoutePathWeb: normalizePath(row.preview_route_path_web || row.route_path_web),
+        previewRoutePathMiniProgram: miniprogramEnabled
+          ? resolveMiniProgramPreviewRoute(pageKey, row.preview_route_path_miniprogram, row.route_path_miniprogram)
+          : '',
+        tabKey: (normalizeText(row.tab_key) || null) as AppPageRegistryItem['tabKey'],
+        iconKey: (normalizeText(row.icon_key) || null) as AppPageRegistryItem['iconKey'],
+        defaultTabText: normalizeText(row.default_tab_text),
+        defaultGuestTabText: normalizeText(row.default_guest_tab_text),
+        isNavCandidateWeb: normalizeBoolean(
+          row.is_nav_candidate_web,
+          Boolean(normalizeText(row.icon_key))
+        ),
+        isTabCandidateMiniProgram: normalizeBoolean(row.is_tab_candidate_miniprogram, false),
+        supportsBeta: normalizeBoolean(row.supports_beta, true),
+        supportsPreview: normalizeBoolean(row.supports_preview, true),
+        isBuiltIn: normalizeBoolean(row.is_builtin, false),
+        isActive: normalizeBoolean(row.is_active, true),
+      };
+    })
+    .filter((item) => item.pageKey);
+
+  const publishRuleItems: AppPagePublishRuleItem[] = [];
+  if (hasRules) {
+    const ruleRows = await loadPagePublishRuleRowsWithCompat();
+    publishRuleItems.push(
+      ...ruleRows
+        .map((row, index): AppPagePublishRuleItem => ({
+          id: normalizeNumber(row.id, index + 1),
+          pageKey: normalizeText(row.page_key),
+          channel: normalizeText(row.channel) === 'miniprogram' ? 'miniprogram' : 'web',
+          publishState: normalizePublishState(row.publish_state, 'offline'),
+          showInNav: normalizeBoolean(row.show_in_nav, false),
+          navOrder: normalizeNumber(row.nav_order, 99),
+          navText: normalizeText(row.nav_text),
+          guestNavText: normalizeText(row.guest_nav_text),
+          headerTitle: normalizeText(row.header_title),
+          headerSubtitle: normalizeText(row.header_subtitle),
+          isHomeEntry: normalizeBoolean(row.is_home_entry, false),
+          notes: normalizeText(row.notes),
+          updatedAt: normalizeText(row.updated_at),
+        }))
+        .filter((item) => item.pageKey && !isRemovedAppPageKey(item.pageKey))
+    );
+  }
+
+  const betaCodeItems: AppPageBetaCodeItem[] = [];
+  if (hasCodes) {
+    const codeResult = await executeSQL(
       `
         SELECT
-          id,
-          page_key,
-          page_name,
-          page_description,
-          route_path_web,
-          route_path_miniprogram,
-          preview_route_path_web,
-          preview_route_path_miniprogram,
-          tab_key,
-          icon_key,
-          default_tab_text,
-          default_guest_tab_text,
-          ${hasWebNavCandidateColumn ? 'is_nav_candidate_web,' : 'NULL AS is_nav_candidate_web,'}
-          is_tab_candidate_miniprogram,
-          supports_beta,
-          supports_preview,
-          is_builtin,
-          is_active
-        FROM app_page_registry
-        WHERE is_active = 1
-        ORDER BY is_builtin DESC, id ASC
+          c.id,
+          p.page_key,
+          c.channel,
+          c.beta_name,
+          c.beta_code,
+          c.is_active,
+          c.expires_at,
+          c.created_at,
+          c.updated_at
+        FROM app_page_beta_codes c
+        JOIN app_page_registry p ON p.id = c.page_id
+        WHERE p.is_active = 1
+        ORDER BY c.updated_at DESC, c.created_at DESC, c.id DESC
       `
     );
-
-    const registryItems = (Array.isArray(registryResult.rows) ? registryResult.rows : [])
-      .map((row, index): AppPageRegistryItem => {
-        const pageKey = normalizeText(row.page_key);
-        const miniprogramEnabled = isMiniProgramPageEnabled(pageKey);
-
-        return {
-          id: normalizeNumber(row.id, index + 1),
-          pageKey,
-          pageName: normalizeText(row.page_name),
-          pageDescription: normalizeText(row.page_description),
-          routePathWeb: normalizePath(row.route_path_web),
-          routePathMiniProgram: miniprogramEnabled ? normalizeMiniProgramPath(row.route_path_miniprogram) : '',
-          previewRoutePathWeb: normalizePath(row.preview_route_path_web || row.route_path_web),
-          previewRoutePathMiniProgram: miniprogramEnabled
-            ? resolveMiniProgramPreviewRoute(pageKey, row.preview_route_path_miniprogram, row.route_path_miniprogram)
-            : '',
-          tabKey: (normalizeText(row.tab_key) || null) as AppPageRegistryItem['tabKey'],
-          iconKey: (normalizeText(row.icon_key) || null) as AppPageRegistryItem['iconKey'],
-          defaultTabText: normalizeText(row.default_tab_text),
-          defaultGuestTabText: normalizeText(row.default_guest_tab_text),
-          isNavCandidateWeb: normalizeBoolean(
-            row.is_nav_candidate_web,
-            Boolean(normalizeText(row.icon_key))
-          ),
-          isTabCandidateMiniProgram: normalizeBoolean(row.is_tab_candidate_miniprogram, false),
-          supportsBeta: normalizeBoolean(row.supports_beta, true),
-          supportsPreview: normalizeBoolean(row.supports_preview, true),
-          isBuiltIn: normalizeBoolean(row.is_builtin, false),
+    betaCodeItems.push(
+      ...(Array.isArray(codeResult.rows) ? codeResult.rows : [])
+        .map((row): AppPageBetaCodeItem => ({
+          id: normalizeText(row.id),
+          pageKey: normalizeText(row.page_key),
+          channel:
+            normalizeText(row.channel) === 'web'
+              ? 'web'
+              : normalizeText(row.channel) === 'miniprogram'
+                ? 'miniprogram'
+                : 'shared',
+          betaName: normalizeText(row.beta_name),
+          betaCode: normalizeText(row.beta_code),
           isActive: normalizeBoolean(row.is_active, true),
-        };
-      })
-      .filter((item) => item.pageKey);
-
-    const publishRuleItems: AppPagePublishRuleItem[] = [];
-    if (hasRules) {
-      const ruleRows = await loadPagePublishRuleRowsWithCompat();
-      publishRuleItems.push(
-        ...ruleRows
-          .map((row, index): AppPagePublishRuleItem => ({
-            id: normalizeNumber(row.id, index + 1),
-            pageKey: normalizeText(row.page_key),
-            channel: normalizeText(row.channel) === 'miniprogram' ? 'miniprogram' : 'web',
-            publishState: normalizePublishState(row.publish_state, 'offline'),
-            showInNav: normalizeBoolean(row.show_in_nav, false),
-            navOrder: normalizeNumber(row.nav_order, 99),
-            navText: normalizeText(row.nav_text),
-            guestNavText: normalizeText(row.guest_nav_text),
-            headerTitle: normalizeText(row.header_title),
-            headerSubtitle: normalizeText(row.header_subtitle),
-            isHomeEntry: normalizeBoolean(row.is_home_entry, false),
-            notes: normalizeText(row.notes),
-            updatedAt: normalizeText(row.updated_at),
-          }))
-          .filter((item) => item.pageKey && !isRemovedAppPageKey(item.pageKey))
-      );
-    }
-
-    const betaCodeItems: AppPageBetaCodeItem[] = [];
-    if (hasCodes) {
-      const codeResult = await executeSQL(
-        `
-          SELECT
-            c.id,
-            p.page_key,
-            c.channel,
-            c.beta_name,
-            c.beta_code,
-            c.is_active,
-            c.expires_at,
-            c.created_at,
-            c.updated_at
-          FROM app_page_beta_codes c
-          JOIN app_page_registry p ON p.id = c.page_id
-          WHERE p.is_active = 1
-          ORDER BY c.updated_at DESC, c.created_at DESC, c.id DESC
-        `
-      );
-      betaCodeItems.push(
-        ...(Array.isArray(codeResult.rows) ? codeResult.rows : [])
-          .map((row): AppPageBetaCodeItem => ({
-            id: normalizeText(row.id),
-            pageKey: normalizeText(row.page_key),
-            channel:
-              normalizeText(row.channel) === 'web'
-                ? 'web'
-                : normalizeText(row.channel) === 'miniprogram'
-                  ? 'miniprogram'
-                  : 'shared',
-            betaName: normalizeText(row.beta_name),
-            betaCode: normalizeText(row.beta_code),
-            isActive: normalizeBoolean(row.is_active, true),
-            expiresAt: normalizeText(row.expires_at),
-            createdAt: normalizeText(row.created_at),
-            updatedAt: normalizeText(row.updated_at),
-          }))
-          .filter((item) => item.id && item.pageKey && !isRemovedAppPageKey(item.pageKey))
-      );
-    }
-
-    return {
-      registryItems: registryItems.length > 0 ? registryItems : fallback.registryItems,
-      publishRuleItems,
-      betaCodeItems,
-    };
-  } catch {
-    return fallback;
+          expiresAt: normalizeText(row.expires_at),
+          createdAt: normalizeText(row.created_at),
+          updatedAt: normalizeText(row.updated_at),
+        }))
+        .filter((item) => item.id && item.pageKey && !isRemovedAppPageKey(item.pageKey))
+    );
   }
+
+  return {
+    registryItems: registryItems.length > 0 ? registryItems : fallback.registryItems,
+    publishRuleItems,
+    betaCodeItems,
+  };
 }
 
 function mergeRegistryItems(rows: PageCenterRows): AppPageRegistryItem[] {

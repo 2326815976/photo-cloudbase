@@ -75,6 +75,8 @@ function clearSessionCache(tokenHash: string): void {
 }
 
 function clearUserSessionCache(userId: string): void {
+  // 在途查询尚未返回用户 ID，统一失效后由调用方重新查询，避免旧结果回填。
+  sessionLookupPending.clear();
   for (const [tokenHash, entry] of sessionCache.entries()) {
     if (entry.user?.id === userId) {
       clearSessionCache(tokenHash);
@@ -111,7 +113,9 @@ function touchSessionLastSeen(tokenHash: string, cacheEntry: SessionCacheEntry):
       cacheEntry.lastTouchedAt = 0;
     })
     .finally(() => {
-      sessionTouchPending.delete(tokenHash);
+      if (sessionTouchPending.get(tokenHash) === task) {
+        sessionTouchPending.delete(tokenHash);
+      }
     });
 
   sessionTouchPending.set(tokenHash, task);
@@ -152,30 +156,34 @@ export async function createSession(userId: string, userAgent?: string, ipAddres
 export async function revokeSessionByToken(token: string): Promise<void> {
   const tokenHash = hashSessionToken(token);
   clearSessionCache(tokenHash);
-  await executeSQL(
-    `
-      UPDATE user_sessions
-      SET is_revoked = 1, last_seen_at = UTC_TIMESTAMP()
-      WHERE token_hash = {{token_hash}}
-    `,
-    {
-      token_hash: tokenHash,
-    }
-  );
+  try {
+    await executeSQL(
+      `
+        UPDATE user_sessions
+        SET is_revoked = 1, last_seen_at = UTC_TIMESTAMP()
+        WHERE token_hash = {{token_hash}}
+      `,
+      { token_hash: tokenHash }
+    );
+  } finally {
+    clearSessionCache(tokenHash);
+  }
 }
 
 export async function revokeSessionsByUserId(userId: string): Promise<void> {
   clearUserSessionCache(userId);
-  await executeSQL(
-    `
-      UPDATE user_sessions
-      SET is_revoked = 1, last_seen_at = UTC_TIMESTAMP()
-      WHERE user_id = {{user_id}}
-    `,
-    {
-      user_id: userId,
-    }
-  );
+  try {
+    await executeSQL(
+      `
+        UPDATE user_sessions
+        SET is_revoked = 1, last_seen_at = UTC_TIMESTAMP()
+        WHERE user_id = {{user_id}}
+      `,
+      { user_id: userId }
+    );
+  } finally {
+    clearUserSessionCache(userId);
+  }
 }
 
 export async function findSessionUser(token: string): Promise<AuthUser | null> {
@@ -193,7 +201,7 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
     return inflight;
   }
 
-  const task = (async () => {
+  const task: Promise<AuthUser | null> = Promise.resolve().then(async () => {
     const previous = sessionCache.get(tokenHash) ?? null;
     let result;
     try {
@@ -254,6 +262,10 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
       );
     }
 
+    if (sessionLookupPending.get(tokenHash) !== task) {
+      return findSessionUser(token);
+    }
+
     const row = result.rows[0];
     const user: AuthUser | null = row
       ? {
@@ -274,8 +286,10 @@ export async function findSessionUser(token: string): Promise<AuthUser | null> {
     }
 
     return user;
-  })().finally(() => {
-    sessionLookupPending.delete(tokenHash);
+  }).finally(() => {
+    if (sessionLookupPending.get(tokenHash) === task) {
+      sessionLookupPending.delete(tokenHash);
+    }
   });
 
   sessionLookupPending.set(tokenHash, task);

@@ -54,8 +54,6 @@ async function loadSchemaBoolean(
     try {
       const value = await loader();
       return writeSchemaCache(cache, key, value);
-    } catch {
-      return writeSchemaCache(cache, key, false);
     } finally {
       pending.delete(key);
     }

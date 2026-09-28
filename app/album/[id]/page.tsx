@@ -1114,7 +1114,7 @@ export default function AlbumDetailPage() {
 
     try {
       const pageData = nextPageNo > 1
-        ? await (prefetchAlbumPhotoPage(normalizedFolderId, nextPageNo) || fetchAlbumPhotoPageData(normalizedFolderId, nextPageNo))
+        ? (await prefetchAlbumPhotoPage(normalizedFolderId, nextPageNo)) || await fetchAlbumPhotoPageData(normalizedFolderId, nextPageNo)
         : await fetchAlbumPhotoPageData(normalizedFolderId, nextPageNo);
 
       if (requestToken !== photoLoadTokenRef.current) {

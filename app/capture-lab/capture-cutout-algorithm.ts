@@ -3231,6 +3231,260 @@ function restoreClearDisplayBaseFromImage(
   };
 }
 
+function restoreTallNeutralBaseContinuity(
+  imageData: ImageData,
+  component: ComponentCandidate
+) {
+  const { width, height, data } = imageData;
+  const aspectRatio = getComponentAspectRatio(component);
+  const fillRatio = getComponentFillRatio(component);
+  const heightRatio = component.bounds.height / Math.max(1, height);
+  if (
+    component.areaRatio < 0.07 ||
+    component.areaRatio > 0.2 ||
+    aspectRatio < 0.38 ||
+    aspectRatio > 0.72 ||
+    fillRatio > 0.56 ||
+    heightRatio < 0.54 ||
+    getSkinLikeCoverage(imageData, component) > 0.36
+  ) {
+    return component;
+  }
+
+  const lowerBandMinY = Math.round(
+    component.bounds.minY + component.bounds.height * 0.62
+  );
+  const nextMask = component.mask.slice();
+  let addedArea = 0;
+
+  const isNeutralBaseBridgePixel = (index: number) => {
+    const offset = getPixelOffset(index);
+    if (data[offset + 3] < MIN_ALPHA) {
+      return false;
+    }
+
+    const red = data[offset];
+    const green = data[offset + 1];
+    const blue = data[offset + 2];
+    if (isSkinArtifactColor(red, green, blue)) {
+      return false;
+    }
+
+    const luminance = getLuminance(red, green, blue);
+    const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+    const horizontalGradient =
+      index % width > 0 ? getColorDelta(data, index, index - 1) : 0;
+    const verticalGradient = index >= width ? getColorDelta(data, index, index - width) : 0;
+    const gradient = Math.max(horizontalGradient, verticalGradient);
+    return (
+      luminance >= 48 &&
+      luminance <= 210 &&
+      saturation <= 96 &&
+      Math.abs(red - green) <= 72 &&
+      Math.abs(green - blue) <= 78 &&
+      (gradient >= 8 || luminance >= 70)
+    );
+  };
+
+  for (let y = lowerBandMinY; y <= component.bounds.maxY; y += 1) {
+    let rowMinX = width;
+    let rowMaxX = -1;
+    let rowMaskArea = 0;
+
+    for (let x = component.bounds.minX; x <= component.bounds.maxX; x += 1) {
+      const index = y * width + x;
+      if (nextMask[index] !== 1) {
+        continue;
+      }
+      rowMaskArea += 1;
+      rowMinX = Math.min(rowMinX, x);
+      rowMaxX = Math.max(rowMaxX, x);
+    }
+
+    const rowSpan = rowMaxX - rowMinX + 1;
+    if (
+      rowMaskArea < 8 ||
+      rowSpan < Math.max(28, Math.round(component.bounds.width * 0.24)) ||
+      rowSpan > component.bounds.width * 0.98
+    ) {
+      continue;
+    }
+
+    for (let x = rowMinX; x <= rowMaxX; x += 1) {
+      const index = y * width + x;
+      if (nextMask[index] === 1 || !isNeutralBaseBridgePixel(index)) {
+        continue;
+      }
+
+      const hasVerticalSupport =
+        (y > component.bounds.minY && nextMask[index - width] === 1) ||
+        (y < component.bounds.maxY && nextMask[index + width] === 1);
+      const hasHorizontalSupport =
+        (x > rowMinX && nextMask[index - 1] === 1) ||
+        (x < rowMaxX && nextMask[index + 1] === 1);
+      if (!hasVerticalSupport && !hasHorizontalSupport) {
+        continue;
+      }
+
+      nextMask[index] = 1;
+      addedArea += 1;
+    }
+  }
+
+  const rowMinXs = new Int32Array(height);
+  const rowMaxXs = new Int32Array(height);
+  rowMinXs.fill(width);
+  rowMaxXs.fill(-1);
+  for (let y = lowerBandMinY; y <= component.bounds.maxY; y += 1) {
+    let rowMaskArea = 0;
+    for (let x = component.bounds.minX; x <= component.bounds.maxX; x += 1) {
+      const index = y * width + x;
+      if (nextMask[index] !== 1) {
+        continue;
+      }
+      rowMaskArea += 1;
+      rowMinXs[y] = Math.min(rowMinXs[y], x);
+      rowMaxXs[y] = Math.max(rowMaxXs[y], x);
+    }
+    if (rowMaskArea < 6) {
+      rowMinXs[y] = width;
+      rowMaxXs[y] = -1;
+    }
+  }
+
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let queueHead = 0;
+  let queueTail = 0;
+  const rowPad = Math.max(5, Math.round(component.bounds.width * 0.028));
+
+  const hasRowEnvelope = (y: number) => rowMaxXs[y] >= rowMinXs[y];
+  const getEnvelopeMinX = (y: number) => {
+    let minX = rowMinXs[y];
+    for (let offsetY = -2; offsetY <= 2; offsetY += 1) {
+      const nearY = y + offsetY;
+      if (
+        nearY >= lowerBandMinY &&
+        nearY <= component.bounds.maxY &&
+        hasRowEnvelope(nearY)
+      ) {
+        minX = Math.min(minX, rowMinXs[nearY]);
+      }
+    }
+    return minX;
+  };
+  const getEnvelopeMaxX = (y: number) => {
+    let maxX = rowMaxXs[y];
+    for (let offsetY = -2; offsetY <= 2; offsetY += 1) {
+      const nearY = y + offsetY;
+      if (
+        nearY >= lowerBandMinY &&
+        nearY <= component.bounds.maxY &&
+        hasRowEnvelope(nearY)
+      ) {
+        maxX = Math.max(maxX, rowMaxXs[nearY]);
+      }
+    }
+    return maxX;
+  };
+  const enqueueNeutralSeed = (x: number, y: number) => {
+    const index = y * width + x;
+    if (visited[index] === 1 || nextMask[index] !== 1) {
+      return;
+    }
+    if (!isNeutralBaseBridgePixel(index)) {
+      return;
+    }
+    visited[index] = 1;
+    queue[queueTail] = index;
+    queueTail += 1;
+  };
+  const enqueueNeutralGrowth = (x: number, y: number) => {
+    if (
+      x < component.bounds.minX ||
+      x > component.bounds.maxX ||
+      y < lowerBandMinY ||
+      y > component.bounds.maxY
+    ) {
+      return;
+    }
+    const index = y * width + x;
+    if (visited[index] === 1 || nextMask[index] === 1) {
+      return;
+    }
+    const minX = getEnvelopeMinX(y);
+    const maxX = getEnvelopeMaxX(y);
+    if (maxX < minX || x < minX - rowPad || x > maxX + rowPad) {
+      return;
+    }
+    if (!isNeutralBaseBridgePixel(index)) {
+      return;
+    }
+
+    visited[index] = 1;
+    queue[queueTail] = index;
+    queueTail += 1;
+  };
+
+  for (let y = lowerBandMinY; y <= component.bounds.maxY; y += 1) {
+    if (!hasRowEnvelope(y)) {
+      continue;
+    }
+    for (let x = rowMinXs[y]; x <= rowMaxXs[y]; x += 1) {
+      enqueueNeutralSeed(x, y);
+    }
+  }
+
+  while (queueHead < queueTail) {
+    const current = queue[queueHead];
+    queueHead += 1;
+    const x = current % width;
+    const y = Math.floor(current / width);
+
+    for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        if (offsetX === 0 && offsetY === 0) {
+          continue;
+        }
+        enqueueNeutralGrowth(x + offsetX, y + offsetY);
+      }
+    }
+  }
+
+  for (let index = 0; index < width * height; index += 1) {
+    if (visited[index] !== 1 || nextMask[index] === 1) {
+      continue;
+    }
+    nextMask[index] = 1;
+    addedArea += 1;
+  }
+
+  if (
+    addedArea < Math.max(48, Math.round(component.bounds.area * 0.0012)) ||
+    addedArea > component.bounds.area * 0.28
+  ) {
+    return component;
+  }
+
+  const restored =
+    selectDominantComponent(nextMask, width, height) ??
+    pickLargestComponent(nextMask, width, height);
+  if (
+    !restored ||
+    restored.bounds.area < component.bounds.area ||
+    restored.bounds.area > component.bounds.area * 1.28 ||
+    restored.bounds.width > component.bounds.width * 1.04 ||
+    restored.bounds.height > component.bounds.height * 1.04
+  ) {
+    return component;
+  }
+
+  return {
+    ...restored,
+    score: Math.max(component.score, restored.score),
+  };
+}
+
 function dilateMask(
   source: Uint8Array,
   width: number,
@@ -4207,6 +4461,61 @@ function isSkinLikeColor(red: number, green: number, blue: number) {
   );
 }
 
+function isSkinArtifactColor(red: number, green: number, blue: number) {
+  if (isSkinLikeColor(red, green, blue)) {
+    return true;
+  }
+
+  const luminance = getLuminance(red, green, blue);
+  const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+  return (
+    red >= 78 &&
+    green >= 44 &&
+    blue >= 26 &&
+    luminance >= 48 &&
+    luminance <= 190 &&
+    saturation >= 24 &&
+    saturation <= 136 &&
+    red >= green + 5 &&
+    red - blue >= 24 &&
+    green >= blue - 8
+  );
+}
+
+function isPaleCreamFigurineColor(red: number, green: number, blue: number) {
+  const luminance = getLuminance(red, green, blue);
+  const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+  return (
+    luminance >= 132 &&
+    luminance <= 236 &&
+    saturation <= 76 &&
+    red - green <= 34 &&
+    red - blue <= 76 &&
+    green - blue <= 58
+  );
+}
+
+function isNeutralDisplayBaseColor(red: number, green: number, blue: number) {
+  const luminance = getLuminance(red, green, blue);
+  const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+  const coolDarkSupport =
+    luminance < 62 &&
+    saturation <= 48 &&
+    red <= green + 10 &&
+    Math.abs(green - blue) <= 34;
+
+  return (
+    coolDarkSupport ||
+    (luminance >= 48 &&
+      luminance <= 214 &&
+      saturation <= 92 &&
+      !isSkinArtifactColor(red, green, blue) &&
+      Math.abs(red - green) <= 58 &&
+      Math.abs(green - blue) <= 64 &&
+      Math.abs(red - blue) <= 86)
+  );
+}
+
 function isWarmWoodLikeColor(red: number, green: number, blue: number) {
   const luminance = getLuminance(red, green, blue);
   const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
@@ -4308,7 +4617,7 @@ function pruneSkinLikeSideAppendages(
       const offset = getPixelOffset(index);
       if (
         data[offset + 3] >= MIN_ALPHA &&
-        isSkinLikeColor(data[offset], data[offset + 1], data[offset + 2])
+        isSkinArtifactColor(data[offset], data[offset + 1], data[offset + 2])
       ) {
         skinMask[index] = 1;
         skinArea += 1;
@@ -4338,10 +4647,16 @@ function pruneSkinLikeSideAppendages(
     skinCoverage >= 0.28 &&
     skinCoverage <= 0.58 &&
     getWarmWoodLikeCoverage(imageData, component) >= 0.16;
+  const tallSideArtifactObject =
+    !componentTouchesImageBorder(component, width, height) &&
+    component.areaRatio >= 0.07 &&
+    component.areaRatio <= 0.26 &&
+    aspectRatio >= 0.34 &&
+    aspectRatio <= 0.82 &&
+    component.bounds.height >= height * 0.48;
 
   if (
     compactWarmWoodObject ||
-    decorativeTallFigurine ||
     skinArea < Math.max(72, Math.round(componentArea * 0.012)) ||
     (skinCoverage > 0.42 && 1 - skinCoverage < 0.28) ||
     (skinCoverage > 0.42 && aspectRatio >= 0.85 && aspectRatio <= 1.55)
@@ -4349,27 +4664,78 @@ function pruneSkinLikeSideAppendages(
     return component;
   }
 
+  if (decorativeTallFigurine) {
+    for (let y = component.bounds.minY; y <= component.bounds.maxY; y += 1) {
+      for (let x = component.bounds.minX; x <= component.bounds.maxX; x += 1) {
+        const index = y * width + x;
+        if (skinMask[index] !== 1) {
+          continue;
+        }
+        const offset = getPixelOffset(index);
+        if (
+          isPaleCreamFigurineColor(
+            data[offset],
+            data[offset + 1],
+            data[offset + 2]
+          )
+        ) {
+          skinMask[index] = 0;
+        }
+      }
+    }
+  }
+
   const removable = new Uint8Array(total);
   let removableArea = 0;
+  const maxRemovableAreaRatio =
+    decorativeTallFigurine || tallSideArtifactObject ? 0.26 : 0.32;
+  const minRemovableArea = Math.max(
+    tallSideArtifactObject ? 36 : 52,
+    Math.round(componentArea * (tallSideArtifactObject ? 0.004 : 0.008))
+  );
+  const minSkinComponentAreaRatio = tallSideArtifactObject ? 0.004 : 0.01;
   const sideBand = Math.max(10, Math.round(component.bounds.width * 0.22));
   const topGuard = component.bounds.minY + component.bounds.height * 0.2;
   const centerMinX = component.bounds.minX + component.bounds.width * 0.28;
   const centerMaxX = component.bounds.maxX - component.bounds.width * 0.28;
+  const centerX = (component.bounds.minX + component.bounds.maxX) / 2;
+  const isProtectedArtifactExpansionPixel = (index: number) => {
+    const offset = getPixelOffset(index);
+    if (data[offset + 3] < MIN_ALPHA) {
+      return true;
+    }
+
+    const red = data[offset];
+    const green = data[offset + 1];
+    const blue = data[offset + 2];
+    return (
+      isPaleCreamFigurineColor(red, green, blue) ||
+      isNeutralDisplayBaseColor(red, green, blue)
+    );
+  };
 
   for (const skinComponent of collectMaskComponents(skinMask, width, height)) {
     const areaRatio = skinComponent.bounds.area / componentArea;
-    if (areaRatio < 0.01 || areaRatio > 0.26) {
+    if (areaRatio < minSkinComponentAreaRatio || areaRatio > 0.26) {
       continue;
     }
 
     const touchesSide =
       skinComponent.bounds.minX <= component.bounds.minX + sideBand ||
       skinComponent.bounds.maxX >= component.bounds.maxX - sideBand;
-    if (!touchesSide) {
+    const skinCenterX =
+      (skinComponent.bounds.minX + skinComponent.bounds.maxX) / 2;
+    const centerY = (skinComponent.bounds.minY + skinComponent.bounds.maxY) / 2;
+    const lowerSideArtifact =
+      centerY >= component.bounds.minY + component.bounds.height * 0.56;
+    const offCentralSpine =
+      tallSideArtifactObject &&
+      lowerSideArtifact &&
+      Math.abs(skinCenterX - centerX) >= component.bounds.width * 0.105;
+    if (!touchesSide && !offCentralSpine) {
       continue;
     }
 
-    const centerY = (skinComponent.bounds.minY + skinComponent.bounds.maxY) / 2;
     const horizontalSpan =
       skinComponent.bounds.width / Math.max(1, component.bounds.width);
     const verticalSpan =
@@ -4377,11 +4743,21 @@ function pruneSkinLikeSideAppendages(
     const crossesCore =
       skinComponent.bounds.minX <= centerMinX &&
       skinComponent.bounds.maxX >= centerMaxX;
+    const compactCoreArtifact =
+      tallSideArtifactObject &&
+      offCentralSpine &&
+      areaRatio <= 0.024 &&
+      horizontalSpan <= 0.24 &&
+      verticalSpan <= 0.38;
 
     if (centerY < topGuard && verticalSpan < 0.34) {
       continue;
     }
-    if (horizontalSpan > 0.64 || verticalSpan > 0.82 || crossesCore) {
+    if (
+      horizontalSpan > 0.64 ||
+      verticalSpan > 0.82 ||
+      (crossesCore && !compactCoreArtifact)
+    ) {
       continue;
     }
 
@@ -4392,9 +4768,36 @@ function pruneSkinLikeSideAppendages(
       removable[pixelIndex] = 1;
       removableArea += 1;
     }
+
+    if (compactCoreArtifact) {
+      const expansion = Math.max(
+        2,
+        Math.min(5, Math.round(component.bounds.width * 0.012))
+      );
+      const minY = Math.max(component.bounds.minY, skinComponent.bounds.minY - expansion);
+      const maxY = Math.min(component.bounds.maxY, skinComponent.bounds.maxY + expansion);
+      const minX = Math.max(component.bounds.minX, skinComponent.bounds.minX - expansion);
+      const maxX = Math.min(component.bounds.maxX, skinComponent.bounds.maxX + expansion);
+
+      for (let y = minY; y <= maxY; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          const index = y * width + x;
+          if (
+            component.mask[index] !== 1 ||
+            removable[index] === 1 ||
+            isProtectedArtifactExpansionPixel(index)
+          ) {
+            continue;
+          }
+
+          removable[index] = 1;
+          removableArea += 1;
+        }
+      }
+    }
   }
 
-  if (removableArea < Math.max(52, Math.round(componentArea * 0.008))) {
+  if (removableArea < minRemovableArea) {
     const visited = new Uint8Array(total);
     const queue = new Int32Array(total);
     let queueHead = 0;
@@ -4478,8 +4881,8 @@ function pruneSkinLikeSideAppendages(
     }
 
     if (
-      sideFloodArea >= Math.max(52, Math.round(componentArea * 0.008)) &&
-      sideFloodArea <= componentArea * 0.32
+      sideFloodArea >= minRemovableArea &&
+      sideFloodArea <= componentArea * maxRemovableAreaRatio
     ) {
       for (let index = 0; index < total; index += 1) {
         if (sideFlood[index] === 1 && removable[index] === 0) {
@@ -4491,8 +4894,8 @@ function pruneSkinLikeSideAppendages(
   }
 
   if (
-    removableArea < Math.max(52, Math.round(componentArea * 0.008)) ||
-    removableArea > componentArea * 0.32
+    removableArea < minRemovableArea ||
+    removableArea > componentArea * maxRemovableAreaRatio
   ) {
     return component;
   }
@@ -4506,11 +4909,67 @@ function pruneSkinLikeSideAppendages(
 
   const refined =
     smoothMask(nextMask, width, height) ?? selectDominantComponent(nextMask, width, height);
-  if (!refined || refined.bounds.area < componentArea * 0.56) {
+  const minRetainedAreaRatio = decorativeTallFigurine ? 0.62 : 0.56;
+  if (!refined || refined.bounds.area < componentArea * minRetainedAreaRatio) {
     return component;
   }
 
   return refined;
+}
+
+function shouldRunFinalSideSkinPrune(
+  imageData: ImageData,
+  component: ComponentCandidate
+) {
+  const { width, data } = imageData;
+  const aspectRatio = getComponentAspectRatio(component);
+  const fillRatio = getComponentFillRatio(component);
+  const heightRatio = component.bounds.height / Math.max(1, imageData.height);
+
+  if (
+    component.areaRatio < 0.07 ||
+    component.areaRatio > 0.26 ||
+    aspectRatio < 0.34 ||
+    aspectRatio > 0.82 ||
+    fillRatio > 0.74 ||
+    heightRatio < 0.48
+  ) {
+    return false;
+  }
+
+  const sideBand = Math.max(10, Math.round(component.bounds.width * 0.22));
+  const minY = Math.round(component.bounds.minY + component.bounds.height * 0.14);
+  let sideSkinArea = 0;
+
+  for (let y = minY; y <= component.bounds.maxY; y += 1) {
+    for (let x = component.bounds.minX; x <= component.bounds.maxX; x += 1) {
+      const inSideBand =
+        x <= component.bounds.minX + sideBand ||
+        x >= component.bounds.maxX - sideBand;
+      if (!inSideBand) {
+        continue;
+      }
+
+      const index = y * width + x;
+      if (component.mask[index] !== 1) {
+        continue;
+      }
+
+      const offset = getPixelOffset(index);
+      const red = data[offset];
+      const green = data[offset + 1];
+      const blue = data[offset + 2];
+      if (
+        data[offset + 3] >= MIN_ALPHA &&
+        isSkinArtifactColor(red, green, blue) &&
+        !isPaleCreamFigurineColor(red, green, blue)
+      ) {
+        sideSkinArea += 1;
+      }
+    }
+  }
+
+  return sideSkinArea >= Math.max(36, Math.round(component.bounds.area * 0.004));
 }
 
 function pruneFlatHorizontalBackgroundArtifacts(
@@ -4629,6 +5088,12 @@ function pruneLowerEdgeBackgroundArtifacts(
     warmWoodCoverage >= 0.18;
 
   if (!tallNarrowObject && !warmHangingObject) {
+    return component;
+  }
+  if (
+    tallNarrowObject &&
+    shouldPreserveTallNeutralDisplayBase(imageData, component)
+  ) {
     return component;
   }
 
@@ -4899,6 +5364,96 @@ function pruneLowerEdgeBackgroundArtifacts(
   }
 
   return refined;
+}
+
+function shouldPreserveTallNeutralDisplayBase(
+  imageData: ImageData,
+  component: ComponentCandidate
+) {
+  const { width, height, data } = imageData;
+  const aspectRatio = getComponentAspectRatio(component);
+  const heightRatio = component.bounds.height / Math.max(1, height);
+  const fillRatio = getComponentFillRatio(component);
+  if (
+    component.areaRatio < 0.075 ||
+    component.areaRatio > 0.18 ||
+    aspectRatio < 0.4 ||
+    aspectRatio > 0.66 ||
+    heightRatio < 0.58 ||
+    fillRatio > 0.56
+  ) {
+    return false;
+  }
+
+  const baseMinY = Math.round(
+    component.bounds.minY + component.bounds.height * 0.7
+  );
+  const minWideRowSpan = Math.max(34, Math.round(component.bounds.width * 0.36));
+  let neutralWideRows = 0;
+  let neutralArea = 0;
+  let maskArea = 0;
+
+  const isNeutralBasePixel = (index: number) => {
+    const offset = getPixelOffset(index);
+    if (data[offset + 3] < MIN_ALPHA) {
+      return false;
+    }
+    const red = data[offset];
+    const green = data[offset + 1];
+    const blue = data[offset + 2];
+    const luminance = getLuminance(red, green, blue);
+    const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+    return (
+      luminance >= 24 &&
+      luminance <= 188 &&
+      saturation <= 82 &&
+      !isSkinLikeColor(red, green, blue) &&
+      Math.abs(red - green) <= 52 &&
+      Math.abs(green - blue) <= 58
+    );
+  };
+
+  for (let y = baseMinY; y <= component.bounds.maxY; y += 1) {
+    let rowMinX = width;
+    let rowMaxX = -1;
+    let rowMaskArea = 0;
+    let rowNeutralArea = 0;
+
+    for (let x = component.bounds.minX; x <= component.bounds.maxX; x += 1) {
+      const index = y * width + x;
+      if (component.mask[index] !== 1) {
+        continue;
+      }
+      rowMaskArea += 1;
+      maskArea += 1;
+      rowMinX = Math.min(rowMinX, x);
+      rowMaxX = Math.max(rowMaxX, x);
+      if (isNeutralBasePixel(index)) {
+        rowNeutralArea += 1;
+        neutralArea += 1;
+      }
+    }
+
+    const rowSpan = rowMaxX - rowMinX + 1;
+    if (
+      rowMaskArea >= 12 &&
+      rowSpan >= minWideRowSpan &&
+      rowNeutralArea >= rowMaskArea * 0.34
+    ) {
+      neutralWideRows += 1;
+    }
+  }
+
+  const neutralRatio = neutralArea / Math.max(1, maskArea);
+  const hasWideNeutralBase =
+    neutralWideRows >= Math.max(4, Math.round(component.bounds.height * 0.018)) &&
+    neutralRatio >= 0.24;
+  if (!hasWideNeutralBase) {
+    return false;
+  }
+
+  const skinCoverage = getSkinLikeCoverage(imageData, component);
+  return skinCoverage <= 0.32 || neutralRatio >= 0.34;
 }
 
 function restoreLargeInteriorForegroundHoles(
@@ -5808,6 +6363,23 @@ async function tryRecoverCompleteComponentWithImgly(
   if (!shouldAttemptImglyDirectRecovery(component, imageData.width, imageData.height)) {
     return null;
   }
+  const directRecoveryAspectRatio = getComponentAspectRatio(component);
+  const directRecoveryHeightRatio =
+    component.bounds.height / Math.max(1, imageData.height);
+  const directRecoveryFillRatio = getComponentFillRatio(component);
+  if (
+    component.areaRatio >= 0.07 &&
+    component.areaRatio <= 0.22 &&
+    directRecoveryAspectRatio >= 0.38 &&
+    directRecoveryAspectRatio <= 0.68 &&
+    directRecoveryHeightRatio >= 0.58 &&
+    directRecoveryFillRatio <= 0.56
+  ) {
+    return null;
+  }
+  if (shouldPreserveTallNeutralDisplayBase(imageData, component)) {
+    return null;
+  }
 
   const resultImageData = await imglyContext.getResultImageData();
   if (!resultImageData) {
@@ -6617,13 +7189,23 @@ async function postProcessSelectedComponent(
       recoveredTransparentPedestal,
       backgroundModel
     );
+    const recoveredNeutralBase = restoreTallNeutralBaseContinuity(
+      imageData,
+      recoveredClearDisplayBase
+    );
+    const recoveredFinalSkinPruned = shouldRunFinalSideSkinPrune(
+      imageData,
+      recoveredNeutralBase
+    )
+      ? pruneSkinLikeSideAppendages(imageData, recoveredNeutralBase)
+      : recoveredNeutralBase;
 
     return {
       ...component,
-      mask: recoveredClearDisplayBase.mask,
-      bounds: recoveredClearDisplayBase.bounds,
-      areaRatio: recoveredClearDisplayBase.areaRatio,
-      score: Math.max(component.score, recoveredClearDisplayBase.score),
+      mask: recoveredFinalSkinPruned.mask,
+      bounds: recoveredFinalSkinPruned.bounds,
+      areaRatio: recoveredFinalSkinPruned.areaRatio,
+      score: Math.max(component.score, recoveredFinalSkinPruned.score),
     };
   }
 
@@ -6719,12 +7301,22 @@ async function postProcessSelectedComponent(
     transparentPedestalRestored,
     backgroundModel
   );
+  const neutralBaseRestored = restoreTallNeutralBaseContinuity(
+    imageData,
+    clearDisplayBaseRestored
+  );
+  const postBaseSkinPruned = shouldRunFinalSideSkinPrune(
+    imageData,
+    neutralBaseRestored
+  )
+    ? pruneSkinLikeSideAppendages(imageData, neutralBaseRestored)
+    : neutralBaseRestored;
   const warmHangingReplaced =
     (await tryReplaceWarmHangingArtifactWithImgly(
       imageData,
-      clearDisplayBaseRestored,
+      postBaseSkinPruned,
       createOnDemandImglyAssistContext(imageData)
-    )) ?? clearDisplayBaseRestored;
+    )) ?? postBaseSkinPruned;
 
   return {
     ...component,
