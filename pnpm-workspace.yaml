@@ -1,0 +1,12 @@
+# 新出现的依赖脚本必须显式分类，CI 不依赖交互式 approve-builds。
+strictDepBuilds: true
+
+onlyBuiltDependencies:
+  - protobufjs
+  - sharp
+
+ignoredBuiltDependencies:
+  # 只输出赞助提示，不影响运行。
+  - core-js-pure
+  # Linux 安装脚本会额外下载 CUDA；当前抠图使用浏览器端推理。
+  - onnxruntime-node

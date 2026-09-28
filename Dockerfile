@@ -1,17 +1,18 @@
 # ========== 腾讯云云托管优化版 Dockerfile ==========
 # 使用多阶段构建 + standalone 模式,大幅减小镜像体积
 
-# ========== 阶段1: 依赖安装 ==========
-FROM node:20-alpine AS deps
-RUN npm install -g pnpm
+# 固定包管理器版本，避免云端构建行为随 pnpm 最新版变化。
+FROM node:20-alpine AS build-base
+RUN npm install --global pnpm@10.24.0
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
+
+# ========== 阶段1: 依赖安装 ==========
+FROM build-base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # ========== 阶段2: 构建应用 ==========
-FROM node:20-alpine AS builder
-RUN npm install -g pnpm
-WORKDIR /app
+FROM build-base AS builder
 
 # 复制依赖
 COPY --from=deps /app/node_modules ./node_modules
